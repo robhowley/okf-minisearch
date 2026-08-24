@@ -57,7 +57,7 @@ export async function openOkf(
     ]),
   );
 
-  index.addAll(records);
+  addRecords(index, records);
 
   return {
     ingest(input) {
@@ -70,7 +70,7 @@ export async function openOkf(
         index.discardAll(previousIds);
       }
 
-      index.addAll(result.records);
+      addRecords(index, result.records);
       recordIds.set(
         result.document.id,
         result.records.map((record) => record.id),
@@ -83,6 +83,16 @@ export async function openOkf(
       return search(index, query, options);
     },
   };
+}
+
+function addRecords(
+  index: MiniSearch<OkfIndexRecord>,
+  records: readonly OkfIndexRecord[],
+): void {
+  index.addAll(records.map((record) => ({
+    ...record,
+    tags: [...record.tags],
+  })));
 }
 
 function createIndex():

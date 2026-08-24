@@ -75,6 +75,37 @@ describe("ingest", () => {
     ]);
   });
 
+  it("keeps indexed tags unchanged when returned metadata is mutated", async () => {
+    const okf = await emptySearch();
+    const added = okf.ingest({
+      path: "mutable.md",
+      markdown: concept(`
+        type: note
+        tags: [originaltag]
+      `, "metadataaliasneedle"),
+    });
+
+    added.document.tags[0] = "caller-injected-tag";
+
+    expect(okf.search("metadataaliasneedle")).toEqual([
+      expect.objectContaining({
+        documentId: "mutable",
+        path: "mutable.md",
+      }),
+    ]);
+    expect(okf.search("metadataaliasneedle", {
+      where: { tagsAny: ["originaltag"] },
+    })).toEqual([
+      expect.objectContaining({
+        documentId: "mutable",
+        path: "mutable.md",
+      }),
+    ]);
+    expect(okf.search("metadataaliasneedle", {
+      where: { tagsAny: ["caller-injected-tag"] },
+    })).toEqual([]);
+  });
+
   it.each([
     ["empty", "", "<input>"],
     ["dot-only", ".", "<input>"],
