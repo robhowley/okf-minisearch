@@ -2,6 +2,15 @@
   "name": "okf-minisearch",
   "version": "0.1.0",
   "description": "Open Knowledge Format optimized search built on MiniSearch.",
+  "keywords": [
+    "open-knowledge-format",
+    "okf",
+    "minisearch",
+    "markdown-search",
+    "knowledge-base",
+    "in-memory-search",
+    "llm-wiki"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
