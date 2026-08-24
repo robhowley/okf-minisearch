@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build and test output
+dist/
+coverage/
+*.tsbuildinfo
+*.tgz
+
+# Local tool output
+.pi/structured-returns/
+.vitest/
+
+# Environment and machine-local files
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log

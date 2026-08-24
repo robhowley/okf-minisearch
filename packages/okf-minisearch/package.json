@@ -29,7 +29,12 @@
     "node": ">=20"
   },
   "dependencies": {
+    "mdast-util-from-markdown": "^2.0.3",
     "minisearch": "^7.2.0",
     "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/mdast": "^4.0.4",
+    "@types/unist": "^3.0.3"
   }
 }
