@@ -30,6 +30,127 @@ async function open(
   return openOkf(tree.root);
 }
 
+describe("search limits", () => {
+  it("accepts zero and positive limits and defaults to ten", async () => {
+    const files = Object.fromEntries(
+      Array.from({ length: 11 }, (_, index) => [
+        `doc-${String(index).padStart(2, "0")}.md`,
+        concept(`
+          type: note
+          title: Shared Limit Title
+        `, "limitneedle shared body"),
+      ]),
+    );
+    const okf = await open(files);
+
+    expect(okf.search("limitneedle")).toHaveLength(10);
+    expect(okf.search("limitneedle", {
+      limit: 2,
+    })).toHaveLength(2);
+    expect(okf.search("limitneedle", {
+      limit: 20,
+    })).toHaveLength(11);
+    expect(okf.search("limitneedle", {
+      limit: 0,
+    })).toEqual([]);
+    expect(okf.search("", {
+      limit: 0,
+    })).toEqual([]);
+  });
+
+  it("rejects invalid runtime limits before a blank-query return", async () => {
+    const okf = await open({
+      "valid.md": concept(`
+        type: note
+        title: Limit Validation
+      `, "limitneedle"),
+    });
+    const invalidLimits: unknown[] = [
+      null,
+      "1",
+      true,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      -1,
+      1.5,
+    ];
+    const expected = new TypeError(
+      "options.limit must be a finite non-negative integer",
+    );
+
+    for (const limit of invalidLimits) {
+      expect(() => okf.search("", {
+        limit: limit as number,
+      })).toThrowError(expected);
+      expect(() => okf.search("limitneedle", {
+        limit: limit as number,
+      })).toThrowError(expected);
+    }
+  });
+
+  it("keeps invalid asOf precedence when limit is also invalid", async () => {
+    const okf = await open({
+      "valid.md": concept(`
+        type: note
+        title: Validation Precedence
+      `, "limitneedle"),
+    });
+    const invalidAsOf = new Date(Number.NaN);
+    const expected = new TypeError(
+      "options.asOf must be a valid Date",
+    );
+
+    expect(() => okf.search("", {
+      asOf: invalidAsOf,
+      limit: -1,
+    })).toThrowError(expected);
+    expect(() => okf.search("limitneedle", {
+      asOf: invalidAsOf,
+      limit: -1,
+    })).toThrowError(expected);
+  });
+});
+
+describe("search ordering", () => {
+  it("orders exact score ties by record ID across opens and replacement", async () => {
+    const markdown = concept(`
+      type: note
+      title: Exact Shared Title
+      description: Exact shared description
+      tags: [shared]
+    `, "equaltieneedle exact shared body");
+    const tree = await createBundle({
+      "z.md": markdown,
+      "a.md": markdown,
+    });
+    bundles.push(tree);
+
+    const first = await openOkf(tree.root);
+    const reopened = await openOkf(tree.root);
+    const initialHits = first.search("equaltieneedle");
+    const reopenedHits = reopened.search("equaltieneedle");
+
+    first.ingest({
+      path: "a.md",
+      markdown,
+    });
+    const reindexedHits = first.search("equaltieneedle");
+
+    for (const hits of [
+      initialHits,
+      reopenedHits,
+      reindexedHits,
+    ]) {
+      expect(hits.map((hit) => hit.sectionId)).toEqual([
+        "a#root",
+        "z#root",
+      ]);
+      expect(hits[0]!.score).toBe(hits[1]!.score);
+    }
+  });
+});
+
 describe("search identity and metadata", () => {
   it("does not search directory or file document IDs", async () => {
     const okf = await open({

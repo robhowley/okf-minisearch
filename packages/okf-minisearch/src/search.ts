@@ -43,14 +43,27 @@ export function search(
     );
   }
 
-  const normalizedQuery = query.trim();
+  const limit =
+    options.limit === undefined
+      ? 10
+      : options.limit;
 
-  if (!normalizedQuery) {
-    return [];
+  if (
+    typeof limit !== "number" ||
+    !Number.isFinite(limit) ||
+    !Number.isInteger(limit) ||
+    limit < 0
+  ) {
+    throw new TypeError(
+      "options.limit must be a finite non-negative integer",
+    );
   }
 
-  const limit =
-    options.limit ?? 10;
+  const normalizedQuery = query.trim();
+
+  if (!normalizedQuery || limit === 0) {
+    return [];
+  }
 
   const rawHits = index.search(
     normalizedQuery,
@@ -82,6 +95,23 @@ export function search(
         ),
     },
   ) as IndexedHit[];
+
+  rawHits.sort((left, right) => {
+    const byScore = right.score - left.score;
+
+    if (byScore) {
+      return byScore;
+    }
+
+    const leftId = String(left.id);
+    const rightId = String(right.id);
+
+    return leftId < rightId
+      ? -1
+      : leftId > rightId
+        ? 1
+        : 0;
+  });
 
   const hits: OkfSearchHit[] = [];
   const seenDocuments =
