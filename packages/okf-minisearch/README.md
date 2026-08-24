@@ -121,9 +121,9 @@ console.log(result.records.length);
 console.log(result.diagnostics);
 ```
 
-`path` is a relative POSIX identity. Interior empty segments and `.` segments normalize away. Terminal slashes or `.` segments, absolute paths, drive or UNC paths, `..` segments, non-`.md` paths, and reserved `index.md` or `log.md` identities are rejected.
+`path` must be a bundle-relative POSIX `.md` path. `.` and repeated internal `/` segments are normalized. Absolute paths, parent traversal (`..`), Windows drive or UNC paths, paths ending in `/` or `/.`, and files named exactly `index.md` or `log.md` are rejected.
 
-Ingesting the same normalized path replaces its existing records. Parsing completes before replacement, so malformed input leaves the previous searchable records intact.
+Ingesting the normalized path again replaces that concept’s indexed records. Replacement is atomic: malformed input leaves the existing records searchable.
 
 `ingest` does not write the file, watch the filesystem, or persist the index. Call it whenever your application accepts an updated document.
 
