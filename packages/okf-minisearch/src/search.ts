@@ -56,7 +56,6 @@ export function search(
     normalizedQuery,
     {
       boost: {
-        documentId: 6,
         resource: 6,
         title: 5,
         headingPath: 4,

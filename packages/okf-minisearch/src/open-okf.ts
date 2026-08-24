@@ -89,7 +89,6 @@ function createIndex():
   MiniSearch<OkfIndexRecord> {
   return new MiniSearch<OkfIndexRecord>({
     fields: [
-      "documentId",
       "resource",
       "title",
       "headingPath",
