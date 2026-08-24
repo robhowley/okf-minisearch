@@ -5,7 +5,7 @@
   "packageManager": "pnpm@11.22.0",
   "scripts": {
     "build": "pnpm -r build",
-    "package:check": "node scripts/package-check.mjs",
+    "package:check": "pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && pnpm build && node scripts/check-package.mjs",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
   },

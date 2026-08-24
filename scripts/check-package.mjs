@@ -214,11 +214,6 @@ async function checkConsumer(tarball, temporaryRoot) {
 }
 
 async function main() {
-  run(pnpm, ["install", "--frozen-lockfile"]);
-  run(pnpm, ["typecheck"]);
-  run(pnpm, ["test"]);
-  run(pnpm, ["build"]);
-
   const packageMetadata = JSON.parse(await readFile(
     join(packageRoot, "package.json"),
     "utf8",
@@ -246,7 +241,7 @@ async function main() {
     await access(tarball);
     await checkConsumer(tarball, temporaryRoot);
     console.log(
-      `\nPackage validation passed: ${relative(root, packageRoot)}`,
+      `\nPacked package passed install and runtime checks: ${relative(root, packageRoot)}`,
     );
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
