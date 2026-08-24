@@ -85,6 +85,10 @@ export interface OkfBundle {
 }
 
 export interface OkfDocumentInput {
+  /**
+   * Relative POSIX identity. Empty and `.` segments normalize away;
+   * case and `\` remain significant.
+   */
   path: string;
   markdown: string;
 }

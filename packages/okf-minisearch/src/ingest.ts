@@ -1,5 +1,3 @@
-import { sep } from "node:path";
-
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { parse } from "yaml";
 
@@ -70,14 +68,18 @@ interface ParsedDocument {
 export function prepareDocument(
   input: OkfDocumentInput,
 ): OkfIngestResult {
-  const parsed = parseDocument(input);
+  const normalizedInput = {
+    ...input,
+    path: normalizePath(input.path),
+  };
+  const parsed = parseDocument(normalizedInput);
   const { document, bodyStartLine } = parsed;
   const lines = document.body.split(/\r\n|\n|\r/);
   const slugCounts = new Map<string, number>();
 
   const common = {
     documentId: document.id,
-    path: input.path,
+    path: normalizedInput.path,
     title: document.title,
     description: document.description ?? "",
     type: document.type,
@@ -106,7 +108,7 @@ export function prepareDocument(
   } catch (cause) {
     throw new OkfError(
       "ERR_OKF_PARSE",
-      errorPath(input.path),
+      normalizedInput.path,
       { cause },
     );
   }
@@ -150,8 +152,8 @@ export function prepareDocument(
 function parseDocument(
   input: OkfDocumentInput,
 ): ParsedDocument {
-  const path = errorPath(input.path);
-  const id = documentId(input.path);
+  const path = input.path;
+  const id = documentId(path);
   const frontmatter = splitFrontmatter(
     input.markdown,
     path,
@@ -810,11 +812,45 @@ function flattenSources(
     .join(" ");
 }
 
+function normalizePath(path: string): string {
+  if (
+    !path ||
+    path.startsWith("/") ||
+    /^[A-Za-z]:/.test(path) ||
+    path.startsWith("\\\\") ||
+    path.endsWith("/") ||
+    path.endsWith("/.")
+  ) {
+    throw invalidUnsafePath();
+  }
+
+  const segments = path.split("/");
+
+  if (segments.includes("..")) {
+    throw invalidUnsafePath();
+  }
+
+  const normalized = segments
+    .filter((segment) => segment && segment !== ".")
+    .join("/");
+
+  if (!normalized) {
+    throw invalidUnsafePath();
+  }
+
+  return normalized;
+}
+
+function invalidUnsafePath(): OkfError {
+  return new OkfError(
+    "ERR_OKF_FIELD",
+    "<input>",
+    { field: "path" },
+  );
+}
+
 function documentId(path: string): string {
-  const normalized = errorPath(path);
-  const filename = normalized
-    .split("/")
-    .at(-1);
+  const filename = path.split("/").at(-1);
 
   if (
     !filename?.endsWith(".md") ||
@@ -823,12 +859,12 @@ function documentId(path: string): string {
   ) {
     throw new OkfError(
       "ERR_OKF_FIELD",
-      normalized,
+      path,
       { field: "path" },
     );
   }
 
-  return normalized.slice(0, -3);
+  return path.slice(0, -3);
 }
 
 function nodeText(node: Node): string {
@@ -950,11 +986,4 @@ function isRecord(
   return Boolean(value) &&
     typeof value === "object" &&
     !Array.isArray(value);
-}
-
-function errorPath(path: string): string {
-  return path
-    .split(sep)
-    .join("/")
-    .replace(/^\.\//, "");
 }
