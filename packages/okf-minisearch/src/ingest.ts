@@ -1,3 +1,5 @@
+import { sep } from "node:path";
+
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { parse } from "yaml";
 
@@ -735,8 +737,12 @@ function parseTimestamp(
   const hour = Number(match[4]);
   const minute = Number(match[5]);
   const second = Number(match[6]);
+  const fraction = match[7] ?? "";
   const millisecond = Number(
-    (match[7] ?? "").slice(0, 3).padEnd(3, "0"),
+    fraction.slice(0, 3).padEnd(3, "0"),
+  );
+  const roundsUp = /[1-9]/.test(
+    fraction.slice(3),
   );
   const offsetHour = Number(match[10] ?? 0);
   const offsetMinute = Number(match[11] ?? 0);
@@ -767,7 +773,7 @@ function parseTimestamp(
   const epoch = local.getTime() - offset;
 
   return Number.isFinite(epoch)
-    ? epoch
+    ? epoch + (roundsUp ? 1 : 0)
     : undefined;
 }
 
@@ -948,6 +954,7 @@ function isRecord(
 
 function errorPath(path: string): string {
   return path
-    .replaceAll("\\", "/")
+    .split(sep)
+    .join("/")
     .replace(/^\.\//, "");
 }

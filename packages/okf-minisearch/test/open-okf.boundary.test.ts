@@ -91,6 +91,28 @@ describe("openOkf concept boundary", () => {
     ]);
   });
 
+  it("keeps a POSIX backslash filename distinct from a nested path", async () => {
+    const tree = await bundle({
+      "a/b.md": concept("type: nested", "nestedpathneedle"),
+      "a\\b.md": concept("type: literal", "literalpathneedle"),
+    });
+
+    const okf = await openOkf(tree.root);
+
+    expect(okf.search("nestedpathneedle")).toEqual([
+      expect.objectContaining({
+        documentId: "a/b",
+        path: "a/b.md",
+      }),
+    ]);
+    expect(okf.search("literalpathneedle")).toEqual([
+      expect.objectContaining({
+        documentId: "a\\b",
+        path: "a\\b.md",
+      }),
+    ]);
+  });
+
   it("ignores nested symlinks", async () => {
     const tree = await bundle({
       "real.md": concept("type: note", "symlinkneedle real"),

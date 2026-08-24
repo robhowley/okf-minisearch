@@ -145,8 +145,12 @@ describe("optional metadata", () => {
   it("compares valid offset timestamps at millisecond precision", async () => {
     const okf = await open({
       "absent.md": concept("type: note", "facetneedle absent"),
+      "exact.md": concept(
+        "type: note\nstale_after: 2026-08-24T10:00:00.123Z",
+        "facetneedle exact",
+      ),
       "z.md": concept(
-        "type: note\nstale_after: 2026-08-24T10:00:00.123456Z",
+        "type: note\nstale_after: 2026-08-24T10:00:00.1239Z",
         "facetneedle z",
       ),
       "offset.md": concept(
@@ -163,20 +167,29 @@ describe("optional metadata", () => {
       ),
     });
     const equality = new Date("2026-08-24T10:00:00.123Z");
+    const nextMillisecond = new Date("2026-08-24T10:00:00.124Z");
     const before = new Date("2026-08-24T10:00:00.122Z");
 
     expect(ids(okf, {
       asOf: equality,
       where: { stale: true },
-    })).toEqual(["offset", "z"]);
+    })).toEqual(["exact"]);
     expect(ids(okf, {
       asOf: equality,
+      where: { stale: false },
+    })).toEqual(["absent", "offset", "z"]);
+    expect(ids(okf, {
+      asOf: nextMillisecond,
+      where: { stale: true },
+    })).toEqual(["exact", "offset", "z"]);
+    expect(ids(okf, {
+      asOf: nextMillisecond,
       where: { stale: false },
     })).toEqual(["absent"]);
     expect(ids(okf, {
       asOf: before,
       where: { stale: false },
-    })).toEqual(["absent", "offset", "z"]);
+    })).toEqual(["absent", "exact", "offset", "z"]);
   });
 
   it("validates asOf before returning a blank-query result", async () => {
