@@ -129,25 +129,19 @@ Ingesting the same normalized path replaces its existing records. Parsing comple
 
 ## Accepted OKF documents
 
-This package implements the consumer boundary described by the [OKF v0.2 specification](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/ad30107c31c06aec8a7d5636e0d1058118604e6f/SPEC.md).
+`okf-minisearch` provides in-memory search over [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/ad30107c31c06aec8a7d5636e0d1058118604e6f/SPEC.md) bundles.
 
-Every indexed concept needs:
+The package applies these defaults:
 
-- YAML frontmatter enclosed by `---`
-- a frontmatter mapping
-- a nonblank string `type`
+- A missing title is derived from the filename.
+- A missing `status` means `stable`.
+- A missing `verified` field means `unverified`.
+- Any valid `human:<id>` verification means `human-reviewed`.
+- Other valid verification actors mean `machine-confirmed`.
+- A missing `stale_after` means the concept is not stale.
+- Unknown frontmatter fields are retained in `document.extensions`.
 
-Other standard metadata is optional. Unknown frontmatter keys are retained in `document.extensions` rather than rejected. A missing title is derived from the filename.
-
-Search classification uses these defaults:
-
-- missing `status` means `stable`
-- missing `verified` means `unverified`
-- any valid `human:<name>` verification means `human-reviewed`
-- other valid verification actors mean `machine-confirmed`
-- missing `stale_after` means not stale
-
-Malformed optional status, verification, or staleness metadata does not reject the document. The document remains searchable but does not match filters for the malformed facet.
+Malformed optional status, verification, or staleness metadata does not prevent searching the concept. It simply does not match filters for that metadata.
 
 ## Errors
 
