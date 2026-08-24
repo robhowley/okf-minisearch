@@ -66,6 +66,7 @@ function parsePackManifest(output, packageMetadata) {
   const paths = manifest.files.map((file) => file.path).sort();
   const required = [
     "LICENSE",
+    "README.md",
     "dist/index.d.ts",
     "dist/index.js",
     "package.json",
@@ -77,6 +78,7 @@ function parsePackManifest(output, packageMetadata) {
 
   const unexpected = paths.filter((path) =>
     path !== "LICENSE" &&
+    path !== "README.md" &&
     path !== "package.json" &&
     !path.startsWith("dist/"));
   assert.deepEqual(
