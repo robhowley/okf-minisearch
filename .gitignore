@@ -9,7 +9,7 @@ coverage/
 *.tgz
 
 # Local tool output
-.pi/structured-returns/
+.pi/
 .vitest/
 
 # Environment and machine-local files
