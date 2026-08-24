@@ -1,0 +1,49 @@
+{
+  "name": "okf-minisearch",
+  "version": "0.1.0",
+  "description": "Open Knowledge Format optimized search built on MiniSearch.",
+  "keywords": [
+    "open-knowledge-format",
+    "okf",
+    "minisearch",
+    "markdown-search",
+    "knowledge-base",
+    "in-memory-search",
+    "llm-wiki"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robhowley/okf-minisearch.git",
+    "directory": "packages/okf-minisearch"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "mdast-util-from-markdown": "^2.0.3",
+    "minisearch": "^7.2.0",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/mdast": "^4.0.4",
+    "@types/unist": "^3.0.3"
+  }
+}

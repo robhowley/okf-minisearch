@@ -1,0 +1,68 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create release
+        uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: .github/release-please-config.json
+          manifest-file: .github/release-please-manifest.json
+
+      - name: Checkout
+        if: steps.release.outputs.releases_created == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        if: steps.release.outputs.releases_created == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+
+      - name: Setup Node.js
+        if: steps.release.outputs.releases_created == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.14'
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install npm 11
+        if: steps.release.outputs.releases_created == 'true'
+        # npm trusted publishing requires npm 11.5.1+ on Node 22.14+.
+        run: npm install --global npm@11
+
+      - name: Validate package before publishing
+        if: steps.release.outputs.releases_created == 'true'
+        run: pnpm package:check
+
+      - name: Publish package
+        if: steps.release.outputs.releases_created == 'true'
+        env:
+          RELEASED_PATHS: ${{ steps.release.outputs.paths_released }}
+        run: |
+          package_path="$(jq -er '
+            if type == "array" and length == 1 and .[0] == "packages/okf-minisearch"
+            then .[0]
+            else error("unexpected released package paths")
+            end
+          ' <<<"$RELEASED_PATHS")"
+          cd "$package_path"
+          tarball="$(pnpm pack --pack-destination "$RUNNER_TEMP" --json | jq -er '.filename')"
+          npm publish "$tarball"
