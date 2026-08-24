@@ -1,6 +1,7 @@
-import MiniSearch from "minisearch";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { parse } from "yaml";
+
+import { OkfError } from "./errors.js";
 
 import type { RootContent } from "mdast";
 import type { Node, Position } from "unist";
@@ -55,72 +56,87 @@ interface Chunk {
   endLine: number;
 }
 
-export function ingestDocument(
-  index: MiniSearch<OkfIndexRecord>,
+interface ParsedDocument {
+  document: OkfDocument;
+  bodyStartLine: number;
+  status?: OkfStatus;
+  trustTier?: OkfIndexRecord["trustTier"];
+  staleAfterEpoch?: number;
+  stalenessClassified: boolean;
+}
+
+export function prepareDocument(
   input: OkfDocumentInput,
 ): OkfIngestResult {
-  const { document, bodyStartLine } = parseDocument(input);
+  const parsed = parseDocument(input);
+  const { document, bodyStartLine } = parsed;
   const lines = document.body.split(/\r\n|\n|\r/);
   const slugCounts = new Map<string, number>();
 
   const common = {
     documentId: document.id,
+    path: input.path,
     title: document.title,
     description: document.description ?? "",
     type: document.type,
     tags: document.tags,
     resource: document.resource ?? "",
     sourceText: flattenSources(document.sources),
-    status: document.status,
-    trustTier: trustTier(document.verified),
+    status: parsed.status,
+    trustTier: parsed.trustTier,
+    stalenessClassified: parsed.stalenessClassified,
     ...(document.staleAfter
       ? { staleAfter: document.staleAfter }
       : {}),
+    ...(parsed.staleAfterEpoch !== undefined
+      ? { staleAfterEpoch: parsed.staleAfterEpoch }
+      : {}),
   };
 
-  const records = sections(
-    document.body,
-    document.title,
-    bodyStartLine,
-  ).flatMap((section): OkfIndexRecord[] => {
-    const sectionId = uniqueSlug(
-      section.slug,
-      slugCounts,
-    );
+  let conceptSections: Section[];
 
-    const chunks = chunkSection(
-      lines,
+  try {
+    conceptSections = sections(
+      document.body,
+      document.title,
       bodyStartLine,
-      section,
     );
-
-    return chunks.map((chunk, index) => ({
-      ...common,
-
-      id:
-        chunks.length === 1
-          ? `${document.id}#${sectionId}`
-          : `${document.id}#${sectionId}--part-${index + 1}`,
-
-      headingPath: section.headingPath,
-      text: chunk.text,
-      startLine: chunk.startLine,
-      endLine: chunk.endLine,
-    }));
-  });
-
-  const previousIds = index
-    .search(MiniSearch.wildcard, {
-      filter: (result) =>
-        result.documentId === document.id,
-    })
-    .map((result) => result.id);
-
-  if (previousIds.length > 0) {
-    index.discardAll(previousIds);
+  } catch (cause) {
+    throw new OkfError(
+      "ERR_OKF_PARSE",
+      errorPath(input.path),
+      { cause },
+    );
   }
 
-  index.addAll(records);
+  const records = conceptSections.flatMap(
+    (section): OkfIndexRecord[] => {
+      const sectionId = uniqueSlug(
+        section.slug,
+        slugCounts,
+      );
+
+      const chunks = chunkSection(
+        lines,
+        bodyStartLine,
+        section,
+      );
+
+      return chunks.map((chunk, index) => ({
+        ...common,
+
+        id:
+          chunks.length === 1
+            ? `${document.id}#${sectionId}`
+            : `${document.id}#${sectionId}--part-${index + 1}`,
+
+        headingPath: section.headingPath,
+        text: chunk.text,
+        startLine: chunk.startLine,
+        endLine: chunk.endLine,
+      }));
+    },
+  );
 
   return {
     document,
@@ -131,36 +147,53 @@ export function ingestDocument(
 
 function parseDocument(
   input: OkfDocumentInput,
-): {
-  document: OkfDocument;
-  bodyStartLine: number;
-} {
+): ParsedDocument {
+  const path = errorPath(input.path);
   const id = documentId(input.path);
-
-  const match = input.markdown.match(
-    /^---[\t ]*\r?\n([\s\S]*?)\r?\n---[\t ]*(?:\r?\n|$)/,
+  const frontmatter = splitFrontmatter(
+    input.markdown,
+    path,
   );
 
-  if (!match) {
-    throw new Error(
-      `Missing YAML frontmatter: ${input.path}`,
+  let parsed: unknown;
+
+  try {
+    parsed = parse(frontmatter.yaml);
+  } catch (cause) {
+    throw new OkfError(
+      "ERR_OKF_PARSE",
+      path,
+      { cause },
     );
   }
 
-  const prefix = match[0];
-  const body = input.markdown.slice(prefix.length);
-  const data = record(parse(match[1] ?? ""));
-  const type = string(data.type);
+  if (!isRecord(parsed)) {
+    throw new OkfError(
+      "ERR_OKF_PARSE",
+      path,
+    );
+  }
+
+  const data = parsed;
+  const type = nonBlankString(data.type);
 
   if (!type) {
-    throw new Error(`Missing OKF type: ${input.path}`);
+    throw new OkfError(
+      "ERR_OKF_FIELD",
+      path,
+      { field: "type" },
+    );
   }
 
   const description = string(data.description);
   const resource = string(data.resource);
   const usageWindow = timeWindow(data.usage_window);
   const generated = generation(data.generated);
-  const staleAfter = string(data.stale_after);
+  const verification = verificationValue(
+    data,
+  );
+  const status = statusValue(data);
+  const stale = staleAfterValue(data);
   const runtime = string(data.runtime);
   const parameters = parameterList(data.parameters);
   const computation = string(data.computation);
@@ -170,12 +203,13 @@ function parseDocument(
   const document: OkfDocument = {
     id,
     type,
-    title: string(data.title) ?? titleFromId(id),
+    title:
+      nonBlankString(data.title) ??
+      titleFromId(id),
     tags: stringList(data.tags),
     sources: sourceList(data.sources),
-    verified: verificationList(data.verified),
-    status: statusValue(data.status),
-    body,
+    verified: verification.events,
+    body: frontmatter.body,
 
     extensions: Object.fromEntries(
       Object.entries(data).filter(
@@ -187,7 +221,10 @@ function parseDocument(
     ...(resource ? { resource } : {}),
     ...(usageWindow ? { usageWindow } : {}),
     ...(generated ? { generated } : {}),
-    ...(staleAfter ? { staleAfter } : {}),
+    ...(status ? { status } : {}),
+    ...(stale.value
+      ? { staleAfter: stale.value }
+      : {}),
     ...(runtime ? { runtime } : {}),
     ...(parameters ? { parameters } : {}),
     ...(computation ? { computation } : {}),
@@ -197,8 +234,60 @@ function parseDocument(
 
   return {
     document,
+    bodyStartLine: frontmatter.bodyStartLine,
+    status,
+    trustTier: verification.tier,
+    staleAfterEpoch: stale.epoch,
+    stalenessClassified: stale.classified,
+  };
+}
+
+function splitFrontmatter(
+  markdown: string,
+  path: string,
+): {
+  yaml: string;
+  body: string;
+  bodyStartLine: number;
+} {
+  const opening = markdown.startsWith("---\r\n")
+    ? 5
+    : markdown.startsWith("---\n")
+      ? 4
+      : 0;
+
+  if (!opening) {
+    throw new OkfError(
+      "ERR_OKF_PARSE",
+      path,
+    );
+  }
+
+  const remainder = markdown.slice(opening);
+  const closing = remainder.match(
+    /(?:^|\r?\n)---(?:\r?\n|$)/,
+  );
+
+  if (!closing || closing.index === undefined) {
+    throw new OkfError(
+      "ERR_OKF_PARSE",
+      path,
+    );
+  }
+
+  const yaml = remainder.slice(
+    0,
+    closing.index,
+  );
+  const prefixLength =
+    opening + closing.index + closing[0].length;
+  const prefix = markdown.slice(0, prefixLength);
+
+  return {
+    yaml,
+    body: markdown.slice(prefixLength),
     bodyStartLine:
-      (prefix.match(/\r\n|\n|\r/g)?.length ?? 0) + 1,
+      (prefix.match(/\r\n|\n/g)?.length ?? 0) + 1,
   };
 }
 
@@ -445,24 +534,62 @@ function sourceList(
   });
 }
 
-function verificationList(
-  value: unknown,
-): OkfVerification[] {
+function verificationValue(
+  data: Record<string, unknown>,
+): {
+  events: OkfVerification[];
+  tier?: OkfIndexRecord["trustTier"];
+} {
+  if (!Object.hasOwn(data, "verified")) {
+    return {
+      events: [],
+      tier: "unverified",
+    };
+  }
+
+  const value = data.verified;
   const values = Array.isArray(value)
     ? value
-    : value
+    : isRecord(value)
       ? [value]
-      : [];
+      : undefined;
 
-  return values.flatMap((item) => {
-    const verification = record(item);
-    const by = string(verification.by);
-    const at = string(verification.at);
+  if (!values) {
+    return { events: [] };
+  }
 
-    return by && at
-      ? [{ by, at }]
-      : [];
-  });
+  const events: OkfVerification[] = [];
+
+  for (const item of values) {
+    if (!isRecord(item)) {
+      return { events: [] };
+    }
+
+    const by = nonBlankString(item.by);
+    const at = nonBlankString(item.at);
+
+    if (
+      !by ||
+      !at ||
+      !validActor(by) ||
+      parseTimestamp(at) === undefined
+    ) {
+      return { events: [] };
+    }
+
+    events.push({ by, at });
+  }
+
+  return {
+    events,
+    tier: events.some((event) =>
+      event.by.startsWith("human:"),
+    )
+      ? "human-reviewed"
+      : events.length
+        ? "machine-confirmed"
+        : "unverified",
+  };
 }
 
 function timeWindow(
@@ -547,28 +674,117 @@ function attesterValue(
 }
 
 function statusValue(
-  value: unknown,
-): OkfStatus {
-  return value === "draft" ||
-    value === "deprecated"
-    ? value
-    : "stable";
-}
-
-function trustTier(
-  verified: readonly OkfVerification[],
-): OkfIndexRecord["trustTier"] {
-  if (
-    verified.some((item) =>
-      item.by.startsWith("human:"),
-    )
-  ) {
-    return "human-reviewed";
+  data: Record<string, unknown>,
+): OkfStatus | undefined {
+  if (!Object.hasOwn(data, "status")) {
+    return "stable";
   }
 
-  return verified.length
-    ? "machine-confirmed"
-    : "unverified";
+  const value = data.status;
+
+  return value === "draft" ||
+    value === "stable" ||
+    value === "deprecated"
+    ? value
+    : undefined;
+}
+
+function staleAfterValue(
+  data: Record<string, unknown>,
+): {
+  classified: boolean;
+  value?: string;
+  epoch?: number;
+} {
+  if (!Object.hasOwn(data, "stale_after")) {
+    return { classified: true };
+  }
+
+  const value = nonBlankString(
+    data.stale_after,
+  );
+  const epoch = value
+    ? parseTimestamp(value)
+    : undefined;
+
+  return value && epoch !== undefined
+    ? { classified: true, value, epoch }
+    : { classified: false };
+}
+
+function validActor(value: string): boolean {
+  return /^human:\S+$/.test(value) ||
+    /^process:\S+$/.test(value) ||
+    /^[^\s/]+\/[^\s/]+$/.test(value);
+}
+
+function parseTimestamp(
+  value: string,
+): number | undefined {
+  const match = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|([+-])(\d{2}):(\d{2}))$/,
+  );
+
+  if (!match) {
+    return undefined;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const millisecond = Number(
+    (match[7] ?? "").slice(0, 3).padEnd(3, "0"),
+  );
+  const offsetHour = Number(match[10] ?? 0);
+  const offsetMinute = Number(match[11] ?? 0);
+
+  if (
+    month < 1 || month > 12 ||
+    day < 1 || day > daysInMonth(year, month) ||
+    hour > 23 || minute > 59 || second > 59 ||
+    offsetHour > 23 || offsetMinute > 59
+  ) {
+    return undefined;
+  }
+
+  const local = new Date(0);
+  local.setUTCHours(
+    hour,
+    minute,
+    second,
+    millisecond,
+  );
+  local.setUTCFullYear(year, month - 1, day);
+
+  const offset = match[8] === "Z"
+    ? 0
+    : (match[9] === "+" ? 1 : -1) *
+      (offsetHour * 60 + offsetMinute) *
+      60_000;
+  const epoch = local.getTime() - offset;
+
+  return Number.isFinite(epoch)
+    ? epoch
+    : undefined;
+}
+
+function daysInMonth(
+  year: number,
+  month: number,
+): number {
+  if (month === 2) {
+    return year % 4 === 0 &&
+      (year % 100 !== 0 || year % 400 === 0)
+      ? 29
+      : 28;
+  }
+
+  return [4, 6, 9, 11].includes(month)
+    ? 30
+    : 31;
 }
 
 function flattenSources(
@@ -589,27 +805,20 @@ function flattenSources(
 }
 
 function documentId(path: string): string {
-  const normalized = path
-    .replaceAll("\\", "/")
-    .replace(/^\.\//, "");
-
+  const normalized = errorPath(path);
   const filename = normalized
     .split("/")
-    .at(-1)
-    ?.toLowerCase();
-
-  if (!filename?.endsWith(".md")) {
-    throw new Error(
-      `Not Markdown: ${path}`,
-    );
-  }
+    .at(-1);
 
   if (
+    !filename?.endsWith(".md") ||
     filename === "index.md" ||
     filename === "log.md"
   ) {
-    throw new Error(
-      `Reserved OKF file: ${path}`,
+    throw new OkfError(
+      "ERR_OKF_FIELD",
+      normalized,
+      { field: "path" },
     );
   }
 
@@ -701,6 +910,15 @@ function string(
     : undefined;
 }
 
+function nonBlankString(
+  value: unknown,
+): string | undefined {
+  return typeof value === "string" &&
+    value.trim().length
+    ? value
+    : undefined;
+}
+
 function stringList(
   value: unknown,
 ): string[] {
@@ -715,11 +933,21 @@ function stringList(
 function record(
   value: unknown,
 ): Record<string, unknown> {
-  return (
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value)
-  )
-    ? value as Record<string, unknown>
+  return isRecord(value)
+    ? value
     : {};
+}
+
+function isRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value);
+}
+
+function errorPath(path: string): string {
+  return path
+    .replaceAll("\\", "/")
+    .replace(/^\.\//, "");
 }

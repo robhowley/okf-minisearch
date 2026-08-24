@@ -13,10 +13,12 @@ type IndexedHit = SearchResult &
   Pick<
     OkfIndexRecord,
     | "documentId"
+    | "path"
     | "type"
     | "tags"
     | "status"
-    | "staleAfter"
+    | "staleAfterEpoch"
+    | "stalenessClassified"
     | "trustTier"
     | "headingPath"
     | "text"
@@ -29,14 +31,23 @@ export function search(
   query: string,
   options: OkfSearchOptions = {},
 ): OkfSearchHit[] {
+  const asOf =
+    options.asOf ?? new Date();
+
+  if (
+    !(asOf instanceof Date) ||
+    Number.isNaN(asOf.getTime())
+  ) {
+    throw new TypeError(
+      "options.asOf must be a valid Date",
+    );
+  }
+
   const normalizedQuery = query.trim();
 
   if (!normalizedQuery) {
     return [];
   }
-
-  const asOf =
-    options.asOf ?? new Date();
 
   const limit =
     options.limit ?? 10;
@@ -98,7 +109,7 @@ export function search(
       ],
 
       headingPath: hit.headingPath,
-      path: `${hit.documentId}.md`,
+      path: hit.path,
       startLine: hit.startLine,
       endLine: hit.endLine,
 
@@ -145,40 +156,50 @@ function matchesFilters(
 
   if (
     where.statuses?.length &&
-    !where.statuses.includes(hit.status)
-  ) {
-    return false;
-  }
-
-  if (
-    where.trustTiers?.length &&
-    !where.trustTiers.includes(
-      hit.trustTier,
+    (
+      !hit.status ||
+      !where.statuses.includes(hit.status)
     )
   ) {
     return false;
   }
 
   if (
-    where.stale !== undefined &&
-    isStale(hit.staleAfter, asOf) !==
-      where.stale
+    where.trustTiers?.length &&
+    (
+      !hit.trustTier ||
+      !where.trustTiers.includes(
+        hit.trustTier,
+      )
+    )
   ) {
     return false;
+  }
+
+  if (where.stale !== undefined) {
+    if (!hit.stalenessClassified) {
+      return false;
+    }
+
+    if (
+      isStale(
+        hit.staleAfterEpoch,
+        asOf,
+      ) !== where.stale
+    ) {
+      return false;
+    }
   }
 
   return true;
 }
 
 function isStale(
-  staleAfter: string | undefined,
+  staleAfterEpoch: number | undefined,
   asOf: Date,
 ): boolean {
-  return (
-    staleAfter !== undefined &&
-    Date.parse(staleAfter) <=
-      asOf.getTime()
-  );
+  return staleAfterEpoch !== undefined &&
+    staleAfterEpoch <= asOf.getTime();
 }
 
 function makeSnippet(

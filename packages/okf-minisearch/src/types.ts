@@ -58,7 +58,7 @@ export interface OkfDocument {
   generated?: OkfGeneration;
   verified: OkfVerification[];
 
-  status: OkfStatus;
+  status?: OkfStatus;
   staleAfter?: IsoDateTime;
 
   runtime?: string;
@@ -97,6 +97,7 @@ export interface OkfDiagnostic {
 export interface OkfIndexRecord {
   id: string;
   documentId: string;
+  path: string;
 
   title: string;
   description: string;
@@ -110,9 +111,11 @@ export interface OkfIndexRecord {
   startLine: number;
   endLine: number;
 
-  status: OkfStatus;
+  status?: OkfStatus;
   staleAfter?: IsoDateTime;
-  trustTier: OkfTrustTier;
+  staleAfterEpoch?: number;
+  stalenessClassified: boolean;
+  trustTier?: OkfTrustTier;
 }
 
 export interface OkfIngestResult {
