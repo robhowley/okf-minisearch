@@ -116,12 +116,12 @@ import type {
 const search: OkfSearch = await openOkf(".");
 const input: OkfDocumentInput = {
   path: "consumer.md",
-  markdown: "---\\ntype: note\\n---\\nconsumerboundaryneedle",
+  markdown: "---\\ntype: note\\n---\\npackagevalidationneedle",
 };
 const ingestResult: OkfIngestResult = search.ingest(input);
 const options: OkfSearchOptions = { limit: 1 };
 const hits: OkfSearchHit[] = search.search(
-  "consumerboundaryneedle",
+  "packagevalidationneedle",
   options,
 );
 const code: OkfErrorCode = "ERR_OKF_FIELD";
@@ -144,9 +144,9 @@ try {
   const okf = await api.openOkf(root);
   const result = okf.ingest({
     path: "consumer.md",
-    markdown: "---\\ntype: note\\n---\\nconsumerboundaryneedle",
+    markdown: "---\\ntype: note\\n---\\npackagevalidationneedle",
   });
-  const hits = okf.search("consumerboundaryneedle");
+  const hits = okf.search("packagevalidationneedle");
   const error = new api.OkfError(
     "ERR_OKF_FIELD",
     "consumer.md",
@@ -169,7 +169,7 @@ async function checkConsumer(tarball, temporaryRoot) {
   await writeFile(
     join(consumerRoot, "package.json"),
     JSON.stringify({
-      name: "okf-minisearch-release-consumer",
+      name: "okf-minisearch-package-consumer",
       private: true,
       type: "module",
     }, null, 2),
@@ -232,7 +232,7 @@ async function main() {
     packageMetadata,
   );
   const temporaryRoot = await mkdtemp(
-    join(tmpdir(), "okf-minisearch-release-"),
+    join(tmpdir(), "okf-minisearch-package-"),
   );
 
   try {
@@ -246,7 +246,7 @@ async function main() {
     await access(tarball);
     await checkConsumer(tarball, temporaryRoot);
     console.log(
-      `\nRelease package passed: ${relative(root, packageRoot)}`,
+      `\nPackage validation passed: ${relative(root, packageRoot)}`,
     );
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });

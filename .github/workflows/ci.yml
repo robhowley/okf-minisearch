@@ -1,4 +1,4 @@
-name: Release gate
+name: Package validation
 
 on:
   push:
@@ -9,11 +9,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-gate-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}-{1}', github.run_id, github.run_attempt) }}
+  group: package-validation-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}-{1}', github.run_id, github.run_attempt) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  release-gate:
+  package-validation:
+    name: Build, test, and verify install
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,5 +32,5 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      - name: Check release package
-        run: pnpm release:check
+      - name: Validate package
+        run: pnpm package:check

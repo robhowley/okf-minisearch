@@ -5,7 +5,7 @@
   "packageManager": "pnpm@11.22.0",
   "scripts": {
     "build": "pnpm -r build",
-    "release:check": "node scripts/release-check.mjs",
+    "package:check": "node scripts/package-check.mjs",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
   },
