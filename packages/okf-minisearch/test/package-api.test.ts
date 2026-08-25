@@ -247,6 +247,8 @@ describe("package API", () => {
       .toEqualTypeOf<boolean | undefined>();
     expectTypeOf<OkfSearchHit["matchedFields"]>()
       .toEqualTypeOf<OkfSearchField[]>();
+    expectTypeOf<OkfSearchHit["title"]>()
+      .toEqualTypeOf<string>();
     expect(options).toMatchObject({
       match: "all",
       fields,

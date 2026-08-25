@@ -806,6 +806,33 @@ describe("search identity and metadata", () => {
     );
   });
 
+  it("returns exact and derived titles by document ID", async () => {
+    const okf = await open({
+      "explicit.md": concept(`
+        type: note
+        title: Exact Frontmatter Title
+      `, "sharedtitlebody"),
+      "nested/derived-title.md": concept(
+        "type: note",
+        "sharedtitlebody",
+      ),
+    });
+
+    const titlesByDocumentId = Object.fromEntries(
+      okf.search("sharedtitlebody", {
+        limit: 10,
+      }).map((hit) => [
+        hit.documentId,
+        hit.title,
+      ]),
+    );
+
+    expect(titlesByDocumentId).toEqual({
+      explicit: "Exact Frontmatter Title",
+      "nested/derived-title": "Derived title",
+    });
+  });
+
   it("returns document IDs and replaces records by logical identity", async () => {
     const okf = await open({});
 

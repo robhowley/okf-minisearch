@@ -174,6 +174,7 @@ export interface OkfSearchOptions {
 
 export interface OkfSearchHit {
   documentId: string;
+  title: string;
   sectionId: string;
   score: number;
   matchedFields: OkfSearchField[];
