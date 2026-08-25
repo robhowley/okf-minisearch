@@ -9,6 +9,7 @@ import type {
   OkfDiagnostic,
   OkfDiagnosticCode,
   OkfDocumentInput,
+  OkfSearch,
   OkfSearchField,
   OkfSearchOptions,
   OkfValidationResult,
@@ -24,6 +25,10 @@ type ExactOkfValidationResult = Assert<Same<
     readonly isValid: boolean;
     readonly errors: readonly OkfDiagnostic[];
   }
+>>;
+type ExactOkfRemove = Assert<Same<
+  OkfSearch["remove"],
+  (path: string) => boolean
 >>;
 
 const validate: (
@@ -47,6 +52,7 @@ void [
   validation,
   diagnosticCode,
   null as unknown as ExactOkfValidationResult,
+  null as unknown as ExactOkfRemove,
 ];
 
 void (undefined as unknown as OkfBundle | OkfReservedFile);

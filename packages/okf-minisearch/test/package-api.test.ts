@@ -71,6 +71,7 @@ describe("package API", () => {
     const okf = await api.openOkf(tree.root);
 
     expect(okf.ingest).toBeTypeOf("function");
+    expect(okf.remove).toBeTypeOf("function");
     expect(okf.search).toBeTypeOf("function");
 
     const result = okf.ingest({
@@ -267,6 +268,8 @@ describe("package API", () => {
     expectTypeOf<OkfSearch["ingest"]>()
       .returns
       .toEqualTypeOf<OkfIngestResult>();
+    expectTypeOf<OkfSearch["remove"]>()
+      .toEqualTypeOf<(path: string) => boolean>();
     expectTypeOf<OkfSearch["search"]>()
       .parameter(1)
       .toEqualTypeOf<OkfSearchOptions | undefined>();

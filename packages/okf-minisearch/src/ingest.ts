@@ -95,8 +95,9 @@ function analyzeDocument(input: OkfDocumentInput): DocumentAnalysis {
   let id: string;
 
   try {
-    path = normalizePath(input.path);
-    id = documentId(path);
+    const identity = normalizeDocumentIdentity(input.path);
+    path = identity.path;
+    id = identity.documentId;
   } catch (error) {
     return expectedFailure(error);
   }
@@ -810,6 +811,16 @@ function flattenSources(
         Boolean(value),
     )
     .join(" ");
+}
+
+export function normalizeDocumentIdentity(
+  path: string,
+): { path: string; documentId: string } {
+  const normalizedPath = normalizePath(path);
+  return {
+    path: normalizedPath,
+    documentId: documentId(normalizedPath),
+  };
 }
 
 function normalizePath(path: string): string {

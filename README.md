@@ -41,7 +41,7 @@ console.log({
 - Loads a local Markdown tree recursively into an in-memory MiniSearch index; no separate service.
 - Returns one ranked section per document with its path, heading path, line range, and snippet.
 - Filters by type, tags, status, trust tier, and staleness.
-- Uses `ingest` for atomic add/replace updates; malformed replacements leave existing records searchable.
+- Uses `ingest` for atomic add/replace updates and `remove` for explicit in-memory removal; malformed replacements leave existing records searchable, and source files stay unchanged.
 
 OKF Markdown → openOkf() → in-memory MiniSearch index → relevant section
 

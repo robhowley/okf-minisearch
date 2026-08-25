@@ -13,7 +13,10 @@ import {
 import MiniSearch from "minisearch";
 
 import { OkfError } from "./errors.js";
-import { prepareDocument } from "./ingest.js";
+import {
+  normalizeDocumentIdentity,
+  prepareDocument,
+} from "./ingest.js";
 import { search } from "./search.js";
 
 import type {
@@ -79,10 +82,40 @@ export async function openOkf(
       return result;
     },
 
+    remove(path) {
+      const { documentId } = normalizeDocumentIdentity(path);
+      const ids = recordIds.get(documentId);
+
+      if (ids === undefined) {
+        return false;
+      }
+
+      assertOwnedRecordIds(index, documentId, ids);
+      index.discardAll(ids);
+      recordIds.delete(documentId);
+      return true;
+    },
+
     search(query, options) {
       return search(index, query, options);
     },
   };
+}
+
+function assertOwnedRecordIds(
+  index: MiniSearch<OkfIndexRecord>,
+  documentId: string,
+  ids: readonly string[],
+): void {
+  if (
+    ids.length === 0 ||
+    new Set(ids).size !== ids.length ||
+    ids.some((id) => !index.has(id))
+  ) {
+    throw new Error(
+      `OKF index ownership is inconsistent for ${documentId}`,
+    );
+  }
 }
 
 function addRecords(
