@@ -83,7 +83,7 @@ The final query term receives prefix matching when it has at least three charact
 
 ### Filters
 
-All `where` filters are combined with AND. Values within a filter array are combined with OR. Empty arrays are ignored.
+All `where` filters are combined with AND. Values within a filter array are combined with OR. Omitted filters and empty arrays are ignored.
 
 | Filter | Matches |
 | --- | --- |
