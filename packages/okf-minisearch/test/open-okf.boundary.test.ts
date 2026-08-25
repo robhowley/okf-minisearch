@@ -111,6 +111,25 @@ describe("openOkf concept boundary", () => {
     ]);
   });
 
+  it("rejects a team source author before returning a partial handle", async () => {
+    const tree = await bundle({
+      "a-valid.md": concept("type: note", "openvalidneedle"),
+      "z-team.md": concept(`
+        type: note
+        sources:
+          - resource: x
+            author: team:ga4-docs
+      `, "openrejectedneedle"),
+    });
+
+    await expect(openOkf(tree.root)).rejects.toMatchObject({
+      code: "ERR_OKF_FIELD",
+      path: "z-team.md",
+      field: "sources[0].author",
+      message: "Invalid OKF field: z-team.md (sources[0].author)",
+    });
+  });
+
   it("keeps a POSIX backslash filename distinct from a nested path", async () => {
     const tree = await bundle({
       "a/b.md": concept("type: nested", "nestedpathneedle"),
