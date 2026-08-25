@@ -153,6 +153,7 @@ export interface OkfSearchOptions {
 
   match?: "any" | "all";
   fields?: readonly OkfSearchField[];
+  fuzzy?: boolean;
 }
 
 export interface OkfSearchHit {

@@ -133,10 +133,14 @@ type Assert<T extends true> = T;
 type ExactSearchField = Assert<
   Same<OkfSearchField, ExpectedOkfSearchField>
 >;
+type ExactFuzzy = Assert<
+  Same<OkfSearchOptions["fuzzy"], boolean | undefined>
+>;
 const readonlyFields = ["heading", "body"] as const;
 const searchOptions: OkfSearchOptions = {
   match: "all",
   fields: readonlyFields,
+  fuzzy: true,
 };
 const searchHit = null as unknown as OkfSearchHit;
 const matchedField: OkfSearchField =
@@ -164,6 +168,7 @@ void [
   searchOptions,
   matchedField,
   null as ExactSearchField | null,
+  null as ExactFuzzy | null,
   null as OkfSource | null,
   null as OkfStatus | null,
   null as OkfTimeWindow | null,

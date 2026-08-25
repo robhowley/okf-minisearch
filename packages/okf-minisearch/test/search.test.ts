@@ -380,6 +380,111 @@ describe("search controls", () => {
   });
 });
 
+describe("fuzzy search", () => {
+  it("keeps one-edit typos opt-in", async () => {
+    const okf = await open({
+      "alpha.md": concept(
+        "type: note",
+        "alpha",
+      ),
+    });
+
+    expect(okf.search("alphi")).toEqual([]);
+    expect(okf.search("alphi", {
+      fuzzy: false,
+    })).toEqual([]);
+    expect(okf.search("alphi", {
+      fuzzy: true,
+    })).toEqual([
+      expect.objectContaining({
+        documentId: "alpha",
+      }),
+    ]);
+  });
+
+  it("combines earlier fuzzy matching with final-term prefix matching", async () => {
+    const okf = await open({
+      "fuzzy-prefix.md": concept(`
+        type: note
+        title: Recovery guide
+      `, "# Recovery\nrollback procedure"),
+    });
+    const query = "rollbak proce";
+
+    expect(okf.search(query, {
+      match: "all",
+    })).toEqual([]);
+    expect(okf.search(query, {
+      match: "all",
+      fuzzy: true,
+    })).toEqual([
+      expect.objectContaining({
+        documentId: "fuzzy-prefix",
+        sectionId: "fuzzy-prefix#recovery",
+        matchedFields: ["body"],
+      }),
+    ]);
+  });
+
+  it("validates fuzzy after existing options and before empty results", async () => {
+    const okf = await open({
+      "validation.md": concept(
+        "type: note",
+        "fuzzyvalidation",
+      ),
+    });
+    const fuzzyError = new TypeError(
+      "options.fuzzy must be a boolean",
+    );
+
+    for (const fuzzy of [null, "true", 0, {}]) {
+      const options = {
+        fuzzy: fuzzy as unknown as OkfSearchOptions["fuzzy"],
+      };
+
+      expect(() => okf.search("", options))
+        .toThrowError(fuzzyError);
+      expect(() => okf.search("fuzzyvalidation", {
+        ...options,
+        limit: 0,
+      })).toThrowError(fuzzyError);
+    }
+
+    const invalidFuzzy =
+      "true" as unknown as OkfSearchOptions["fuzzy"];
+    expect(() => okf.search("", {
+      asOf: new Date(Number.NaN),
+      fuzzy: invalidFuzzy,
+    })).toThrowError(new TypeError(
+      "options.asOf must be a valid Date",
+    ));
+    expect(() => okf.search("", {
+      limit: -1,
+      fuzzy: invalidFuzzy,
+    })).toThrowError(new TypeError(
+      "options.limit must be a finite non-negative integer",
+    ));
+    expect(() => okf.search("", {
+      match: "invalid" as OkfSearchOptions["match"],
+      fuzzy: invalidFuzzy,
+    })).toThrowError(new TypeError(
+      'options.match must be "any" or "all"',
+    ));
+    expect(() => okf.search("", {
+      fields: [],
+      fuzzy: invalidFuzzy,
+    })).toThrowError(new TypeError(
+      "options.fields must be a non-empty array",
+    ));
+    expect(() => okf.search("", {
+      fields: ["not-a-field"] as unknown as OkfSearchOptions["fields"],
+      fuzzy: invalidFuzzy,
+    })).toThrowError(new TypeError(
+      "options.fields must contain only valid OkfSearchField values",
+    ));
+  });
+});
+
 describe("search ordering", () => {
   it("orders exact score ties by record ID across opens and replacement", async () => {
     const markdown = concept(`
