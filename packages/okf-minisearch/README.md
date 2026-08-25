@@ -117,7 +117,13 @@ interface OkfSearchHit {
 }
 ```
 
-`documentId` is the normalized relative Markdown path without `.md`. `title` is the exact frontmatter title when present. When omitted, it is derived from the final filename segment by replacing hyphens and underscores with spaces and capitalizing the first character; for example, `nested/derived-title.md` becomes `Derived title`. `sectionId` identifies the current indexed section or chunk and may change when headings or chunk boundaries change. `score` is an index-local relevance value; compare it only among hits from the same search. `matchedFields` uses the public field aliases above and contains unique values in first-match order.
+Field details:
+
+- `documentId` is the normalized relative Markdown path without `.md`.
+- `title` is the frontmatter title. If omitted, it is derived from the final filename segment: hyphens and underscores become spaces, and the first character is capitalized (`nested/derived-title.md` → `Derived title`).
+- `sectionId` identifies the current indexed section or chunk and may change when headings or chunk boundaries change.
+- `score` is an index-local relevance value; compare it only among hits from the same search.
+- `matchedFields` uses the public field aliases above and contains unique values in first-match order.
 
 Previous releases exposed MiniSearch field names in `matchedFields`. Migrate `headingPath` to `heading`, `sourceText` to `sources`, and `text` to `body`. The separate `headingPath` hit property is unchanged.
 
