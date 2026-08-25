@@ -128,6 +128,16 @@ export interface OkfIngestResult {
   diagnostics: readonly OkfDiagnostic[];
 }
 
+export type OkfSearchField =
+  | "resource"
+  | "title"
+  | "heading"
+  | "description"
+  | "tags"
+  | "type"
+  | "sources"
+  | "body";
+
 export interface OkfSearchOptions {
   limit?: number;
 
@@ -140,13 +150,16 @@ export interface OkfSearchOptions {
   };
 
   asOf?: Date;
+
+  match?: "any" | "all";
+  fields?: readonly OkfSearchField[];
 }
 
 export interface OkfSearchHit {
   documentId: string;
   sectionId: string;
   score: number;
-  matchedFields: string[];
+  matchedFields: OkfSearchField[];
 
   headingPath: string;
   path: string;

@@ -15,6 +15,7 @@ export type {
   OkfIngestResult,
   OkfParameter,
   OkfSearch,
+  OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
   OkfSource,

@@ -107,6 +107,7 @@ import type {
   OkfIngestResult,
   OkfParameter,
   OkfSearch,
+  OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
   OkfSource,
@@ -115,6 +116,33 @@ import type {
   OkfTrustTier,
   OkfVerification,
 } from "okf-minisearch";
+
+type ExpectedOkfSearchField =
+  | "resource"
+  | "title"
+  | "heading"
+  | "description"
+  | "tags"
+  | "type"
+  | "sources"
+  | "body";
+type Same<T, U> =
+  (<V>() => V extends T ? 1 : 2) extends
+  (<V>() => V extends U ? 1 : 2) ? true : false;
+type Assert<T extends true> = T;
+type ExactSearchField = Assert<
+  Same<OkfSearchField, ExpectedOkfSearchField>
+>;
+const readonlyFields = ["heading", "body"] as const;
+const searchOptions: OkfSearchOptions = {
+  match: "all",
+  fields: readonlyFields,
+};
+const searchHit = null as unknown as OkfSearchHit;
+const matchedField: OkfSearchField =
+  searchHit.matchedFields[0] ?? "body";
+// @ts-expect-error MiniSearch's internal field name is not public.
+const internalField: OkfSearchField = "headingPath";
 
 void [
   OkfError,
@@ -133,6 +161,9 @@ void [
   null as OkfSearch | null,
   null as OkfSearchHit | null,
   null as OkfSearchOptions | null,
+  searchOptions,
+  matchedField,
+  null as ExactSearchField | null,
   null as OkfSource | null,
   null as OkfStatus | null,
   null as OkfTimeWindow | null,
