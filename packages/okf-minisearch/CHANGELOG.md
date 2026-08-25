@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v0.4.0...okf-minisearch-v0.5.0) (2026-08-25)
+
+
+### Features
+
+* **okf-minisearch:** add titles to search hits ([#14](https://github.com/robhowley/okf-minisearch/issues/14)) ([06795df](https://github.com/robhowley/okf-minisearch/commit/06795df14251e5368c62b440b5faab4183a610a1))
+
+
+### Bug Fixes
+
+* **okf-minisearch:** validate search filters ([#12](https://github.com/robhowley/okf-minisearch/issues/12)) ([f8cb280](https://github.com/robhowley/okf-minisearch/commit/f8cb2800837f6ec8ef033c25428640587023a348))
+
 ## [0.4.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v0.3.0...okf-minisearch-v0.4.0) (2026-08-25)
 
 
