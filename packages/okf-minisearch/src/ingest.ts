@@ -60,9 +60,7 @@ interface DocumentAnalysis {
 export function validateOkfDocument(
   input: OkfDocumentInput,
 ): OkfValidationResult {
-  const errors = analyzeDocument(input).diagnostics.map((diagnostic) => ({
-    ...diagnostic,
-  }));
+  const { diagnostics: errors } = analyzeDocument(input);
 
   return {
     isValid: errors.length === 0,
