@@ -82,6 +82,7 @@ type IndexedHit = SearchResult &
   Pick<
     OkfIndexRecord,
     | "documentId"
+    | "title"
     | "path"
     | "type"
     | "tags"
@@ -223,6 +224,7 @@ export function search(
 
     hits.push({
       documentId: hit.documentId,
+      title: hit.title,
       sectionId: String(hit.id),
       score: hit.score,
 

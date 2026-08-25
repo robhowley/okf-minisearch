@@ -144,6 +144,7 @@ function createIndex():
 
     storeFields: [
       "documentId",
+      "title",
       "path",
       "type",
       "tags",
