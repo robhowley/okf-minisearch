@@ -380,6 +380,237 @@ describe("search controls", () => {
   });
 });
 
+describe("search where filters", () => {
+  it("rejects malformed containers, names, facets, and entries", async () => {
+    const okf = await open({
+      "validation.md": concept(
+        "type: note",
+        "wherevalidation",
+      ),
+    });
+    const unknownSymbol = Symbol("unknown");
+    const cases: Array<[unknown, string]> = [
+      [null, "options.where must be an object"],
+      [[], "options.where must be an object"],
+      ["types", "options.where must be an object"],
+      [42, "options.where must be an object"],
+      [true, "options.where must be an object"],
+      [
+        { unknown: [] },
+        "options.where must contain only valid filter names",
+      ],
+      [
+        { [unknownSymbol]: [] },
+        "options.where must contain only valid filter names",
+      ],
+      [
+        { types: undefined },
+        "options.where.types must be an array",
+      ],
+      [
+        { tagsAny: "tag" },
+        "options.where.tagsAny must be an array",
+      ],
+      [
+        { statuses: null },
+        "options.where.statuses must be an array",
+      ],
+      [
+        { trustTiers: {} },
+        "options.where.trustTiers must be an array",
+      ],
+      [
+        { types: new Array(1) },
+        "options.where.types must contain only strings",
+      ],
+      [
+        { types: ["note", 1] },
+        "options.where.types must contain only strings",
+      ],
+      [
+        { tagsAny: new Array(1) },
+        "options.where.tagsAny must contain only strings",
+      ],
+      [
+        { tagsAny: ["tag", false] },
+        "options.where.tagsAny must contain only strings",
+      ],
+      [
+        { statuses: ["stable", "pending"] },
+        "options.where.statuses must contain only valid OkfStatus values",
+      ],
+      [
+        { trustTiers: ["unverified", "manual"] },
+        "options.where.trustTiers must contain only valid OkfTrustTier values",
+      ],
+      [
+        { stale: undefined },
+        "options.where.stale must be a boolean",
+      ],
+      [
+        { stale: null },
+        "options.where.stale must be a boolean",
+      ],
+      [
+        { stale: "false" },
+        "options.where.stale must be a boolean",
+      ],
+      [
+        { stale: 0 },
+        "options.where.stale must be a boolean",
+      ],
+    ];
+
+    for (const [where, message] of cases) {
+      expect(() => okf.search("wherevalidation", {
+        where: where as OkfSearchOptions["where"],
+      })).toThrowError(new TypeError(message));
+    }
+  });
+
+  it("validates where after existing options and before empty results", async () => {
+    const okf = await open({
+      "validation.md": concept(
+        "type: note",
+        "wherevalidation",
+      ),
+    });
+    const invalidWhere = {
+      types: "note",
+    } as unknown as OkfSearchOptions["where"];
+    const whereError = new TypeError(
+      "options.where.types must be an array",
+    );
+
+    expect(() => okf.search("", {
+      where: invalidWhere,
+    })).toThrowError(whereError);
+    expect(() => okf.search("wherevalidation", {
+      where: invalidWhere,
+      limit: 0,
+    })).toThrowError(whereError);
+
+    const earlierOptions: Array<[
+      OkfSearchOptions,
+      TypeError,
+    ]> = [
+      [
+        { asOf: new Date(Number.NaN) },
+        new TypeError(
+          "options.asOf must be a valid Date",
+        ),
+      ],
+      [
+        { limit: -1 },
+        new TypeError(
+          "options.limit must be a finite non-negative integer",
+        ),
+      ],
+      [
+        { match: "invalid" as OkfSearchOptions["match"] },
+        new TypeError(
+          'options.match must be "any" or "all"',
+        ),
+      ],
+      [
+        { fields: [] },
+        new TypeError(
+          "options.fields must be a non-empty array",
+        ),
+      ],
+      [
+        {
+          fields: ["unknown"] as unknown as OkfSearchOptions["fields"],
+        },
+        new TypeError(
+          "options.fields must contain only valid OkfSearchField values",
+        ),
+      ],
+      [
+        { fuzzy: "true" as unknown as OkfSearchOptions["fuzzy"] },
+        new TypeError(
+          "options.fuzzy must be a boolean",
+        ),
+      ],
+    ];
+
+    for (const [earlier, error] of earlierOptions) {
+      expect(() => okf.search("wherevalidation", {
+        ...earlier,
+        where: invalidWhere,
+      })).toThrowError(error);
+    }
+  });
+
+  it("keeps valid empty and duplicate filters without mutating input", async () => {
+    const okf = await open({
+      "stable.md": concept(`
+        type: note
+        tags: [filtertag]
+        status: stable
+        stale_after: 2999-01-01T00:00:00Z
+        verified:
+          - by: human:alice
+            at: 2026-08-24T10:00:00Z
+      `, "wherecontract"),
+      "draft.md": concept(`
+        type: recipe
+        tags: [other]
+        status: draft
+        verified:
+          - by: process:builder
+            at: 2026-08-24T10:00:00Z
+      `, "wherecontract"),
+      "deprecated.md": concept(`
+        type: note
+        tags: [other]
+        status: deprecated
+      `, "wherecontract"),
+    });
+    const all = okf.search("wherecontract");
+    const where: OkfSearchOptions["where"] = {
+      types: ["note", "note", "unknown-type"],
+      tagsAny: ["filtertag", "filtertag", "unknown-tag"],
+      statuses: ["stable", "stable"],
+      trustTiers: ["human-reviewed", "human-reviewed"],
+      stale: false,
+    };
+    const before = {
+      types: [...where.types!],
+      tagsAny: [...where.tagsAny!],
+      statuses: [...where.statuses!],
+      trustTiers: [...where.trustTiers!],
+      stale: where.stale,
+    };
+
+    expect(okf.search("wherecontract", {
+      where,
+    })).toEqual([
+      expect.objectContaining({
+        documentId: "stable",
+      }),
+    ]);
+    expect(okf.search("wherecontract", {
+      where: { types: ["unknown-type"] },
+    })).toEqual([]);
+    expect(okf.search("wherecontract", {
+      where: { tagsAny: ["unknown-tag"] },
+    })).toEqual([]);
+    expect(okf.search("wherecontract", {
+      where: {},
+    })).toEqual(all);
+    expect(okf.search("wherecontract", {
+      where: {
+        types: [],
+        tagsAny: [],
+        statuses: [],
+        trustTiers: [],
+      },
+    })).toEqual(all);
+    expect(where).toEqual(before);
+  });
+});
+
 describe("fuzzy search", () => {
   it("keeps one-edit typos opt-in", async () => {
     const okf = await open({
