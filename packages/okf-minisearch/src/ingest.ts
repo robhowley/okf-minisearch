@@ -7,6 +7,7 @@ import type { RootContent } from "mdast";
 import type { Node, Position } from "unist";
 
 import type {
+  OkfDiagnostic,
   OkfDocument,
   OkfDocumentInput,
   OkfIndexRecord,
@@ -21,27 +22,12 @@ const MAX_SECTION_WORDS = 800;
 const TARGET_CHUNK_WORDS = 500;
 
 const STANDARD_KEYS = new Set([
-  "type",
-  "title",
-  "description",
-  "resource",
-  "tags",
-  "sources",
-  "usage_window",
-  "generated",
-  "verified",
-  "status",
-  "stale_after",
-  "runtime",
-  "parameters",
-  "computation",
-  "executor",
-  "attester",
+  "type", "title", "description", "resource", "tags", "sources",
+  "usage_window", "generated", "verified", "status", "stale_after",
+  "runtime", "parameters", "computation", "executor", "attester",
 ]);
 
-type PositionedBlock = RootContent & {
-  position: Position;
-};
+type PositionedBlock = RootContent & { position: Position };
 
 interface Section {
   headingPath: string;
@@ -65,233 +51,404 @@ interface ParsedDocument {
   stalenessClassified: boolean;
 }
 
+interface DocumentAnalysis {
+  diagnostics: OkfDiagnostic[];
+  prepared?: Omit<OkfIngestResult, "diagnostics">;
+}
+
+export function validateOkfDocument(
+  input: OkfDocumentInput,
+): readonly OkfDiagnostic[] {
+  return analyzeDocument(input).diagnostics.map((diagnostic) => ({
+    ...diagnostic,
+  }));
+}
+
 export function prepareDocument(
   input: OkfDocumentInput,
 ): OkfIngestResult {
-  const normalizedInput = {
-    ...input,
-    path: normalizePath(input.path),
-  };
-  const parsed = parseDocument(normalizedInput);
-  const { document, bodyStartLine } = parsed;
-  const lines = document.body.split(/\r\n|\n|\r/);
-  const slugCounts = new Map<string, number>();
+  const analysis = analyzeDocument(input);
+  const diagnostic = analysis.diagnostics[0];
 
-  const common = {
-    documentId: document.id,
-    path: normalizedInput.path,
-    title: document.title,
-    description: document.description ?? "",
-    type: document.type,
-    tags: document.tags,
-    resource: document.resource ?? "",
-    sourceText: flattenSources(document.sources),
-    status: parsed.status,
-    trustTier: parsed.trustTier,
-    stalenessClassified: parsed.stalenessClassified,
-    ...(document.staleAfter
-      ? { staleAfter: document.staleAfter }
-      : {}),
-    ...(parsed.staleAfterEpoch !== undefined
-      ? { staleAfterEpoch: parsed.staleAfterEpoch }
-      : {}),
-  };
-
-  let conceptSections: Section[];
-
-  try {
-    conceptSections = sections(
-      document.body,
-      document.title,
-      bodyStartLine,
-    );
-  } catch (cause) {
-    throw new OkfError(
-      "ERR_OKF_PARSE",
-      normalizedInput.path,
-      { cause },
-    );
+  if (diagnostic) {
+    throw new OkfError(diagnostic.code, diagnostic.path, {
+      ...(diagnostic.field ? { field: diagnostic.field } : {}),
+    });
   }
 
-  const records = conceptSections.flatMap(
-    (section): OkfIndexRecord[] => {
-      const sectionId = uniqueSlug(
-        section.slug,
-        slugCounts,
-      );
-
-      const chunks = chunkSection(
-        lines,
-        bodyStartLine,
-        section,
-      );
-
-      return chunks.map((chunk, index) => ({
-        ...common,
-
-        id:
-          chunks.length === 1
-            ? `${document.id}#${sectionId}`
-            : `${document.id}#${sectionId}--part-${index + 1}`,
-
-        headingPath: section.headingPath,
-        text: chunk.text,
-        startLine: chunk.startLine,
-        endLine: chunk.endLine,
-      }));
-    },
-  );
+  if (!analysis.prepared) {
+    throw new Error("OKF analysis completed without a result");
+  }
 
   return {
-    document,
-    records,
+    ...analysis.prepared,
     diagnostics: [],
   };
 }
 
-function parseDocument(
-  input: OkfDocumentInput,
-): ParsedDocument {
-  const path = input.path;
-  const id = documentId(path);
-  const frontmatter = splitFrontmatter(
-    input.markdown,
-    path,
-  );
+function analyzeDocument(input: OkfDocumentInput): DocumentAnalysis {
+  let path: string;
+  let id: string;
+
+  try {
+    path = normalizePath(input.path);
+    id = documentId(path);
+  } catch (error) {
+    return expectedFailure(error);
+  }
+
+  let frontmatter: ReturnType<typeof splitFrontmatter>;
+
+  try {
+    frontmatter = splitFrontmatter(input.markdown, path);
+  } catch (error) {
+    return expectedFailure(error);
+  }
 
   let parsed: unknown;
 
   try {
     parsed = parse(frontmatter.yaml);
-  } catch (cause) {
-    throw new OkfError(
-      "ERR_OKF_PARSE",
-      path,
-      { cause },
-    );
+  } catch {
+    return { diagnostics: [diagnostic("ERR_OKF_PARSE", path)] };
   }
 
   if (!isRecord(parsed)) {
-    throw new OkfError(
-      "ERR_OKF_PARSE",
-      path,
-    );
+    return { diagnostics: [diagnostic("ERR_OKF_PARSE", path)] };
   }
 
-  const data = parsed;
-  const type = nonBlankString(data.type);
+  const diagnostics = validateFields(parsed, path);
+  const title = typeof parsed.title === "string"
+    ? parsed.title
+    : titleFromId(id);
+  let conceptSections: Section[] | undefined;
 
-  if (!type) {
-    throw new OkfError(
-      "ERR_OKF_FIELD",
-      path,
-      { field: "type" },
-    );
+  try {
+    conceptSections = sections(frontmatter.body, title, frontmatter.bodyStartLine);
+  } catch {
+    diagnostics.push(diagnostic("ERR_OKF_PARSE", path));
   }
 
-  const description = string(data.description);
-  const resource = string(data.resource);
-  const usageWindow = timeWindow(data.usage_window);
-  const generated = generation(data.generated);
-  const verification = verificationValue(
-    data,
-  );
-  const status = statusValue(data);
-  const stale = staleAfterValue(data);
-  const runtime = string(data.runtime);
-  const parameters = parameterList(data.parameters);
-  const computation = string(data.computation);
-  const executor = executorValue(data.executor);
-  const attester = attesterValue(data.attester);
+  if (diagnostics.length || !conceptSections) {
+    return { diagnostics };
+  }
 
+  const parsedDocument = buildDocument(parsed, id, frontmatter);
+  return {
+    diagnostics,
+    prepared: prepareParsedDocument(parsedDocument, path, conceptSections),
+  };
+}
+
+function expectedFailure(error: unknown): DocumentAnalysis {
+  if (!(error instanceof OkfError) || error.code === "ERR_OKF_READ") {
+    throw error;
+  }
+
+  return {
+    diagnostics: [{
+      code: error.code,
+      path: error.path,
+      ...(error.field ? { field: error.field } : {}),
+      message: error.message,
+    }],
+  };
+}
+
+function diagnostic(
+  code: OkfDiagnostic["code"],
+  path: string,
+  field?: string,
+): OkfDiagnostic {
+  const error = new OkfError(code, path, field ? { field } : {});
+  return {
+    code,
+    path,
+    ...(field ? { field } : {}),
+    message: error.message,
+  };
+}
+
+function validateFields(
+  data: Record<string, unknown>,
+  path: string,
+): OkfDiagnostic[] {
+  const result: OkfDiagnostic[] = [];
+  const invalid = (field: string) => {
+    result.push(diagnostic("ERR_OKF_FIELD", path, field));
+  };
+  const present = (key: string) => Object.hasOwn(data, key);
+
+  if (typeof data.type !== "string" || !data.type.trim()) invalid("type");
+  for (const key of ["title", "description", "resource"] as const) {
+    if (present(key) && typeof data[key] !== "string") invalid(key);
+  }
+
+  validateStringArray(data, "tags", invalid);
+  validateSources(data, invalid);
+  if (present("usage_window")) validateTimeWindow(data.usage_window, "usage_window", invalid);
+  validateGenerated(data, invalid);
+  validateVerified(data, invalid);
+
+  if (present("status") && data.status !== "draft" && data.status !== "stable" && data.status !== "deprecated") {
+    invalid("status");
+  }
+  if (present("stale_after") && !validTimestamp(data.stale_after)) invalid("stale_after");
+  if (present("runtime") && typeof data.runtime !== "string") invalid("runtime");
+  else if (data.type === "Attested Computation" && !present("runtime")) invalid("runtime");
+
+  validateParameters(data, invalid);
+  if (present("computation") && typeof data.computation !== "string") invalid("computation");
+  validateExecutor(data, invalid);
+  validateAttester(data, invalid);
+
+  return result;
+}
+
+function validateStringArray(
+  data: Record<string, unknown>,
+  key: string,
+  invalid: (field: string) => void,
+): void {
+  if (!Object.hasOwn(data, key)) return;
+  const value = data[key];
+  if (!Array.isArray(value)) {
+    invalid(key);
+    return;
+  }
+  value.forEach((item, index) => {
+    if (typeof item !== "string") invalid(`${key}[${index}]`);
+  });
+}
+
+function validateSources(
+  data: Record<string, unknown>,
+  invalid: (field: string) => void,
+): void {
+  if (!Object.hasOwn(data, "sources")) return;
+  if (!Array.isArray(data.sources)) {
+    invalid("sources");
+    return;
+  }
+
+  data.sources.forEach((value, index) => {
+    const base = `sources[${index}]`;
+    if (!isRecord(value)) {
+      invalid(base);
+      return;
+    }
+    if (typeof value.resource !== "string") invalid(`${base}.resource`);
+    for (const key of ["id", "title"] as const) {
+      if (Object.hasOwn(value, key) && typeof value[key] !== "string") invalid(`${base}.${key}`);
+    }
+    if (Object.hasOwn(value, "author") && (typeof value.author !== "string" || !validActor(value.author))) invalid(`${base}.author`);
+    if (Object.hasOwn(value, "usage_count") && typeof value.usage_count !== "number") invalid(`${base}.usage_count`);
+    if (Object.hasOwn(value, "last_modified") && !validTimestamp(value.last_modified)) invalid(`${base}.last_modified`);
+    if (Object.hasOwn(value, "usage_window")) validateTimeWindow(value.usage_window, `${base}.usage_window`, invalid);
+  });
+}
+
+function validateTimeWindow(
+  value: unknown,
+  base: string,
+  invalid: (field: string) => void,
+): void {
+  if (!isRecord(value)) {
+    invalid(base);
+    return;
+  }
+  if (!validTimestamp(value.from)) invalid(`${base}.from`);
+  if (!validTimestamp(value.to)) invalid(`${base}.to`);
+}
+
+function validateGenerated(
+  data: Record<string, unknown>,
+  invalid: (field: string) => void,
+): void {
+  if (!Object.hasOwn(data, "generated")) return;
+  if (!isRecord(data.generated)) {
+    invalid("generated");
+    return;
+  }
+  if (typeof data.generated.by !== "string" || !validActor(data.generated.by)) invalid("generated.by");
+  if (Object.hasOwn(data.generated, "at") && !validTimestamp(data.generated.at)) invalid("generated.at");
+}
+
+function validateVerified(
+  data: Record<string, unknown>,
+  invalid: (field: string) => void,
+): void {
+  if (!Object.hasOwn(data, "verified")) return;
+  const values = Array.isArray(data.verified)
+    ? data.verified
+    : isRecord(data.verified)
+      ? [data.verified]
+      : undefined;
+  if (!values) {
+    invalid("verified");
+    return;
+  }
+  values.forEach((value, index) => {
+    const base = `verified[${index}]`;
+    if (!isRecord(value)) {
+      invalid(base);
+      return;
+    }
+    if (typeof value.by !== "string" || !validActor(value.by)) invalid(`${base}.by`);
+    if (!validTimestamp(value.at)) invalid(`${base}.at`);
+  });
+}
+
+function validateParameters(
+  data: Record<string, unknown>,
+  invalid: (field: string) => void,
+): void {
+  if (!Object.hasOwn(data, "parameters")) return;
+  if (!Array.isArray(data.parameters)) {
+    invalid("parameters");
+    return;
+  }
+  data.parameters.forEach((value, index) => {
+    const base = `parameters[${index}]`;
+    if (!isRecord(value)) {
+      invalid(base);
+      return;
+    }
+    if (typeof value.name !== "string") invalid(`${base}.name`);
+    if (typeof value.type !== "string") invalid(`${base}.type`);
+    if (typeof value.required !== "boolean") invalid(`${base}.required`);
+  });
+}
+
+function validateExecutor(
+  data: Record<string, unknown>,
+  invalid: (field: string) => void,
+): void {
+  if (!Object.hasOwn(data, "executor")) return;
+  if (!isRecord(data.executor)) {
+    invalid("executor");
+    return;
+  }
+  if (typeof data.executor.resource !== "string") invalid("executor.resource");
+  if (!Array.isArray(data.executor.receipt)) {
+    invalid("executor.receipt");
+  } else {
+    data.executor.receipt.forEach((value, index) => {
+      if (typeof value !== "string") invalid(`executor.receipt[${index}]`);
+    });
+  }
+}
+
+function validateAttester(
+  data: Record<string, unknown>,
+  invalid: (field: string) => void,
+): void {
+  if (!Object.hasOwn(data, "attester")) return;
+  if (!isRecord(data.attester)) {
+    invalid("attester");
+    return;
+  }
+  if (typeof data.attester.resource !== "string") invalid("attester.resource");
+}
+
+function validTimestamp(value: unknown): value is string {
+  return typeof value === "string" && parseTimestamp(value) !== undefined;
+}
+
+function buildDocument(
+  data: Record<string, unknown>,
+  id: string,
+  frontmatter: ReturnType<typeof splitFrontmatter>,
+): ParsedDocument {
+  const verified = verificationValue(data.verified);
+  const status = Object.hasOwn(data, "status") ? data.status as OkfStatus : "stable";
+  const staleAfter = Object.hasOwn(data, "stale_after") ? data.stale_after as string : undefined;
   const document: OkfDocument = {
     id,
-    type,
-    title:
-      nonBlankString(data.title) ??
-      titleFromId(id),
-    tags: stringList(data.tags),
+    type: data.type as string,
+    title: Object.hasOwn(data, "title") ? data.title as string : titleFromId(id),
+    tags: Object.hasOwn(data, "tags") ? [...data.tags as string[]] : [],
     sources: sourceList(data.sources),
-    verified: verification.events,
+    verified: verified.events,
     body: frontmatter.body,
-
-    extensions: Object.fromEntries(
-      Object.entries(data).filter(
-        ([key]) => !STANDARD_KEYS.has(key),
-      ),
-    ),
-
-    ...(description ? { description } : {}),
-    ...(resource ? { resource } : {}),
-    ...(usageWindow ? { usageWindow } : {}),
-    ...(generated ? { generated } : {}),
+    extensions: Object.fromEntries(Object.entries(data).filter(([key]) => !STANDARD_KEYS.has(key))),
+    ...(Object.hasOwn(data, "description") ? { description: data.description as string } : {}),
+    ...(Object.hasOwn(data, "resource") ? { resource: data.resource as string } : {}),
+    ...(Object.hasOwn(data, "usage_window") ? { usageWindow: timeWindow(data.usage_window) } : {}),
+    ...(Object.hasOwn(data, "generated") ? { generated: generation(data.generated) } : {}),
     ...(status ? { status } : {}),
-    ...(stale.value
-      ? { staleAfter: stale.value }
-      : {}),
-    ...(runtime ? { runtime } : {}),
-    ...(parameters ? { parameters } : {}),
-    ...(computation ? { computation } : {}),
-    ...(executor ? { executor } : {}),
-    ...(attester ? { attester } : {}),
+    ...(staleAfter !== undefined ? { staleAfter } : {}),
+    ...(Object.hasOwn(data, "runtime") ? { runtime: data.runtime as string } : {}),
+    ...(Object.hasOwn(data, "parameters") ? { parameters: parameterList(data.parameters) } : {}),
+    ...(Object.hasOwn(data, "computation") ? { computation: data.computation as string } : {}),
+    ...(Object.hasOwn(data, "executor") ? { executor: executorValue(data.executor) } : {}),
+    ...(Object.hasOwn(data, "attester") ? { attester: attesterValue(data.attester) } : {}),
   };
 
   return {
     document,
     bodyStartLine: frontmatter.bodyStartLine,
     status,
-    trustTier: verification.tier,
-    staleAfterEpoch: stale.epoch,
-    stalenessClassified: stale.classified,
+    trustTier: verified.tier,
+    staleAfterEpoch: staleAfter === undefined ? undefined : parseTimestamp(staleAfter),
+    stalenessClassified: true,
   };
+}
+
+function prepareParsedDocument(
+  parsed: ParsedDocument,
+  path: string,
+  conceptSections: Section[],
+): Omit<OkfIngestResult, "diagnostics"> {
+  const { document, bodyStartLine } = parsed;
+  const lines = document.body.split(/\r\n|\n|\r/);
+  const slugCounts = new Map<string, number>();
+  const common = {
+    documentId: document.id,
+    path,
+    title: document.title,
+    description: document.description ?? "",
+    type: document.type,
+    tags: [...document.tags],
+    resource: document.resource ?? "",
+    sourceText: flattenSources(document.sources),
+    status: parsed.status,
+    trustTier: parsed.trustTier,
+    stalenessClassified: parsed.stalenessClassified,
+    ...(document.staleAfter ? { staleAfter: document.staleAfter } : {}),
+    ...(parsed.staleAfterEpoch !== undefined ? { staleAfterEpoch: parsed.staleAfterEpoch } : {}),
+  };
+  const records = conceptSections.flatMap((section): OkfIndexRecord[] => {
+    const sectionId = uniqueSlug(section.slug, slugCounts);
+    const chunks = chunkSection(lines, bodyStartLine, section);
+    return chunks.map((chunk, index) => ({
+      ...common,
+      id: chunks.length === 1 ? `${document.id}#${sectionId}` : `${document.id}#${sectionId}--part-${index + 1}`,
+      headingPath: section.headingPath,
+      text: chunk.text,
+      startLine: chunk.startLine,
+      endLine: chunk.endLine,
+    }));
+  });
+  return { document, records };
 }
 
 function splitFrontmatter(
   markdown: string,
   path: string,
-): {
-  yaml: string;
-  body: string;
-  bodyStartLine: number;
-} {
-  const opening = markdown.startsWith("---\r\n")
-    ? 5
-    : markdown.startsWith("---\n")
-      ? 4
-      : 0;
-
-  if (!opening) {
-    throw new OkfError(
-      "ERR_OKF_PARSE",
-      path,
-    );
-  }
-
+): { yaml: string; body: string; bodyStartLine: number } {
+  const opening = markdown.startsWith("---\r\n") ? 5 : markdown.startsWith("---\n") ? 4 : 0;
+  if (!opening) throw new OkfError("ERR_OKF_PARSE", path);
   const remainder = markdown.slice(opening);
-  const closing = remainder.match(
-    /(?:^|\r?\n)---(?:\r?\n|$)/,
-  );
-
-  if (!closing || closing.index === undefined) {
-    throw new OkfError(
-      "ERR_OKF_PARSE",
-      path,
-    );
-  }
-
-  const yaml = remainder.slice(
-    0,
-    closing.index,
-  );
-  const prefixLength =
-    opening + closing.index + closing[0].length;
+  const closing = remainder.match(/(?:^|\r?\n)---(?:\r?\n|$)/);
+  if (!closing || closing.index === undefined) throw new OkfError("ERR_OKF_PARSE", path);
+  const yaml = remainder.slice(0, closing.index);
+  const prefixLength = opening + closing.index + closing[0].length;
   const prefix = markdown.slice(0, prefixLength);
-
   return {
     yaml,
     body: markdown.slice(prefixLength),
-    bodyStartLine:
-      (prefix.match(/\r\n|\n/g)?.length ?? 0) + 1,
+    bodyStartLine: (prefix.match(/\r\n|\n/g)?.length ?? 0) + 1,
   };
 }
 
@@ -488,232 +645,71 @@ function chunk(
   };
 }
 
-function sourceList(
-  value: unknown,
-): OkfSource[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.flatMap((item) => {
-    const source = record(item);
-    const resource = string(source.resource);
-
-    if (!resource) {
-      return [];
-    }
-
-    const id = string(source.id);
-    const title = string(source.title);
-    const author = string(source.author);
-    const lastModified = string(
-      source.last_modified,
-    );
-
-    const usageWindow = timeWindow(
-      source.usage_window,
-    );
-
-    return [
-      {
-        resource,
-
-        ...(id ? { id } : {}),
-        ...(title ? { title } : {}),
-        ...(author ? { author } : {}),
-
-        ...(typeof source.usage_count === "number"
-          ? { usageCount: source.usage_count }
-          : {}),
-
-        ...(lastModified
-          ? { lastModified }
-          : {}),
-
-        ...(usageWindow
-          ? { usageWindow }
-          : {}),
-      },
-    ];
+function sourceList(value: unknown): OkfSource[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => {
+    const source = item as Record<string, unknown>;
+    return {
+      resource: source.resource as string,
+      ...(Object.hasOwn(source, "id") ? { id: source.id as string } : {}),
+      ...(Object.hasOwn(source, "title") ? { title: source.title as string } : {}),
+      ...(Object.hasOwn(source, "author") ? { author: source.author as string } : {}),
+      ...(Object.hasOwn(source, "usage_count") ? { usageCount: source.usage_count as number } : {}),
+      ...(Object.hasOwn(source, "last_modified") ? { lastModified: source.last_modified as string } : {}),
+      ...(Object.hasOwn(source, "usage_window") ? { usageWindow: timeWindow(source.usage_window) } : {}),
+    };
   });
 }
 
-function verificationValue(
-  data: Record<string, unknown>,
-): {
+function verificationValue(value: unknown): {
   events: OkfVerification[];
-  tier?: OkfIndexRecord["trustTier"];
+  tier: OkfIndexRecord["trustTier"];
 } {
-  if (!Object.hasOwn(data, "verified")) {
-    return {
-      events: [],
-      tier: "unverified",
-    };
-  }
-
-  const value = data.verified;
-  const values = Array.isArray(value)
-    ? value
-    : isRecord(value)
-      ? [value]
-      : undefined;
-
-  if (!values) {
-    return { events: [] };
-  }
-
-  const events: OkfVerification[] = [];
-
-  for (const item of values) {
-    if (!isRecord(item)) {
-      return { events: [] };
-    }
-
-    const by = nonBlankString(item.by);
-    const at = nonBlankString(item.at);
-
-    if (
-      !by ||
-      !at ||
-      !validActor(by) ||
-      parseTimestamp(at) === undefined
-    ) {
-      return { events: [] };
-    }
-
-    events.push({ by, at });
-  }
-
+  if (value === undefined) return { events: [], tier: "unverified" };
+  const values = Array.isArray(value) ? value : [value];
+  const events = values.map((item) => {
+    const event = item as Record<string, string>;
+    return { by: event.by!, at: event.at! };
+  });
   return {
     events,
-    tier: events.some((event) =>
-      event.by.startsWith("human:"),
-    )
+    tier: events.some((event) => event.by.startsWith("human:"))
       ? "human-reviewed"
-      : events.length
-        ? "machine-confirmed"
-        : "unverified",
+      : events.length ? "machine-confirmed" : "unverified",
   };
 }
 
-function timeWindow(
-  value: unknown,
-): OkfTimeWindow | undefined {
-  const window = record(value);
-  const from = string(window.from);
-  const to = string(window.to);
-
-  return from && to
-    ? { from, to }
-    : undefined;
+function timeWindow(value: unknown): OkfTimeWindow {
+  const window = value as Record<string, string>;
+  return { from: window.from!, to: window.to! };
 }
 
-function generation(
-  value: unknown,
-): OkfDocument["generated"] {
-  const generated = record(value);
-  const by = string(generated.by);
-  const at = string(generated.at);
-
-  return by
-    ? {
-        by,
-        ...(at ? { at } : {}),
-      }
-    : undefined;
+function generation(value: unknown): OkfDocument["generated"] {
+  const generated = value as Record<string, string>;
+  return {
+    by: generated.by!,
+    ...(Object.hasOwn(generated, "at") ? { at: generated.at } : {}),
+  };
 }
 
-function parameterList(
-  value: unknown,
-): OkfDocument["parameters"] {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-
-  return value.flatMap((item) => {
-    const parameter = record(item);
-    const name = string(parameter.name);
-    const type = string(parameter.type);
-
-    return (
-      name &&
-      type &&
-      typeof parameter.required === "boolean"
-    )
-      ? [
-          {
-            name,
-            type,
-            required: parameter.required,
-          },
-        ]
-      : [];
-  });
+function parameterList(value: unknown): NonNullable<OkfDocument["parameters"]> {
+  return (value as Array<Record<string, unknown>>).map((parameter) => ({
+    name: parameter.name as string,
+    type: parameter.type as string,
+    required: parameter.required as boolean,
+  }));
 }
 
-function executorValue(
-  value: unknown,
-): OkfDocument["executor"] {
-  const executor = record(value);
-  const resource = string(executor.resource);
-
-  return resource
-    ? {
-        resource,
-        receipt: stringList(executor.receipt),
-      }
-    : undefined;
+function executorValue(value: unknown): NonNullable<OkfDocument["executor"]> {
+  const executor = value as Record<string, unknown>;
+  return {
+    resource: executor.resource as string,
+    receipt: [...executor.receipt as string[]],
+  };
 }
 
-function attesterValue(
-  value: unknown,
-): OkfDocument["attester"] {
-  const resource = string(
-    record(value).resource,
-  );
-
-  return resource
-    ? { resource }
-    : undefined;
-}
-
-function statusValue(
-  data: Record<string, unknown>,
-): OkfStatus | undefined {
-  if (!Object.hasOwn(data, "status")) {
-    return "stable";
-  }
-
-  const value = data.status;
-
-  return value === "draft" ||
-    value === "stable" ||
-    value === "deprecated"
-    ? value
-    : undefined;
-}
-
-function staleAfterValue(
-  data: Record<string, unknown>,
-): {
-  classified: boolean;
-  value?: string;
-  epoch?: number;
-} {
-  if (!Object.hasOwn(data, "stale_after")) {
-    return { classified: true };
-  }
-
-  const value = nonBlankString(
-    data.stale_after,
-  );
-  const epoch = value
-    ? parseTimestamp(value)
-    : undefined;
-
-  return value && epoch !== undefined
-    ? { classified: true, value, epoch }
-    : { classified: false };
+function attesterValue(value: unknown): NonNullable<OkfDocument["attester"]> {
+  return { resource: (value as Record<string, string>).resource! };
 }
 
 function validActor(value: string): boolean {
@@ -813,57 +809,25 @@ function flattenSources(
 }
 
 function normalizePath(path: string): string {
-  if (
-    !path ||
-    path.startsWith("/") ||
-    /^[A-Za-z]:/.test(path) ||
-    path.startsWith("\\\\") ||
-    path.endsWith("/") ||
-    path.endsWith("/.")
-  ) {
+  if (!path || path.startsWith("/") || /^[A-Za-z]:/.test(path) || path.startsWith("\\\\") || path.endsWith("/") || path.endsWith("/.")) {
     throw invalidUnsafePath();
   }
-
   const segments = path.split("/");
-
-  if (segments.includes("..")) {
-    throw invalidUnsafePath();
-  }
-
-  const normalized = segments
-    .filter((segment) => segment && segment !== ".")
-    .join("/");
-
-  if (!normalized) {
-    throw invalidUnsafePath();
-  }
-
+  if (segments.includes("..")) throw invalidUnsafePath();
+  const normalized = segments.filter((segment) => segment && segment !== ".").join("/");
+  if (!normalized) throw invalidUnsafePath();
   return normalized;
 }
 
 function invalidUnsafePath(): OkfError {
-  return new OkfError(
-    "ERR_OKF_FIELD",
-    "<input>",
-    { field: "path" },
-  );
+  return new OkfError("ERR_OKF_FIELD", "<input>", { field: "path" });
 }
 
 function documentId(path: string): string {
   const filename = path.split("/").at(-1);
-
-  if (
-    !filename?.endsWith(".md") ||
-    filename === "index.md" ||
-    filename === "log.md"
-  ) {
-    throw new OkfError(
-      "ERR_OKF_FIELD",
-      path,
-      { field: "path" },
-    );
+  if (!filename?.endsWith(".md") || filename === "index.md" || filename === "log.md") {
+    throw new OkfError("ERR_OKF_FIELD", path, { field: "path" });
   }
-
   return path.slice(0, -3);
 }
 
@@ -943,47 +907,6 @@ function wordCount(value: string): number {
   );
 }
 
-function string(
-  value: unknown,
-): string | undefined {
-  return typeof value === "string" &&
-    value.length
-    ? value
-    : undefined;
-}
-
-function nonBlankString(
-  value: unknown,
-): string | undefined {
-  return typeof value === "string" &&
-    value.trim().length
-    ? value
-    : undefined;
-}
-
-function stringList(
-  value: unknown,
-): string[] {
-  return Array.isArray(value)
-    ? value.filter(
-        (item): item is string =>
-          typeof item === "string",
-      )
-    : [];
-}
-
-function record(
-  value: unknown,
-): Record<string, unknown> {
-  return isRecord(value)
-    ? value
-    : {};
-}
-
-function isRecord(
-  value: unknown,
-): value is Record<string, unknown> {
-  return Boolean(value) &&
-    typeof value === "object" &&
-    !Array.isArray(value);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

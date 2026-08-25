@@ -264,28 +264,57 @@ describe("ingest", () => {
     });
   });
 
-  it("shares optional-facet semantics with startup concepts", async () => {
+  it.each([
+    ["status", "status: future", "status"],
+    ["trust", "verified: broken", "verified"],
+    ["staleness", "stale_after: yesterday", "stale_after"],
+  ])("preserves records and filter metadata after invalid %s replacement", async (
+    _name,
+    malformed,
+    field,
+  ) => {
     const okf = await emptySearch();
+    okf.ingest({
+      path: "facets.md",
+      markdown: concept(`
+        type: original
+        tags: [kept]
+        status: stable
+        verified:
+          by: human:reviewer
+          at: 2026-08-24T10:00:00Z
+        stale_after: 2030-01-01T00:00:00Z
+      `, "preservedfacetword"),
+    });
 
     expect(() => okf.ingest({
-      path: "malformed.md",
+      path: "./facets.md",
       markdown: concept(`
-        type: note
-        status: future
-        verified: broken
-        stale_after: yesterday
-      `, "unclassifiedmutationword"),
-    })).not.toThrow();
+        type: replacement
+        tags: [changed]
+        ${malformed}
+      `, "rejectedfacetword"),
+    })).toThrow(expect.objectContaining({
+      code: "ERR_OKF_FIELD",
+      path: "facets.md",
+      field,
+    }));
 
-    expect(okf.search("unclassifiedmutationword")).toHaveLength(1);
-    expect(okf.search("unclassifiedmutationword", {
-      where: { statuses: ["stable"] },
-    })).toEqual([]);
-    expect(okf.search("unclassifiedmutationword", {
-      where: { trustTiers: ["unverified"] },
-    })).toEqual([]);
-    expect(okf.search("unclassifiedmutationword", {
-      where: { stale: false },
-    })).toEqual([]);
+    expect(okf.search("preservedfacetword", {
+      asOf: new Date("2029-01-01T00:00:00Z"),
+      where: {
+        types: ["original"],
+        tagsAny: ["kept"],
+        statuses: ["stable"],
+        trustTiers: ["human-reviewed"],
+        stale: false,
+      },
+    })).toEqual([
+      expect.objectContaining({
+        documentId: "facets",
+        path: "facets.md",
+      }),
+    ]);
+    expect(okf.search("rejectedfacetword")).toEqual([]);
   });
 });

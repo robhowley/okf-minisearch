@@ -43,14 +43,11 @@ async function bundle(
 }
 
 describe("openOkf concept boundary", () => {
-  it("opens type-only, empty, nested, unknown, and malformed unsupported metadata", async () => {
+  it("opens type-only, empty, nested, unknown metadata, and broken links", async () => {
     const tree = await bundle({
       "type-only.md": concept(`
         type: unfamiliar
         unknown_key: anything
-        sources: broken
-        generated: [also, broken]
-        parameters: nope
       `, "boundaryneedle broken-link [missing](nope.md)"),
       "empty.md": concept("type: empty", ""),
       "nested/concept.md": concept("type: nested", "boundaryneedle nested"),

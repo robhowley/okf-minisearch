@@ -4,10 +4,20 @@
 import type { OkfBundle } from "../src/index.js";
 // @ts-expect-error OkfReservedFile is not part of the package root API.
 import type { OkfReservedFile } from "../src/index.js";
+import { validateOkfDocument } from "../src/index.js";
 import type {
+  OkfDiagnostic,
+  OkfDiagnosticCode,
+  OkfDocumentInput,
   OkfSearchField,
   OkfSearchOptions,
 } from "../src/index.js";
+
+const validate: (
+  input: OkfDocumentInput,
+) => readonly OkfDiagnostic[] = validateOkfDocument;
+const diagnosticCode: OkfDiagnosticCode = "ERR_OKF_PARSE";
+void [validate, diagnosticCode];
 
 void (undefined as unknown as OkfBundle | OkfReservedFile);
 

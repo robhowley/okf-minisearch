@@ -44,41 +44,44 @@ function ids(
 }
 
 describe("optional metadata", () => {
-  it("tolerates malformed recommended and unsupported fields", async () => {
+  it("accepts unknown fields and types", async () => {
     const okf = await open({
-      "malformed.md": concept(`
+      "unknown.md": concept(`
         type: unknown-kind
-        title: {not: a string}
-        description: [not, a, string]
-        resource: {not: a string}
-        tags: [good, null, 3, also]
-        sources: definitely-not-a-list
-        usage_window: bad
-        generated: 4
-        computation: [bad]
-        executor: nope
-        attester: false
         okf: {version: strange}
         extra: accepted
-      `, "facetneedle malformed optional"),
+      `, "facetneedle unknown"),
     });
 
-    expect(ids(okf)).toEqual(["malformed"]);
-    expect(ids(okf, {
-      where: { tagsAny: ["good"] },
-    })).toEqual(["malformed"]);
+    expect(ids(okf)).toEqual(["unknown"]);
   });
 
-  it("classifies valid status values and leaves malformed status unclassified", async () => {
+  it.each([
+    ["status", "status: future", "status"],
+    ["verification", "verified: broken", "verified"],
+    ["staleness", "stale_after: yesterday", "stale_after"],
+  ])("rejects malformed present %s metadata", async (_name, metadata, field) => {
+    const tree = await createBundle({
+      "malformed.md": concept(`type: note\n${metadata}`, "facetneedle"),
+    });
+    bundles.push(tree);
+
+    await expect(openOkf(tree.root)).rejects.toMatchObject({
+      code: "ERR_OKF_FIELD",
+      path: "malformed.md",
+      field,
+    });
+  });
+
+  it("classifies valid status values and defaults absent status to stable", async () => {
     const okf = await open({
       "absent.md": concept("type: note", "facetneedle absent"),
       "draft.md": concept("type: note\nstatus: draft", "facetneedle draft"),
       "stable.md": concept("type: note\nstatus: stable", "facetneedle stable"),
       "deprecated.md": concept("type: note\nstatus: deprecated", "facetneedle deprecated"),
-      "malformed.md": concept("type: note\nstatus: future", "facetneedle malformed"),
     });
 
-    expect(ids(okf)).toHaveLength(5);
+    expect(ids(okf)).toHaveLength(4);
     expect(ids(okf, {
       where: { statuses: ["stable"] },
     })).toEqual(["absent", "stable"]);
@@ -88,14 +91,9 @@ describe("optional metadata", () => {
     expect(ids(okf, {
       where: { statuses: ["deprecated"] },
     })).toEqual(["deprecated"]);
-    expect(ids(okf, {
-      where: {
-        statuses: ["draft", "stable", "deprecated"],
-      },
-    })).not.toContain("malformed");
   });
 
-  it("classifies usable bare/list verification and leaves any unusable event unclassified", async () => {
+  it("classifies valid bare/list verification", async () => {
     const okf = await open({
       "absent.md": concept("type: note", "facetneedle absent"),
       "empty.md": concept("type: note\nverified: []", "facetneedle empty"),
@@ -119,18 +117,9 @@ describe("optional metadata", () => {
           - by: human:alice
             at: 2026-08-24T11:00:00+01:00
       `, "facetneedle human"),
-      "bad-event.md": concept(`
-        type: note
-        verified:
-          - by: process:builder
-            at: 2026-08-24T10:00:00Z
-          - by: 'human:'
-            at: impossible
-      `, "facetneedle bad"),
-      "bad-field.md": concept("type: note\nverified: nope", "facetneedle bad field"),
     });
 
-    expect(ids(okf)).toHaveLength(7);
+    expect(ids(okf)).toHaveLength(5);
     expect(ids(okf, {
       where: { trustTiers: ["unverified"] },
     })).toEqual(["absent", "empty"]);
@@ -156,14 +145,6 @@ describe("optional metadata", () => {
       "offset.md": concept(
         "type: note\nstale_after: 2026-08-24T11:00:00.1239+01:00",
         "facetneedle offset",
-      ),
-      "impossible.md": concept(
-        "type: note\nstale_after: 2026-02-30T10:00:00Z",
-        "facetneedle impossible",
-      ),
-      "date-only.md": concept(
-        "type: note\nstale_after: 2026-08-24",
-        "facetneedle date only",
       ),
     });
     const equality = new Date("2026-08-24T10:00:00.123Z");
