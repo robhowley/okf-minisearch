@@ -1,6 +1,6 @@
 {
   "name": "okf-minisearch",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Open Knowledge Format optimized search built on MiniSearch.",
   "keywords": [
     "open-knowledge-format",

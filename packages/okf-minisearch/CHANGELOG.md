@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v0.3.0...okf-minisearch-v0.4.0) (2026-08-25)
+
+
+### Features
+
+* **okf-minisearch:** add document removal ([#9](https://github.com/robhowley/okf-minisearch/issues/9)) ([a8e8154](https://github.com/robhowley/okf-minisearch/commit/a8e8154177e8d0f04d21a7ce562d6b27c19f0359))
+
 ## [0.3.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v0.2.0...okf-minisearch-v0.3.0) (2026-08-25)
 
 
