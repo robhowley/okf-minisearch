@@ -183,7 +183,7 @@ console.log(result.document.id); // guides/recovery
 console.log(result.document.status); // "stable" when status is omitted
 ```
 
-`ingest` returns `{ document }`, where `document` is the normalized public representation. Generated section and chunk records remain internal to the search index.
+`ingest` returns `{ document }`, where `document` is the normalized public representation.
 
 `path` must be a bundle-relative POSIX `.md` path. `.` and repeated internal `/` segments are normalized. Absolute paths, parent traversal (`..`), Windows drive or UNC paths, paths ending in `/` or `/.`, and files named exactly `index.md` or `log.md` are rejected.
 
@@ -221,7 +221,7 @@ Removal affects only the current in-memory index. It does not modify the source 
 The package applies these defaults:
 
 - A missing title is derived from the filename.
-- A missing input `status` means `stable`; normalized documents always include a valid `status`.
+- A missing input `status` means `stable`.
 - A missing `verified` field means `unverified`.
 - Any valid `human:<id>` verification means `human-reviewed`.
 - Other valid verification actors mean `machine-confirmed`.
