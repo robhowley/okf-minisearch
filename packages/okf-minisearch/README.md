@@ -183,9 +183,15 @@ console.log(okf.remove("guides/recovery.md")); // false: valid absence/repeat
 console.log(okf.remove("missing.md")); // false: valid absence
 ```
 
-`remove` uses the same path identity as `ingest`: for accepted paths, empty and `.` segments normalize away, while case and literal backslash characters remain significant. A document present in the current in-memory index under its normalized `.md` path, including all of its sections and chunks, returns `true`; a valid path absent from the index returns `false`. Absolute paths, parent traversal, drive or UNC paths, trailing `/` or `/.`, wrong extensions, and the reserved `index.md` and `log.md` paths throw `OkfError` with `code: "ERR_OKF_FIELD"` and `field: "path"` before changing the index. Unsafe path errors report `path: "<input>"`; wrong-extension and reserved-name errors report the normalized path.
+`remove(path)` uses the same path rules as `ingest`. It removes every indexed section and chunk for that document.
 
-Removal is in-memory only. It never writes or deletes the source file and is not persisted. A document discovered from the filesystem remains unchanged on disk, and reopening the root indexes it again.
+- Returns `true` when the document was indexed.
+- Returns `false` when the path is valid but not indexed.
+- Throws `OkfError` before changing the index when the path is invalid or reserved.
+
+Path normalization removes empty and `.` segments while preserving case and literal backslashes. Unsafe paths report `"<input>"`; invalid extensions and reserved filenames report the normalized path.
+
+Removal affects only the current in-memory index. It does not modify the source file. Reopening the root indexes the file again.
 
 ## Accepted OKF documents
 
