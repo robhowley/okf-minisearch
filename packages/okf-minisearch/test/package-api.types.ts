@@ -11,13 +11,43 @@ import type {
   OkfDocumentInput,
   OkfSearchField,
   OkfSearchOptions,
+  OkfValidationResult,
 } from "../src/index.js";
+
+type Same<T, U> =
+  (<V>() => V extends T ? 1 : 2) extends
+  (<V>() => V extends U ? 1 : 2) ? true : false;
+type Assert<T extends true> = T;
+type ExactOkfValidationResult = Assert<Same<
+  OkfValidationResult,
+  {
+    readonly isValid: boolean;
+    readonly errors: readonly OkfDiagnostic[];
+  }
+>>;
 
 const validate: (
   input: OkfDocumentInput,
-) => readonly OkfDiagnostic[] = validateOkfDocument;
+) => OkfValidationResult = validateOkfDocument;
+const validation: OkfValidationResult = {
+  isValid: true,
+  errors: [],
+};
+// @ts-expect-error Validation result state is readonly.
+validation.isValid = false;
+// @ts-expect-error Validation errors are readonly.
+validation.errors.push({
+  code: "ERR_OKF_PARSE",
+  path: "concept.md",
+  message: "diagnostic",
+});
 const diagnosticCode: OkfDiagnosticCode = "ERR_OKF_PARSE";
-void [validate, diagnosticCode];
+void [
+  validate,
+  validation,
+  diagnosticCode,
+  null as unknown as ExactOkfValidationResult,
+];
 
 void (undefined as unknown as OkfBundle | OkfReservedFile);
 

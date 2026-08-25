@@ -15,6 +15,7 @@ import type {
   OkfSource,
   OkfStatus,
   OkfTimeWindow,
+  OkfValidationResult,
   OkfVerification,
 } from "./types.js";
 
@@ -58,10 +59,15 @@ interface DocumentAnalysis {
 
 export function validateOkfDocument(
   input: OkfDocumentInput,
-): readonly OkfDiagnostic[] {
-  return analyzeDocument(input).diagnostics.map((diagnostic) => ({
+): OkfValidationResult {
+  const errors = analyzeDocument(input).diagnostics.map((diagnostic) => ({
     ...diagnostic,
   }));
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
 }
 
 export function prepareDocument(

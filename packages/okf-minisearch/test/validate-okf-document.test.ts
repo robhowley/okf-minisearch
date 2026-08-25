@@ -25,12 +25,15 @@ function validate(frontmatter: string, body = "body") {
 }
 
 function fields(frontmatter: string): Array<string | undefined> {
-  return validate(frontmatter).map((item) => item.field);
+  return validate(frontmatter).errors.map((item) => item.field);
 }
 
 describe("validateOkfDocument", () => {
   it("accepts a type-only document through the package root", () => {
-    expect(validate("type: unfamiliar")).toEqual([]);
+    expect(validate("type: unfamiliar")).toEqual({
+      isValid: true,
+      errors: [],
+    });
     expect(validateOkfDocument).toBeTypeOf("function");
   });
 
@@ -46,21 +49,24 @@ describe("validateOkfDocument", () => {
     ["blank type", { path: "concept.md", markdown: concept("type: '   '") }, "ERR_OKF_FIELD", "concept.md", "type"],
   ])("returns, rather than throws, for %s failures", (_name, input, code, path, field) => {
     expect(() => validateOkfDocument(input)).not.toThrow();
-    const diagnostics = validateOkfDocument(input);
-    expect(diagnostics).toEqual([
-      expect.objectContaining({
-        code,
-        path,
-        ...(field ? { field } : {}),
-      }),
-    ]);
-    expect(diagnostics[0]!.message).toBe(
+    const result = validateOkfDocument(input);
+    expect(result).toEqual({
+      isValid: false,
+      errors: [
+        expect.objectContaining({
+          code,
+          path,
+          ...(field ? { field } : {}),
+        }),
+      ],
+    });
+    expect(result.errors[0]!.message).toBe(
       field
         ? `Invalid OKF field: ${path} (${field})`
         : `Cannot parse OKF concept: ${path}`,
     );
     if (path === "<input>") {
-      expect(diagnostics[0]!.message).not.toContain(input.path);
+      expect(result.errors[0]!.message).not.toContain(input.path);
     }
   });
 
@@ -80,7 +86,7 @@ describe("validateOkfDocument", () => {
     const statusYaml = status === undefined
       ? ""
       : `\nstatus: ${JSON.stringify(status)}`;
-    expect(validate(`type: note${statusYaml}`)).toHaveLength(accepted ? 0 : 1);
+    expect(validate(`type: note${statusYaml}`).errors).toHaveLength(accepted ? 0 : 1);
     if (!accepted) expect(fields(`type: note${statusYaml}`)).toEqual(["status"]);
   });
 
@@ -156,7 +162,10 @@ describe("validateOkfDocument", () => {
       attester:
         resource: ../attester
       extension: accepted
-    `, "[broken](../missing.md)")).toEqual([]);
+    `, "[broken](../missing.md)")).toEqual({
+      isValid: true,
+      errors: [],
+    });
   });
 
   it("accepts unknown types, top-level/nested keys, and inert resource paths", () => {
@@ -169,11 +178,14 @@ describe("validateOkfDocument", () => {
       generated:
         by: org/tool
         future_key: 2
-    `, "[missing](../../missing.md)")).toEqual([]);
+    `, "[missing](../../missing.md)")).toEqual({
+      isValid: true,
+      errors: [],
+    });
   });
 
   it("orders independent diagnostics by fixed field, index, and child order", () => {
-    const diagnostics = validate(`
+    const errors = validate(`
       attester: {}
       status: future
       sources:
@@ -186,8 +198,8 @@ describe("validateOkfDocument", () => {
         - {}
         - nope
       executor: {}
-    `);
-    expect(diagnostics.map((item) => item.field)).toEqual([
+    `).errors;
+    expect(errors.map((item) => item.field)).toEqual([
       "type",
       "tags[1]",
       "sources[0].resource",
@@ -202,13 +214,28 @@ describe("validateOkfDocument", () => {
     ]);
   });
 
-  it("returns detached diagnostic objects and arrays", () => {
-    const first = validate("type: note\nstatus: future") as OkfDiagnostic[];
-    first[0]!.message = "changed";
-    first.push({ code: "ERR_OKF_FIELD", path: "x", message: "x" });
-    expect(validate("type: note\nstatus: future")[0]!.message).toBe(
-      "Invalid OKF field: concept.md (status)",
-    );
+  it("returns fresh results and detached diagnostic objects and arrays", () => {
+    const first = validate("type: note\nstatus: future");
+    const second = validate("type: note\nstatus: future");
+    const errors = first.errors as OkfDiagnostic[];
+
+    expect(first).not.toBe(second);
+    expect(first.errors).not.toBe(second.errors);
+
+    errors[0]!.message = "changed";
+    errors.push({ code: "ERR_OKF_FIELD", path: "x", message: "x" });
+
+    expect(second).toEqual({
+      isValid: false,
+      errors: [
+        expect.objectContaining({
+          code: "ERR_OKF_FIELD",
+          path: "concept.md",
+          field: "status",
+          message: "Invalid OKF field: concept.md (status)",
+        }),
+      ],
+    });
   });
 
   it("normalizes bare verification to indexed diagnostic paths", () => {
@@ -232,8 +259,14 @@ describe("validateOkfDocument", () => {
 
   it("requires runtime only for the exact Attested Computation type", () => {
     expect(fields("type: Attested Computation")).toEqual(["runtime"]);
-    expect(validate("type: Attested Computation\nruntime: node")).toEqual([]);
-    expect(validate("type: attested computation")).toEqual([]);
+    expect(validate("type: Attested Computation\nruntime: node")).toEqual({
+      isValid: true,
+      errors: [],
+    });
+    expect(validate("type: attested computation")).toEqual({
+      isValid: true,
+      errors: [],
+    });
   });
 
   it("keeps validator and ingest on the same first diagnostic", async () => {
@@ -241,16 +274,21 @@ describe("validateOkfDocument", () => {
       path: "parity.md",
       markdown: concept("type: note\ntags: [ok, 1]\nstatus: future"),
     };
-    const [first] = validateOkfDocument(input);
+    const [first] = validateOkfDocument(input).errors;
+    const expected = {
+      code: first!.code,
+      path: first!.path,
+      field: first!.field,
+      message: first!.message,
+    };
+    const validation = validateOkfDocument(input);
+    const errors = validation.errors as OkfDiagnostic[];
+    errors[0]!.message = "changed";
+    errors.length = 0;
     const tree = await createBundle({});
     try {
       const okf = await openOkf(tree.root);
-      expect(() => okf.ingest(input)).toThrow(expect.objectContaining({
-        code: first!.code,
-        path: first!.path,
-        field: first!.field,
-        message: first!.message,
-      }));
+      expect(() => okf.ingest(input)).toThrow(expect.objectContaining(expected));
     } finally {
       await tree.cleanup();
     }

@@ -127,17 +127,17 @@ Use `validateOkfDocument` to check in-memory Markdown without opening a director
 ```js
 import { validateOkfDocument } from "okf-minisearch";
 
-const diagnostics = validateOkfDocument({
+const result = validateOkfDocument({
   path: "guides/recovery.md",
   markdown,
 });
 
-if (diagnostics.length) {
-  console.error(diagnostics);
+if (!result.isValid) {
+  console.error(result.errors);
 }
 ```
 
-`[]` means the document is accepted. Expected path, frontmatter, YAML, Markdown, and known-field failures return diagnostics instead of throwing. Each diagnostic has `code`, normalized or redacted `path`, optional `field`, and `message`.
+`result.isValid` is true exactly when `result.errors` is empty. Expected path, frontmatter, YAML, Markdown, and known-field failures return a result with diagnostics instead of throwing. Each diagnostic has `code`, normalized or redacted `path`, optional `field`, and `message`.
 
 `validateOkfDocument` validates one in-memory concept document against the OKF v0.2 specification. It does not validate the surrounding bundle, resolve referenced content, execute computations, or verify attestation claims.
 
@@ -188,7 +188,7 @@ Optional official fields may be omitted. When present, every official field must
 
 ## Errors
 
-`openOkf` and `ingest` throw `OkfError` for filesystem, parsing, path, and known-field failures. `validateOkfDocument` returns expected document failures as diagnostics instead:
+`openOkf` and `ingest` throw `OkfError` for filesystem, parsing, path, and known-field failures. `validateOkfDocument` returns expected document failures in `result.errors` instead:
 
 ```js
 import { OkfError, openOkf } from "okf-minisearch";
@@ -221,6 +221,7 @@ import type {
   OkfDiagnostic,
   OkfDiagnosticCode,
   OkfDocumentInput,
+  OkfValidationResult,
   OkfIngestResult,
   OkfSearch,
   OkfSearchField,

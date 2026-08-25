@@ -104,6 +104,11 @@ export interface OkfDiagnostic {
   message: string;
 }
 
+export interface OkfValidationResult {
+  readonly isValid: boolean;
+  readonly errors: readonly OkfDiagnostic[];
+}
+
 export interface OkfIndexRecord {
   id: string;
   documentId: string;

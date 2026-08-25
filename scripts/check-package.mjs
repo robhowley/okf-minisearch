@@ -115,6 +115,7 @@ import type {
   OkfStatus,
   OkfTimeWindow,
   OkfTrustTier,
+  OkfValidationResult,
   OkfVerification,
 } from "okf-minisearch";
 
@@ -137,6 +138,12 @@ type ExactSearchField = Assert<
 type ExactFuzzy = Assert<
   Same<OkfSearchOptions["fuzzy"], boolean | undefined>
 >;
+type ExactValidationResult = Assert<
+  Same<OkfValidationResult, {
+    readonly isValid: boolean;
+    readonly errors: readonly OkfDiagnostic[];
+  }>
+>;
 const readonlyFields = ["heading", "body"] as const;
 const searchOptions: OkfSearchOptions = {
   match: "all",
@@ -150,7 +157,11 @@ const matchedField: OkfSearchField =
 const internalField: OkfSearchField = "headingPath";
 const validator: (
   input: OkfDocumentInput,
-) => readonly OkfDiagnostic[] = validateOkfDocument;
+) => OkfValidationResult = validateOkfDocument;
+const validationResult: OkfValidationResult = {
+  isValid: true,
+  errors: [],
+};
 const diagnosticCode: OkfDiagnosticCode = "ERR_OKF_FIELD";
 const diagnostic: OkfDiagnostic = {
   code: diagnosticCode,
@@ -165,6 +176,7 @@ void [
   OkfError,
   openOkf,
   validator,
+  validationResult,
   diagnostic,
   null as IsoDateTime | null,
   null as OkfAttester | null,
@@ -184,6 +196,7 @@ void [
   matchedField,
   null as ExactSearchField | null,
   null as ExactFuzzy | null,
+  null as ExactValidationResult | null,
   null as OkfSource | null,
   null as OkfStatus | null,
   null as OkfTimeWindow | null,
@@ -199,10 +212,13 @@ assert.deepEqual(Object.keys(api).sort(), ["OkfError", "openOkf", "validateOkfDo
 assert.equal(typeof api.OkfError, "function");
 assert.equal(typeof api.openOkf, "function");
 assert.equal(typeof api.validateOkfDocument, "function");
-assert.deepEqual(api.validateOkfDocument({
+const validationResult = api.validateOkfDocument({
   path: "consumer.md",
   markdown: "---\\ntype: note\\n---\\nbody",
-}), []);
+});
+assert.deepEqual(validationResult, { isValid: true, errors: [] });
+assert.equal(validationResult.isValid, true);
+assert.deepEqual(validationResult.errors, []);
 `;
 
 async function checkConsumer(tarball, temporaryRoot) {

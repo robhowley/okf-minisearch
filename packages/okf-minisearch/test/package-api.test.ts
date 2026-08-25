@@ -28,6 +28,7 @@ import type {
   OkfStatus,
   OkfTimeWindow,
   OkfTrustTier,
+  OkfValidationResult,
   OkfVerification,
 } from "../src/index.js";
 import {
@@ -62,7 +63,10 @@ describe("package API", () => {
     expect(api.validateOkfDocument({
       path: "package-api.md",
       markdown: concept("type: note"),
-    })).toEqual([]);
+    })).toEqual({
+      isValid: true,
+      errors: [],
+    });
 
     const okf = await api.openOkf(tree.root);
 
@@ -184,6 +188,10 @@ describe("package API", () => {
       field: "status",
       message: "diagnostic",
     };
+    const validationResult: OkfValidationResult = {
+      isValid: false,
+      errors: [diagnostic],
+    };
 
     expectTypeOf(isoDateTime).toEqualTypeOf<IsoDateTime>();
     expectTypeOf<OkfStatus>().toEqualTypeOf<
@@ -205,6 +213,11 @@ describe("package API", () => {
       "ERR_OKF_PARSE" | "ERR_OKF_FIELD"
     >();
     expectTypeOf(diagnostic).toEqualTypeOf<OkfDiagnostic>();
+    expectTypeOf(validationResult).toEqualTypeOf<OkfValidationResult>();
+    expectTypeOf<OkfValidationResult>().toEqualTypeOf<{
+      readonly isValid: boolean;
+      readonly errors: readonly OkfDiagnostic[];
+    }>();
   });
 
   it("exports the exact search controls contract", () => {
@@ -246,7 +259,7 @@ describe("package API", () => {
       .toEqualTypeOf<OkfDocumentInput>();
     expectTypeOf(api.validateOkfDocument)
       .returns
-      .toEqualTypeOf<readonly OkfDiagnostic[]>();
+      .toEqualTypeOf<OkfValidationResult>();
     expectTypeOf(api.openOkf).returns.resolves.toMatchTypeOf<OkfSearch>();
     expectTypeOf<OkfSearch["ingest"]>()
       .parameter(0)

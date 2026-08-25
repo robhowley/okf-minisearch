@@ -24,5 +24,6 @@ export type {
   OkfStatus,
   OkfTimeWindow,
   OkfTrustTier,
+  OkfValidationResult,
   OkfVerification,
 } from "./types.js";
