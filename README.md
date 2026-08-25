@@ -18,6 +18,7 @@ const okf = await openOkf("./knowledge");
 const [hit] = okf.search("rollback snapshot", { limit: 1 });
 
 console.log({
+  title: hit.title,
   path: hit.path,
   headingPath: hit.headingPath,
   startLine: hit.startLine,
@@ -28,6 +29,7 @@ console.log({
 
 ```text
 {
+  title: 'Database rollback',
   path: 'runbooks/database-rollback.md',
   headingPath: 'Database rollback > Restore snapshot',
   startLine: 9,
@@ -39,7 +41,7 @@ console.log({
 ## What it gives you
 
 - Loads a local Markdown tree recursively into an in-memory MiniSearch index; no separate service.
-- Returns one ranked section per document with its path, heading path, line range, and snippet.
+- Returns one ranked section per document with its title, path, heading path, line range, and snippet.
 - Filters by type, tags, status, trust tier, and staleness.
 - Uses `ingest` for atomic add/replace updates and `remove` for explicit in-memory removal; malformed replacements leave existing records searchable, and source files stay unchanged.
 
