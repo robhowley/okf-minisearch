@@ -3,12 +3,21 @@ import type {
   SearchResult,
 } from "minisearch";
 
+import {
+  isOkfStatus,
+  isOkfTrustTier,
+} from "./vocabulary.js";
+
 import type {
   OkfIndexRecord,
   OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
 } from "./types.js";
+
+type SearchFilters = NonNullable<
+  OkfSearchOptions["where"]
+>;
 
 type IndexedField =
   | "resource"
@@ -58,6 +67,16 @@ const INDEXED_TO_PUBLIC_FIELD: Record<
   sourceText: "sources",
   text: "body",
 };
+
+const FILTER_NAMES = [
+  "types",
+  "tagsAny",
+  "statuses",
+  "trustTiers",
+  "stale",
+] as const;
+
+type FilterName = typeof FILTER_NAMES[number];
 
 type IndexedHit = SearchResult &
   Pick<
@@ -125,6 +144,10 @@ export function search(
     );
   }
 
+  const where = validateWhere(
+    options.where,
+  );
+
   const normalizedQuery = query.trim();
 
   if (!normalizedQuery || limit === 0) {
@@ -162,7 +185,7 @@ export function search(
       filter: (result) =>
         matchesFilters(
           result as IndexedHit,
-          options,
+          where,
           asOf,
         ),
     },
@@ -282,6 +305,119 @@ function normalizeFields(
   return normalized;
 }
 
+function validateWhere(
+  where: OkfSearchOptions["where"],
+): SearchFilters | undefined {
+  if (where === undefined) {
+    return undefined;
+  }
+
+  if (
+    where === null ||
+    typeof where !== "object" ||
+    Array.isArray(where)
+  ) {
+    throw new TypeError(
+      "options.where must be an object",
+    );
+  }
+
+  for (const key of Reflect.ownKeys(where)) {
+    if (
+      Object.prototype.propertyIsEnumerable.call(
+        where,
+        key,
+      ) &&
+      (
+        typeof key !== "string" ||
+        !FILTER_NAMES.includes(key as FilterName)
+      )
+    ) {
+      throw new TypeError(
+        "options.where must contain only valid filter names",
+      );
+    }
+  }
+
+  const validated: SearchFilters = {};
+
+  if (Object.hasOwn(where, "types")) {
+    validated.types = validateFilterArray(
+      where.types,
+      "types",
+      (entry): entry is string =>
+        typeof entry === "string",
+      "options.where.types must contain only strings",
+    );
+  }
+
+  if (Object.hasOwn(where, "tagsAny")) {
+    validated.tagsAny = validateFilterArray(
+      where.tagsAny,
+      "tagsAny",
+      (entry): entry is string =>
+        typeof entry === "string",
+      "options.where.tagsAny must contain only strings",
+    );
+  }
+
+  if (Object.hasOwn(where, "statuses")) {
+    validated.statuses = validateFilterArray(
+      where.statuses,
+      "statuses",
+      isOkfStatus,
+      "options.where.statuses must contain only valid OkfStatus values",
+    );
+  }
+
+  if (Object.hasOwn(where, "trustTiers")) {
+    validated.trustTiers = validateFilterArray(
+      where.trustTiers,
+      "trustTiers",
+      isOkfTrustTier,
+      "options.where.trustTiers must contain only valid OkfTrustTier values",
+    );
+  }
+
+  if (Object.hasOwn(where, "stale")) {
+    if (typeof where.stale !== "boolean") {
+      throw new TypeError(
+        "options.where.stale must be a boolean",
+      );
+    }
+
+    validated.stale = where.stale;
+  }
+
+  return validated;
+}
+
+function validateFilterArray<T>(
+  value: unknown,
+  field: string,
+  isValidEntry: (entry: unknown) => entry is T,
+  invalidEntryMessage: string,
+): readonly T[] {
+  if (!Array.isArray(value)) {
+    throw new TypeError(
+      `options.where.${field} must be an array`,
+    );
+  }
+
+  for (let index = 0; index < value.length; index++) {
+    if (
+      !Object.hasOwn(value, index) ||
+      !isValidEntry(value[index])
+    ) {
+      throw new TypeError(
+        invalidEntryMessage,
+      );
+    }
+  }
+
+  return value;
+}
+
 function translateMatchedFields(
   match: Record<string, readonly string[]>,
 ): OkfSearchField[] {
@@ -314,11 +450,9 @@ function translateMatchedFields(
 
 function matchesFilters(
   hit: IndexedHit,
-  options: OkfSearchOptions,
+  where: SearchFilters | undefined,
   asOf: Date,
 ): boolean {
-  const where = options.where;
-
   if (!where) {
     return true;
   }

@@ -2,6 +2,7 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { parse } from "yaml";
 
 import { OkfError } from "./errors.js";
+import { isOkfStatus } from "./vocabulary.js";
 
 import type { RootContent } from "mdast";
 import type { Node, Position } from "unist";
@@ -195,7 +196,7 @@ function validateFields(
   validateGenerated(data, invalid);
   validateVerified(data, invalid);
 
-  if (present("status") && data.status !== "draft" && data.status !== "stable" && data.status !== "deprecated") {
+  if (present("status") && !isOkfStatus(data.status)) {
     invalid("status");
   }
   if (present("stale_after") && !validTimestamp(data.stale_after)) invalid("stale_after");
