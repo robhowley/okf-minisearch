@@ -73,6 +73,7 @@ Filters are combined with AND. Values within `types`, `tagsAny`, `statuses`, and
 | `limit` | Maximum returned documents. Defaults to `10`; `0` returns no hits. |
 | `match` | `"any"` (the default) matches any query term; `"all"` requires every term in one indexed section or chunk. Terms may match different fields in that section. |
 | `fields` | Non-empty readonly list of fields to search. Omission searches all fields. See the alias table below. |
+| `fuzzy` | Opt-in spelling-near matching. Omission and `false` keep fuzzy matching off; `true` enables the wrapper's fixed conservative policy. |
 | `where.types` | Matches the frontmatter `type`. Directory names do not define type. |
 | `where.tagsAny` | Matches documents containing at least one listed tag. |
 | `where.statuses` | Matches `draft`, `stable`, or `deprecated`. |
@@ -93,7 +94,9 @@ Search covers these public fields:
 | `sources` | Source IDs, titles, authors, and resources |
 | `body` | Section or chunk body text |
 
-`fields` scopes text matching only; `where` metadata filters remain independent. The final query term receives prefix matching when it has at least three characters.
+`fields` scopes text matching only; `where` metadata filters remain independent. The final query term receives prefix matching when it has at least three characters; this remains active with `fuzzy: true`, so an earlier term can use fuzzy matching while the final term uses prefix matching.
+
+When enabled, `fuzzy: true` maps to a fixed MiniSearch fuzziness ratio of `0.2`. This ratio is deliberately pinned and is not a configurable public option. Fuzzy expansion can produce spelling-near false positives, including unrelated results whose words are close in spelling, so use it only when typo recovery is worth that precision tradeoff.
 
 `match: "all"` is section-level: every processed term must match the same indexed section or chunk. It never combines terms from separate sections of one document. One hit is returned per document. Hits are ordered by descending score, with deterministic section-ID ordering for exact score ties.
 
@@ -186,7 +189,7 @@ try {
 | `ERR_OKF_PARSE` | Frontmatter, YAML, UTF-8, or Markdown could not be parsed. |
 | `ERR_OKF_FIELD` | A required field or caller-supplied path is invalid. |
 
-`search` throws `TypeError("options.asOf must be a valid Date")` for an invalid `asOf`, and `TypeError("options.limit must be a finite non-negative integer")` for an invalid limit.
+`search` throws `TypeError("options.asOf must be a valid Date")` for an invalid `asOf`, `TypeError("options.limit must be a finite non-negative integer")` for an invalid limit, and `TypeError("options.fuzzy must be a boolean")` for a non-boolean `fuzzy` value.
 
 ## Public API
 

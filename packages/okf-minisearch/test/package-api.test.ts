@@ -200,6 +200,7 @@ describe("package API", () => {
     const options: OkfSearchOptions = {
       match: "all",
       fields,
+      fuzzy: true,
     };
 
     expectTypeOf<OkfSearchField>().toEqualTypeOf<
@@ -216,11 +217,14 @@ describe("package API", () => {
       .toEqualTypeOf<
         readonly OkfSearchField[] | undefined
       >();
+    expectTypeOf<OkfSearchOptions["fuzzy"]>()
+      .toEqualTypeOf<boolean | undefined>();
     expectTypeOf<OkfSearchHit["matchedFields"]>()
       .toEqualTypeOf<OkfSearchField[]>();
     expect(options).toMatchObject({
       match: "all",
       fields,
+      fuzzy: true,
     });
   });
 

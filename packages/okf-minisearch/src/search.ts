@@ -116,6 +116,15 @@ export function search(
     options.fields,
   );
 
+  if (
+    options.fuzzy !== undefined &&
+    typeof options.fuzzy !== "boolean"
+  ) {
+    throw new TypeError(
+      "options.fuzzy must be a boolean",
+    );
+  }
+
   const normalizedQuery = query.trim();
 
   if (!normalizedQuery || limit === 0) {
@@ -146,6 +155,9 @@ export function search(
 
       combineWith,
       ...(fields ? { fields } : {}),
+      ...(options.fuzzy === true
+        ? { fuzzy: 0.2 }
+        : {}),
 
       filter: (result) =>
         matchesFilters(
