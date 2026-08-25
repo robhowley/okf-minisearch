@@ -257,6 +257,39 @@ describe("validateOkfDocument", () => {
     expect(fields(`type: note\n${yaml}`)).toContain(field);
   });
 
+  it("rejects team source authors with a package-owned field diagnostic", () => {
+    expect(validate(`
+      type: note
+      sources:
+        - resource: x
+          author: team:ga4-docs
+    `)).toEqual({
+      isValid: false,
+      errors: [{
+        code: "ERR_OKF_FIELD",
+        path: "concept.md",
+        field: "sources[0].author",
+        message: "Invalid OKF field: concept.md (sources[0].author)",
+      }],
+    });
+  });
+
+  it.each([
+    "human:alice",
+    "process:builder",
+    "producer/version",
+  ])("accepts existing source actor form %s", (author) => {
+    expect(validate(`
+      type: note
+      sources:
+        - resource: x
+          author: ${author}
+    `)).toEqual({
+      isValid: true,
+      errors: [],
+    });
+  });
+
   it("requires runtime only for the exact Attested Computation type", () => {
     expect(fields("type: Attested Computation")).toEqual(["runtime"]);
     expect(validate("type: Attested Computation\nruntime: node")).toEqual({

@@ -239,6 +239,42 @@ describe("ingest", () => {
     expect(okf.search("Replacementtitleword")).toEqual([]);
   });
 
+  it("rejects team source authors before replacing a document", async () => {
+    const okf = await emptySearch();
+    okf.ingest({
+      path: "strict.md",
+      markdown: concept(`
+        type: original
+        sources:
+          - resource: x
+            author: producer/version
+      `, "oldstrictneedle"),
+    });
+
+    expect(() => okf.ingest({
+      path: "./strict.md",
+      markdown: concept(`
+        type: replacement
+        sources:
+          - resource: x
+            author: team:ga4-docs
+      `, "newstrictneedle"),
+    })).toThrow(expect.objectContaining({
+      code: "ERR_OKF_FIELD",
+      path: "strict.md",
+      field: "sources[0].author",
+      message: "Invalid OKF field: strict.md (sources[0].author)",
+    }));
+
+    expect(okf.search("oldstrictneedle")).toEqual([
+      expect.objectContaining({
+        documentId: "strict",
+        path: "strict.md",
+      }),
+    ]);
+    expect(okf.search("newstrictneedle")).toEqual([]);
+  });
+
   it("does not apply ingest identity rules to metadata or body links", async () => {
     const okf = await emptySearch();
     const result = okf.ingest({
