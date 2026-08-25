@@ -542,6 +542,41 @@ describe("search where filters", () => {
     }
   });
 
+  it("keeps every metadata state eligible when filters are omitted", async () => {
+    const okf = await open({
+      "draft-unverified-stale.md": concept(`
+        type: note
+        status: draft
+        stale_after: 2026-08-24T11:00:00Z
+      `, "visibilityneedle"),
+      "stable-machine-fresh.md": concept(`
+        type: note
+        status: stable
+        stale_after: 2026-08-24T13:00:00Z
+        verified:
+          - by: process:builder
+            at: 2026-08-24T10:00:00Z
+      `, "visibilityneedle"),
+      "deprecated-human-fresh.md": concept(`
+        type: note
+        status: deprecated
+        stale_after: 2026-08-24T13:00:00Z
+        verified:
+          - by: human:alice
+            at: 2026-08-24T10:00:00Z
+      `, "visibilityneedle"),
+    });
+    const asOf = new Date("2026-08-24T12:00:00Z");
+
+    expect(okf.search("visibilityneedle", { asOf })
+      .map((hit) => hit.documentId)
+      .sort()).toEqual([
+      "deprecated-human-fresh",
+      "draft-unverified-stale",
+      "stable-machine-fresh",
+    ]);
+  });
+
   it("keeps valid empty and duplicate filters without mutating input", async () => {
     const okf = await open({
       "stable.md": concept(`

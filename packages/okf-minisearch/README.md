@@ -94,6 +94,8 @@ All `where` filters are combined with AND. Values within a filter array are comb
 | `where.stale` | Whether `stale_after` is at or before `asOf`. |
 | `asOf` | Reference time for stale filtering. Defaults to the current time. |
 
+Omitting `where.statuses`, `where.trustTiers`, or `where.stale` applies no filter for that metadata: all statuses, all trust tiers, and both stale and fresh documents remain eligible. This inclusive default means absence of filtering, not endorsement of any document or metadata value.
+
 ### Search fields
 
 | Public field | Indexed content |
