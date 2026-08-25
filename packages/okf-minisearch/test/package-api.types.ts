@@ -4,14 +4,19 @@
 import type { OkfBundle } from "../src/index.js";
 // @ts-expect-error OkfReservedFile is not part of the package root API.
 import type { OkfReservedFile } from "../src/index.js";
+// @ts-expect-error OkfIndexRecord is not part of the package root API.
+import type { OkfIndexRecord } from "../src/index.js";
 import { validateOkfDocument } from "../src/index.js";
 import type {
   OkfDiagnostic,
   OkfDiagnosticCode,
+  OkfDocument,
   OkfDocumentInput,
+  OkfIngestResult,
   OkfSearch,
   OkfSearchField,
   OkfSearchOptions,
+  OkfStatus,
   OkfValidationResult,
 } from "../src/index.js";
 
@@ -25,6 +30,14 @@ type ExactOkfValidationResult = Assert<Same<
     readonly isValid: boolean;
     readonly errors: readonly OkfDiagnostic[];
   }
+>>;
+type ExactOkfIngestResult = Assert<Same<
+  OkfIngestResult,
+  { document: OkfDocument }
+>>;
+type ExactOkfDocumentStatus = Assert<Same<
+  OkfDocument["status"],
+  OkfStatus
 >>;
 type ExactOkfRemove = Assert<Same<
   OkfSearch["remove"],
@@ -52,10 +65,12 @@ void [
   validation,
   diagnosticCode,
   null as unknown as ExactOkfValidationResult,
+  null as unknown as ExactOkfIngestResult,
+  null as unknown as ExactOkfDocumentStatus,
   null as unknown as ExactOkfRemove,
 ];
 
-void (undefined as unknown as OkfBundle | OkfReservedFile);
+void (undefined as unknown as OkfBundle | OkfReservedFile | OkfIndexRecord);
 
 const booleanFuzzy: OkfSearchOptions = {
   fuzzy: true,

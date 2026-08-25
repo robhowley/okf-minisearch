@@ -9,11 +9,11 @@ import {
 } from "./vocabulary.js";
 
 import type {
-  OkfIndexRecord,
   OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
 } from "./types.js";
+import type { OkfIndexRecord } from "./internal-types.js";
 
 type SearchFilters = NonNullable<
   OkfSearchOptions["where"]

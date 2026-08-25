@@ -116,7 +116,7 @@ describe("remove", () => {
     const paragraphs = chunkTerms.map((term) =>
       `${term} ${"filler ".repeat(100).trim()}`,
     );
-    const added = okf.ingest({
+    okf.ingest({
       path: "sections.md",
       markdown: concept(
         "type: sections",
@@ -131,9 +131,6 @@ ${paragraphs.join("\n\n")}`,
       ),
     });
 
-    expect(added.records.length).toBeGreaterThan(3);
-    expect(added.records.some((record) =>
-      record.id.includes("--part-"))).toBe(true);
     for (const term of [
       "sectionfirstneedle",
       "sectionnestedneedle",

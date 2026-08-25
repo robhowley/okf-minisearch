@@ -63,7 +63,7 @@ export interface OkfDocument {
   generated?: OkfGeneration;
   verified: OkfVerification[];
 
-  status?: OkfStatus;
+  status: OkfStatus;
   staleAfter?: IsoDateTime;
 
   runtime?: string;
@@ -114,34 +114,8 @@ export interface OkfValidationResult {
   readonly errors: readonly OkfDiagnostic[];
 }
 
-export interface OkfIndexRecord {
-  id: string;
-  documentId: string;
-  path: string;
-
-  title: string;
-  description: string;
-  type: string;
-  tags: string[];
-  resource: string;
-  sourceText: string;
-
-  headingPath: string;
-  text: string;
-  startLine: number;
-  endLine: number;
-
-  status?: OkfStatus;
-  staleAfter?: IsoDateTime;
-  staleAfterEpoch?: number;
-  stalenessClassified: boolean;
-  trustTier?: OkfTrustTier;
-}
-
 export interface OkfIngestResult {
   document: OkfDocument;
-  records: readonly OkfIndexRecord[];
-  diagnostics: readonly OkfDiagnostic[];
 }
 
 export type OkfSearchField =

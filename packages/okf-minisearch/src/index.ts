@@ -13,7 +13,6 @@ export type {
   OkfDocumentInput,
   OkfExecutor,
   OkfGeneration,
-  OkfIndexRecord,
   OkfIngestResult,
   OkfParameter,
   OkfSearch,
