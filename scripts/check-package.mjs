@@ -93,11 +93,12 @@ function parsePackManifest(output) {
   return manifest;
 }
 
-const typeConsumer = `import { OkfError, openOkf } from "okf-minisearch";
+const typeConsumer = `import { OkfError, openOkf, validateOkfDocument } from "okf-minisearch";
 import type {
   IsoDateTime,
   OkfAttester,
   OkfDiagnostic,
+  OkfDiagnosticCode,
   OkfDocument,
   OkfDocumentInput,
   OkfErrorCode,
@@ -114,6 +115,7 @@ import type {
   OkfStatus,
   OkfTimeWindow,
   OkfTrustTier,
+  OkfValidationResult,
   OkfVerification,
 } from "okf-minisearch";
 
@@ -136,6 +138,12 @@ type ExactSearchField = Assert<
 type ExactFuzzy = Assert<
   Same<OkfSearchOptions["fuzzy"], boolean | undefined>
 >;
+type ExactValidationResult = Assert<
+  Same<OkfValidationResult, {
+    readonly isValid: boolean;
+    readonly errors: readonly OkfDiagnostic[];
+  }>
+>;
 const readonlyFields = ["heading", "body"] as const;
 const searchOptions: OkfSearchOptions = {
   match: "all",
@@ -147,10 +155,29 @@ const matchedField: OkfSearchField =
   searchHit.matchedFields[0] ?? "body";
 // @ts-expect-error MiniSearch's internal field name is not public.
 const internalField: OkfSearchField = "headingPath";
+const validator: (
+  input: OkfDocumentInput,
+) => OkfValidationResult = validateOkfDocument;
+const validationResult: OkfValidationResult = {
+  isValid: true,
+  errors: [],
+};
+const diagnosticCode: OkfDiagnosticCode = "ERR_OKF_FIELD";
+const diagnostic: OkfDiagnostic = {
+  code: diagnosticCode,
+  path: "consumer.md",
+  field: "type",
+  message: "Invalid OKF field: consumer.md (type)",
+};
+// @ts-expect-error Diagnostics do not expose severity.
+diagnostic.severity = "error";
 
 void [
   OkfError,
   openOkf,
+  validator,
+  validationResult,
+  diagnostic,
   null as IsoDateTime | null,
   null as OkfAttester | null,
   null as OkfDiagnostic | null,
@@ -169,6 +196,7 @@ void [
   matchedField,
   null as ExactSearchField | null,
   null as ExactFuzzy | null,
+  null as ExactValidationResult | null,
   null as OkfSource | null,
   null as OkfStatus | null,
   null as OkfTimeWindow | null,
@@ -180,9 +208,17 @@ void [
 const runtimeConsumer = `import assert from "node:assert/strict";
 import * as api from "okf-minisearch";
 
-assert.deepEqual(Object.keys(api).sort(), ["OkfError", "openOkf"]);
+assert.deepEqual(Object.keys(api).sort(), ["OkfError", "openOkf", "validateOkfDocument"]);
 assert.equal(typeof api.OkfError, "function");
 assert.equal(typeof api.openOkf, "function");
+assert.equal(typeof api.validateOkfDocument, "function");
+const validationResult = api.validateOkfDocument({
+  path: "consumer.md",
+  markdown: "---\\ntype: note\\n---\\nbody",
+});
+assert.deepEqual(validationResult, { isValid: true, errors: [] });
+assert.equal(validationResult.isValid, true);
+assert.deepEqual(validationResult.errors, []);
 `;
 
 async function checkConsumer(tarball, temporaryRoot) {

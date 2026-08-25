@@ -4,10 +4,50 @@
 import type { OkfBundle } from "../src/index.js";
 // @ts-expect-error OkfReservedFile is not part of the package root API.
 import type { OkfReservedFile } from "../src/index.js";
+import { validateOkfDocument } from "../src/index.js";
 import type {
+  OkfDiagnostic,
+  OkfDiagnosticCode,
+  OkfDocumentInput,
   OkfSearchField,
   OkfSearchOptions,
+  OkfValidationResult,
 } from "../src/index.js";
+
+type Same<T, U> =
+  (<V>() => V extends T ? 1 : 2) extends
+  (<V>() => V extends U ? 1 : 2) ? true : false;
+type Assert<T extends true> = T;
+type ExactOkfValidationResult = Assert<Same<
+  OkfValidationResult,
+  {
+    readonly isValid: boolean;
+    readonly errors: readonly OkfDiagnostic[];
+  }
+>>;
+
+const validate: (
+  input: OkfDocumentInput,
+) => OkfValidationResult = validateOkfDocument;
+const validation: OkfValidationResult = {
+  isValid: true,
+  errors: [],
+};
+// @ts-expect-error Validation result state is readonly.
+validation.isValid = false;
+// @ts-expect-error Validation errors are readonly.
+validation.errors.push({
+  code: "ERR_OKF_PARSE",
+  path: "concept.md",
+  message: "diagnostic",
+});
+const diagnosticCode: OkfDiagnosticCode = "ERR_OKF_PARSE";
+void [
+  validate,
+  validation,
+  diagnosticCode,
+  null as unknown as ExactOkfValidationResult,
+];
 
 void (undefined as unknown as OkfBundle | OkfReservedFile);
 

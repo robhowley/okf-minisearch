@@ -120,6 +120,27 @@ interface OkfSearchHit {
 
 Previous releases exposed MiniSearch field names in `matchedFields`. Migrate `headingPath` to `heading`, `sourceText` to `sources`, and `text` to `body`. The separate `headingPath` hit property is unchanged.
 
+## Validate a document
+
+Use `validateOkfDocument` to check in-memory Markdown without opening a directory or changing an index:
+
+```js
+import { validateOkfDocument } from "okf-minisearch";
+
+const result = validateOkfDocument({
+  path: "guides/recovery.md",
+  markdown,
+});
+
+if (!result.isValid) {
+  console.error(result.errors);
+}
+```
+
+Expected path, frontmatter, YAML, Markdown, and known-field failures return a result with diagnostics instead of throwing. Each diagnostic has `code`, normalized or redacted `path`, optional `field`, and `message`.
+
+`validateOkfDocument` validates one in-memory concept document against the OKF v0.2 specification. It does not validate the surrounding bundle, resolve referenced content, execute computations, or verify attestation claims.
+
 ## Add or replace a document
 
 Use `ingest` when a caller already has Markdown or needs to update the in-memory index:
@@ -163,11 +184,11 @@ The package applies these defaults:
 - A missing `stale_after` means the concept is not stale.
 - Unknown frontmatter fields are retained in `document.extensions`.
 
-Malformed optional status, verification, or staleness metadata does not prevent searching the concept. It simply does not match filters for that metadata.
+Official fields are validated against their OKF v0.2 definitions. Unknown concept types and extension keys remain accepted. Validation does not inspect the surrounding bundle or resolve links or resource paths.
 
 ## Errors
 
-Filesystem, parsing, and required-field failures throw `OkfError`:
+`openOkf` and `ingest` throw `OkfError` when a document is invalid. `openOkf` also uses it for filesystem errors. `validateOkfDocument` returns document errors as diagnostics instead of throwing.
 
 ```js
 import { OkfError, openOkf } from "okf-minisearch";
@@ -187,17 +208,20 @@ try {
 | --- | --- |
 | `ERR_OKF_READ` | A selected directory or concept could not be read. |
 | `ERR_OKF_PARSE` | Frontmatter, YAML, UTF-8, or Markdown could not be parsed. |
-| `ERR_OKF_FIELD` | A required field or caller-supplied path is invalid. |
+| `ERR_OKF_FIELD` | A caller-supplied path or known field is invalid. |
 
 `search` throws `TypeError("options.asOf must be a valid Date")` for an invalid `asOf`, `TypeError("options.limit must be a finite non-negative integer")` for an invalid limit, and `TypeError("options.fuzzy must be a boolean")` for a non-boolean `fuzzy` value.
 
 ## Public API
 
-The runtime API contains `openOkf` and `OkfError`. Public TypeScript types can be imported from the package root:
+The runtime API contains `openOkf`, `validateOkfDocument`, and `OkfError`. Public TypeScript types can be imported from the package root:
 
 ```ts
 import type {
+  OkfDiagnostic,
+  OkfDiagnosticCode,
   OkfDocumentInput,
+  OkfValidationResult,
   OkfIngestResult,
   OkfSearch,
   OkfSearchField,
