@@ -836,7 +836,7 @@ describe("search identity and metadata", () => {
   it("returns document IDs and replaces records by logical identity", async () => {
     const okf = await open({});
 
-    const added = okf.ingest({
+    okf.ingest({
       path: "identity/guide.md",
       markdown: concept(`
         type: note
@@ -844,12 +844,6 @@ describe("search identity and metadata", () => {
       `, "oldtopicneedle"),
     });
 
-    expect(added.records).toEqual([
-      expect.objectContaining({
-        documentId: "identity/guide",
-        path: "identity/guide.md",
-      }),
-    ]);
     expect(okf.search("oldtopicneedle")).toEqual([
       expect.objectContaining({
         documentId: "identity/guide",

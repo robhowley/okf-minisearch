@@ -104,7 +104,6 @@ import type {
   OkfErrorCode,
   OkfExecutor,
   OkfGeneration,
-  OkfIndexRecord,
   OkfIngestResult,
   OkfParameter,
   OkfSearch,
@@ -118,6 +117,8 @@ import type {
   OkfValidationResult,
   OkfVerification,
 } from "okf-minisearch";
+// @ts-expect-error OkfIndexRecord is internal and not part of the package root API.
+import type { OkfIndexRecord } from "okf-minisearch";
 
 type ExpectedOkfSearchField =
   | "resource"
@@ -146,6 +147,12 @@ type ExactValidationResult = Assert<
     readonly isValid: boolean;
     readonly errors: readonly OkfDiagnostic[];
   }>
+>;
+type ExactIngestResult = Assert<
+  Same<OkfIngestResult, { document: OkfDocument }>
+>;
+type ExactDocumentStatus = Assert<
+  Same<OkfDocument["status"], OkfStatus>
 >;
 const readonlyFields = ["heading", "body"] as const;
 const searchOptions: OkfSearchOptions = {
@@ -204,6 +211,8 @@ void [
   null as ExactRemove | null,
   null as ExactFuzzy | null,
   null as ExactValidationResult | null,
+  null as ExactIngestResult | null,
+  null as ExactDocumentStatus | null,
   null as OkfSource | null,
   null as OkfStatus | null,
   null as OkfTimeWindow | null,
@@ -233,10 +242,14 @@ assert.deepEqual(validationResult.errors, []);
 const root = await mkdtemp(join(tmpdir(), "okf-minisearch-consumer-"));
 try {
   const okf = await api.openOkf(root);
-  okf.ingest({
+  const ingestResult = okf.ingest({
     path: "consumer.md",
     markdown: "---\\ntype: note\\n---\\npackedremovalneedle",
   });
+  assert.deepEqual(Object.keys(ingestResult), ["document"]);
+  assert.equal(ingestResult.document.status, "stable");
+  assert.equal(Object.hasOwn(ingestResult, "records"), false);
+  assert.equal(Object.hasOwn(ingestResult, "diagnostics"), false);
 
   assert.equal(typeof okf.remove, "function");
   assert.equal(okf.search("packedremovalneedle").length, 1);

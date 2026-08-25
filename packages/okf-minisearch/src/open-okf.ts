@@ -20,10 +20,13 @@ import {
 import { search } from "./search.js";
 
 import type {
-  OkfIndexRecord,
   OkfIngestResult,
   OkfSearch,
 } from "./types.js";
+import type {
+  OkfIndexRecord,
+  OkfPreparedDocument,
+} from "./internal-types.js";
 
 interface ConceptFile {
   absolutePath: string;
@@ -38,7 +41,7 @@ export async function openOkf(
     bundleRoot,
     bundleRoot,
   );
-  const prepared: OkfIngestResult[] = [];
+  const prepared: OkfPreparedDocument[] = [];
 
   for (const file of files) {
     prepared.push(
@@ -63,7 +66,7 @@ export async function openOkf(
   addRecords(index, records);
 
   return {
-    ingest(input) {
+    ingest(input): OkfIngestResult {
       const result = prepareDocument(input);
       const previousIds = recordIds.get(
         result.document.id,
@@ -79,7 +82,7 @@ export async function openOkf(
         result.records.map((record) => record.id),
       );
 
-      return result;
+      return { document: result.document };
     },
 
     remove(path) {

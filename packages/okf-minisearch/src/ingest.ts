@@ -11,14 +11,17 @@ import type {
   OkfDiagnostic,
   OkfDocument,
   OkfDocumentInput,
-  OkfIndexRecord,
-  OkfIngestResult,
   OkfSource,
   OkfStatus,
   OkfTimeWindow,
+  OkfTrustTier,
   OkfValidationResult,
   OkfVerification,
 } from "./types.js";
+import type {
+  OkfIndexRecord,
+  OkfPreparedDocument,
+} from "./internal-types.js";
 
 const MAX_SECTION_WORDS = 800;
 const TARGET_CHUNK_WORDS = 500;
@@ -47,15 +50,15 @@ interface Chunk {
 interface ParsedDocument {
   document: OkfDocument;
   bodyStartLine: number;
-  status?: OkfStatus;
-  trustTier?: OkfIndexRecord["trustTier"];
+  status: OkfStatus;
+  trustTier: OkfTrustTier;
   staleAfterEpoch?: number;
   stalenessClassified: boolean;
 }
 
 interface DocumentAnalysis {
   diagnostics: OkfDiagnostic[];
-  prepared?: Omit<OkfIngestResult, "diagnostics">;
+  prepared?: OkfPreparedDocument;
 }
 
 export function validateOkfDocument(
@@ -71,7 +74,7 @@ export function validateOkfDocument(
 
 export function prepareDocument(
   input: OkfDocumentInput,
-): OkfIngestResult {
+): OkfPreparedDocument {
   const analysis = analyzeDocument(input);
   const diagnostic = analysis.diagnostics[0];
 
@@ -85,10 +88,7 @@ export function prepareDocument(
     throw new Error("OKF analysis completed without a result");
   }
 
-  return {
-    ...analysis.prepared,
-    diagnostics: [],
-  };
+  return analysis.prepared;
 }
 
 function analyzeDocument(input: OkfDocumentInput): DocumentAnalysis {
@@ -382,7 +382,7 @@ function buildDocument(
     ...(Object.hasOwn(data, "resource") ? { resource: data.resource as string } : {}),
     ...(Object.hasOwn(data, "usage_window") ? { usageWindow: timeWindow(data.usage_window) } : {}),
     ...(Object.hasOwn(data, "generated") ? { generated: generation(data.generated) } : {}),
-    ...(status ? { status } : {}),
+    status,
     ...(staleAfter !== undefined ? { staleAfter } : {}),
     ...(Object.hasOwn(data, "runtime") ? { runtime: data.runtime as string } : {}),
     ...(Object.hasOwn(data, "parameters") ? { parameters: parameterList(data.parameters) } : {}),
@@ -405,7 +405,7 @@ function prepareParsedDocument(
   parsed: ParsedDocument,
   path: string,
   conceptSections: Section[],
-): Omit<OkfIngestResult, "diagnostics"> {
+): OkfPreparedDocument {
   const { document, bodyStartLine } = parsed;
   const lines = document.body.split(/\r\n|\n|\r/);
   const slugCounts = new Map<string, number>();
@@ -669,7 +669,7 @@ function sourceList(value: unknown): OkfSource[] {
 
 function verificationValue(value: unknown): {
   events: OkfVerification[];
-  tier: OkfIndexRecord["trustTier"];
+  tier: OkfTrustTier;
 } {
   if (value === undefined) return { events: [], tier: "unverified" };
   const values = Array.isArray(value) ? value : [value];

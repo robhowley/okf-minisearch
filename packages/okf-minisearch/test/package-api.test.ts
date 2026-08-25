@@ -17,7 +17,6 @@ import type {
   OkfErrorCode,
   OkfExecutor,
   OkfGeneration,
-  OkfIndexRecord,
   OkfIngestResult,
   OkfParameter,
   OkfSearch,
@@ -84,6 +83,10 @@ describe("package API", () => {
     const hits = okf.search("packageboundaryneedle");
 
     expect(result.document.id).toBe("package-api");
+    expect(result.document.status).toBe("stable");
+    expect(Object.keys(result)).toEqual(["document"]);
+    expect(Object.hasOwn(result, "records")).toBe(false);
+    expect(Object.hasOwn(result, "diagnostics")).toBe(false);
     expect(hits).toEqual([
       expect.objectContaining({
         documentId: "package-api",
@@ -114,7 +117,6 @@ describe("package API", () => {
     const isoDateTime: IsoDateTime =
       "2026-08-24T10:00:00Z";
     const status = "stable" as OkfStatus;
-    const trustTier = "unverified" as OkfTrustTier;
     const timeWindow: OkfTimeWindow = {
       from: isoDateTime,
       to: isoDateTime,
@@ -162,26 +164,6 @@ describe("package API", () => {
       body: "body",
       extensions: {},
     };
-    const record: OkfIndexRecord = {
-      id: "package-api#root",
-      documentId: document.id,
-      path: "package-api.md",
-      title: document.title,
-      description: "",
-      type: document.type,
-      tags: document.tags,
-      resource: "",
-      sourceText: "",
-      headingPath: document.title,
-      text: document.body,
-      startLine: 1,
-      endLine: 1,
-      status,
-      staleAfter: isoDateTime,
-      staleAfterEpoch: 0,
-      stalenessClassified: true,
-      trustTier,
-    };
     const diagnosticCode: OkfDiagnosticCode = "ERR_OKF_FIELD";
     const diagnostic: OkfDiagnostic = {
       code: diagnosticCode,
@@ -209,7 +191,10 @@ describe("package API", () => {
     expectTypeOf(executor).toEqualTypeOf<OkfExecutor>();
     expectTypeOf(attester).toEqualTypeOf<OkfAttester>();
     expectTypeOf(document).toEqualTypeOf<OkfDocument>();
-    expectTypeOf(record).toEqualTypeOf<OkfIndexRecord>();
+    expectTypeOf<OkfDocument["status"]>().toEqualTypeOf<OkfStatus>();
+    expectTypeOf<OkfIngestResult>().toEqualTypeOf<{
+      document: OkfDocument;
+    }>();
     expectTypeOf<OkfDiagnosticCode>().toEqualTypeOf<
       "ERR_OKF_PARSE" | "ERR_OKF_FIELD"
     >();

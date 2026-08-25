@@ -44,15 +44,13 @@ describe("ingest", () => {
       `, "oldaliasword"),
     });
 
-    expect(added.document.id).toBe("a/b/c");
-    expect(added.diagnostics).toEqual([]);
-    expect(added.records).toEqual([
-      expect.objectContaining({
-        id: "a/b/c#root",
-        documentId: "a/b/c",
-        path: "a/b/c.md",
-      }),
-    ]);
+    expect(added.document).toMatchObject({
+      id: "a/b/c",
+      status: "stable",
+    });
+    expect(Object.keys(added)).toEqual(["document"]);
+    expect(Object.hasOwn(added, "records")).toBe(false);
+    expect(Object.hasOwn(added, "diagnostics")).toBe(false);
 
     const replacement = okf.ingest({
       path: "a/./b//c.md",
@@ -62,10 +60,9 @@ describe("ingest", () => {
     expect(replacement.document).toMatchObject({
       id: "a/b/c",
       type: "changed",
+      status: "stable",
     });
-    expect(replacement.records.map((record) => record.path)).toEqual([
-      "a/b/c.md",
-    ]);
+    expect(Object.keys(replacement)).toEqual(["document"]);
     expect(okf.search("oldaliasword")).toEqual([]);
     expect(okf.search("newaliasword")).toEqual([
       expect.objectContaining({
@@ -200,7 +197,7 @@ describe("ingest", () => {
 
   it("preserves prior records and metadata when an alias replacement is malformed", async () => {
     const okf = await emptySearch();
-    const added = okf.ingest({
+    okf.ingest({
       path: "stable/manual.md",
       markdown: concept(`
         type: original
@@ -209,7 +206,8 @@ describe("ingest", () => {
       `, "# First\noldfirstneedle\n## Second\noldsecondneedle"),
     });
 
-    expect(added.records).toHaveLength(2);
+    expect(okf.search("oldfirstneedle")).toHaveLength(1);
+    expect(okf.search("oldsecondneedle")).toHaveLength(1);
 
     expect(() => okf.ingest({
       path: "./stable//./manual.md",
@@ -257,11 +255,11 @@ describe("ingest", () => {
     expect(result.document.sources).toEqual([
       expect.objectContaining({ resource: "../source" }),
     ]);
-    expect(result.records[0]).toMatchObject({
-      path: "links.md",
-      resource: "../target",
-      text: "link [target](../body.md) metadatapathneedle",
-    });
+    expect(okf.search("metadatapathneedle")).toEqual([
+      expect.objectContaining({
+        path: "links.md",
+      }),
+    ]);
   });
 
   it.each([
