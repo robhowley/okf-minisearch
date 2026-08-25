@@ -83,7 +83,7 @@ The final query term receives prefix matching when it has at least three charact
 
 ### Filters
 
-All `where` filters are combined with AND. Values within a filter array are combined with OR. Empty arrays are ignored.
+All `where` filters are combined with AND. Values within a filter array are combined with OR. Omitted filters and empty arrays are ignored.
 
 | Filter | Matches |
 | --- | --- |
@@ -93,8 +93,6 @@ All `where` filters are combined with AND. Values within a filter array are comb
 | `where.trustTiers` | `unverified`, `machine-confirmed`, or `human-reviewed`. |
 | `where.stale` | Whether `stale_after` is at or before `asOf`. |
 | `asOf` | Reference time for stale filtering. Defaults to the current time. |
-
-Omitting `where.statuses`, `where.trustTiers`, or `where.stale` applies no filter for that metadata: all statuses, all trust tiers, and both stale and fresh documents remain eligible. This inclusive default means absence of filtering, not endorsement of any document or metadata value.
 
 ### Search fields
 
