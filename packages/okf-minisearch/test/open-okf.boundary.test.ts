@@ -1,4 +1,5 @@
 import {
+  chmod,
   mkdtemp,
   mkdir,
   rm,
@@ -26,6 +27,9 @@ import {
 } from "./support/bundle.js";
 
 const bundles: TestBundle[] = [];
+const supportsPermissionFailures =
+  process.platform !== "win32" &&
+  process.getuid?.() !== 0;
 
 afterEach(async () => {
   await Promise.all(
@@ -40,6 +44,25 @@ async function bundle(
   const created = await createBundle(files);
   bundles.push(created);
   return created;
+}
+
+async function expectReadError(
+  operation: Promise<unknown>,
+  root: string,
+  path: string,
+): Promise<void> {
+  try {
+    await operation;
+    expect.unreachable("openOkf should fail");
+  } catch (error) {
+    expect(error).toBeInstanceOf(OkfError);
+    expect(error).toMatchObject({
+      code: "ERR_OKF_READ",
+      path,
+      message: `Cannot read OKF path: ${path}`,
+    });
+    expect((error as Error).message).not.toContain(root);
+  }
 }
 
 describe("openOkf concept boundary", () => {
@@ -234,15 +257,49 @@ describe("OkfError", () => {
     }
   });
 
-  it("wraps root traversal failures", async () => {
+  it("wraps root traversal failures with bundle-relative context", async () => {
     const missing = join(
       tmpdir(),
       `missing-okf-${crypto.randomUUID()}`,
     );
 
-    await expect(openOkf(missing)).rejects.toMatchObject({
-      code: "ERR_OKF_READ",
-      path: ".",
-    });
+    await expectReadError(openOkf(missing), missing, ".");
   });
+
+  it.skipIf(!supportsPermissionFailures)(
+    "wraps nested traversal failures without returning a partial handle",
+    async () => {
+      const tree = await bundle({
+        "a-valid.md": concept("type: note", "filesystemneedle valid"),
+        "nested/blocked.md": concept("type: note", "filesystemneedle blocked"),
+      });
+      const nested = join(tree.root, "nested");
+
+      await chmod(nested, 0o000);
+      try {
+        await expectReadError(openOkf(tree.root), tree.root, "nested");
+      } finally {
+        await chmod(nested, 0o755);
+      }
+    },
+  );
+
+  it.skipIf(!supportsPermissionFailures)(
+    "wraps selected concept read failures without returning a partial handle",
+    async () => {
+      const path = "z-unreadable.md";
+      const tree = await bundle({
+        "a-valid.md": concept("type: note", "filesystemneedle valid"),
+        [path]: concept("type: note", "filesystemneedle unreadable"),
+      });
+      const file = join(tree.root, path);
+
+      await chmod(file, 0o000);
+      try {
+        await expectReadError(openOkf(tree.root), tree.root, path);
+      } finally {
+        await chmod(file, 0o644);
+      }
+    },
+  );
 });
