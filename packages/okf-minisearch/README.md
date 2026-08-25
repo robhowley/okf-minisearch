@@ -50,6 +50,8 @@ for (const hit of hits) {
 
 ## Search
 
+Pass options to control query matching, searchable fields, metadata filters, and result limits:
+
 ```js
 const hits = okf.search("rollback snapshot", {
   match: "all",
@@ -66,22 +68,33 @@ const hits = okf.search("rollback snapshot", {
 });
 ```
 
-Filters are combined with AND. Values within `types`, `tagsAny`, `statuses`, and `trustTiers` are combined with OR. Empty filter arrays are ignored.
+### Query options
 
 | Option | Behavior |
 | --- | --- |
 | `limit` | Maximum returned documents. Defaults to `10`; `0` returns no hits. |
-| `match` | `"any"` (the default) matches any query term; `"all"` requires every term in one indexed section or chunk. Terms may match different fields in that section. |
-| `fields` | Non-empty readonly list of fields to search. Omission searches all fields. See the alias table below. |
-| `fuzzy` | Opt-in spelling-near matching. Omission and `false` keep fuzzy matching off; `true` enables the wrapper's fixed conservative policy. |
-| `where.types` | Matches the frontmatter `type`. Directory names do not define type. |
-| `where.tagsAny` | Matches documents containing at least one listed tag. |
-| `where.statuses` | Matches `draft`, `stable`, or `deprecated`. |
-| `where.trustTiers` | Matches `unverified`, `machine-confirmed`, or `human-reviewed`. |
-| `where.stale` | Matches whether `stale_after` is at or before `asOf`. |
-| `asOf` | Time used for stale filtering. Defaults to the current time. |
+| `match` | `"any"` (the default) matches any query term. `"all"` requires every term to match the same indexed section or chunk, though terms may match different fields within it. |
+| `fields` | Non-empty readonly list of fields to search. Omission searches every public field listed below. |
+| `fuzzy` | Enables spelling-near matching. Omission and `false` keep it off. |
 
-Search covers these public fields:
+The final query term receives prefix matching when it has at least three characters. This remains active with `fuzzy: true`, so earlier terms can use fuzzy matching while the final term uses prefix matching.
+
+`fuzzy: true` uses a fixed MiniSearch fuzziness ratio of `0.2`. It can recover typos, but it can also return unrelated words with similar spelling. The ratio is not configurable.
+
+### Filters
+
+All `where` filters are combined with AND. Values within a filter array are combined with OR. Empty arrays are ignored.
+
+| Filter | Matches |
+| --- | --- |
+| `where.types` | Frontmatter `type` values. Directory names do not define type. |
+| `where.tagsAny` | Documents containing at least one listed tag. |
+| `where.statuses` | `draft`, `stable`, or `deprecated`. |
+| `where.trustTiers` | `unverified`, `machine-confirmed`, or `human-reviewed`. |
+| `where.stale` | Whether `stale_after` is at or before `asOf`. |
+| `asOf` | Reference time for stale filtering. Defaults to the current time. |
+
+### Search fields
 
 | Public field | Indexed content |
 | --- | --- |
@@ -94,13 +107,11 @@ Search covers these public fields:
 | `sources` | Source IDs, titles, authors, and resources |
 | `body` | Section or chunk body text |
 
-`fields` scopes text matching only; `where` metadata filters remain independent. The final query term receives prefix matching when it has at least three characters; this remains active with `fuzzy: true`, so an earlier term can use fuzzy matching while the final term uses prefix matching.
+`fields` controls text matching only. Metadata filters under `where` remain independent.
 
-When enabled, `fuzzy: true` maps to a fixed MiniSearch fuzziness ratio of `0.2`. This ratio is deliberately pinned and is not a configurable public option. Fuzzy expansion can produce spelling-near false positives, including unrelated results whose words are close in spelling, so use it only when typo recovery is worth that precision tradeoff.
+### Results
 
-`match: "all"` is section-level: every processed term must match the same indexed section or chunk. It never combines terms from separate sections of one document. One hit is returned per document. Hits are ordered by descending score, with deterministic section-ID ordering for exact score ties.
-
-Each hit contains:
+Search returns at most one hit per document: its highest-ranked matching section or chunk. Hits are ordered by descending score, with deterministic section-ID ordering for exact score ties.
 
 ```ts
 interface OkfSearchHit {
@@ -117,15 +128,17 @@ interface OkfSearchHit {
 }
 ```
 
-Field details:
+Details worth knowing:
 
 - `documentId` is the normalized relative Markdown path without `.md`.
 - `title` is the frontmatter title. If omitted, it is derived from the final filename segment: hyphens and underscores become spaces, and the first character is capitalized (`nested/derived-title.md` → `Derived title`).
-- `sectionId` identifies the current indexed section or chunk and may change when headings or chunk boundaries change.
-- `score` is an index-local relevance value; compare it only among hits from the same search.
-- `matchedFields` uses the public field aliases above and contains unique values in first-match order.
+- `sectionId` identifies the indexed section or chunk and may change when headings or chunk boundaries change.
+- `score` is local to one search and should only be compared with other hits from that search.
+- `matchedFields` contains unique public field names in first-match order.
 
-Previous releases exposed MiniSearch field names in `matchedFields`. Migrate `headingPath` to `heading`, `sourceText` to `sources`, and `text` to `body`. The separate `headingPath` hit property is unchanged.
+### Migrating `matchedFields`
+
+Earlier versions used MiniSearch field names in `matchedFields`. Replace `headingPath` with `heading`, `sourceText` with `sources`, and `text` with `body`. The separate `headingPath` result property is unchanged.
 
 ## Validate a document
 
