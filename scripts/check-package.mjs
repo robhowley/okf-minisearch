@@ -138,6 +138,9 @@ type ExactSearchField = Assert<
 type ExactFuzzy = Assert<
   Same<OkfSearchOptions["fuzzy"], boolean | undefined>
 >;
+type ExactRemove = Assert<
+  Same<OkfSearch["remove"], (path: string) => boolean>
+>;
 type ExactValidationResult = Assert<
   Same<OkfValidationResult, {
     readonly isValid: boolean;
@@ -153,6 +156,8 @@ const searchOptions: OkfSearchOptions = {
 const searchHit = null as unknown as OkfSearchHit;
 const matchedField: OkfSearchField =
   searchHit.matchedFields[0] ?? "body";
+const remove = null as unknown as OkfSearch["remove"];
+const removalResult: boolean = remove("consumer.md");
 // @ts-expect-error MiniSearch's internal field name is not public.
 const internalField: OkfSearchField = "headingPath";
 const validator: (
@@ -194,7 +199,9 @@ void [
   null as OkfSearchOptions | null,
   searchOptions,
   matchedField,
+  removalResult,
   null as ExactSearchField | null,
+  null as ExactRemove | null,
   null as ExactFuzzy | null,
   null as ExactValidationResult | null,
   null as OkfSource | null,
@@ -206,6 +213,9 @@ void [
 `;
 
 const runtimeConsumer = `import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as api from "okf-minisearch";
 
 assert.deepEqual(Object.keys(api).sort(), ["OkfError", "openOkf", "validateOkfDocument"]);
@@ -219,6 +229,24 @@ const validationResult = api.validateOkfDocument({
 assert.deepEqual(validationResult, { isValid: true, errors: [] });
 assert.equal(validationResult.isValid, true);
 assert.deepEqual(validationResult.errors, []);
+
+const root = await mkdtemp(join(tmpdir(), "okf-minisearch-consumer-"));
+try {
+  const okf = await api.openOkf(root);
+  okf.ingest({
+    path: "consumer.md",
+    markdown: "---\\ntype: note\\n---\\npackedremovalneedle",
+  });
+
+  assert.equal(typeof okf.remove, "function");
+  assert.equal(okf.search("packedremovalneedle").length, 1);
+  assert.equal(okf.remove("./consumer.md"), true);
+  assert.deepEqual(okf.search("packedremovalneedle"), []);
+  assert.equal(okf.remove("consumer.md"), false);
+  assert.equal(okf.remove("missing.md"), false);
+} finally {
+  await rm(root, { recursive: true, force: true });
+}
 `;
 
 async function checkConsumer(tarball, temporaryRoot) {

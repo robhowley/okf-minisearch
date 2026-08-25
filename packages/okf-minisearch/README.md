@@ -170,6 +170,29 @@ Ingesting the normalized path again replaces that concept’s indexed records. R
 
 `ingest` does not write the file, watch the filesystem, or persist the index. Call it whenever your application accepts an updated document.
 
+## Remove a document
+
+Use `remove` to drop one document from the current in-memory index:
+
+```js
+const removed = okf.remove("./guides//recovery.md");
+console.log(removed); // true
+console.log(okf.search("worker health")); // []
+
+console.log(okf.remove("guides/recovery.md")); // false: valid absence/repeat
+console.log(okf.remove("missing.md")); // false: valid absence
+```
+
+`remove(path)` uses the same path rules as `ingest`. It removes every indexed section and chunk for that document.
+
+- Returns `true` when the document was indexed.
+- Returns `false` when the path is valid but not indexed.
+- Throws `OkfError` before changing the index when the path is invalid or reserved.
+
+Path normalization removes empty and `.` segments while preserving case and literal backslashes. Unsafe paths report `"<input>"`; invalid extensions and reserved filenames report the normalized path.
+
+Removal affects only the current in-memory index. It does not modify the source file. Reopening the root indexes the file again.
+
 ## Accepted OKF documents
 
 `okf-minisearch` provides in-memory search over [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/ad30107c31c06aec8a7d5636e0d1058118604e6f/SPEC.md) bundles.

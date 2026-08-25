@@ -183,6 +183,8 @@ export interface OkfSearchHit {
 export interface OkfSearch {
   ingest(input: OkfDocumentInput): OkfIngestResult;
 
+  remove(path: string): boolean;
+
   search(
     query: string,
     options?: OkfSearchOptions,
