@@ -137,7 +137,7 @@ if (!result.isValid) {
 }
 ```
 
-`result.isValid` is true exactly when `result.errors` is empty. Expected path, frontmatter, YAML, Markdown, and known-field failures return a result with diagnostics instead of throwing. Each diagnostic has `code`, normalized or redacted `path`, optional `field`, and `message`.
+Expected path, frontmatter, YAML, Markdown, and known-field failures return a result with diagnostics instead of throwing. Each diagnostic has `code`, normalized or redacted `path`, optional `field`, and `message`.
 
 `validateOkfDocument` validates one in-memory concept document against the OKF v0.2 specification. It does not validate the surrounding bundle, resolve referenced content, execute computations, or verify attestation claims.
 
@@ -184,11 +184,11 @@ The package applies these defaults:
 - A missing `stale_after` means the concept is not stale.
 - Unknown frontmatter fields are retained in `document.extensions`.
 
-Optional official fields may be omitted. When present, every official field must have its declared shape; actors, timestamps, status values, and the `Attested Computation` runtime requirement also receive their documented semantic checks. Invalid list members are rejected rather than silently dropped. Unknown types, unknown top-level or nested keys, empty ordinary strings and lists, and unresolved links or resource paths remain accepted.
+Official fields are validated against their OKF v0.2 definitions. Unknown concept types and extension keys remain accepted. Validation does not inspect the surrounding bundle or resolve links or resource paths.
 
 ## Errors
 
-`openOkf` and `ingest` throw `OkfError` for filesystem, parsing, path, and known-field failures. `validateOkfDocument` returns expected document failures in `result.errors` instead:
+`openOkf` and `ingest` throw `OkfError` when a document is invalid. `openOkf` also uses it for filesystem errors. `validateOkfDocument` returns document errors as diagnostics instead of throwing.
 
 ```js
 import { OkfError, openOkf } from "okf-minisearch";
