@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v0.2.0...okf-minisearch-v0.3.0) (2026-08-25)
+
+
+### Features
+
+* **okf-minisearch:** add document validation API ([#7](https://github.com/robhowley/okf-minisearch/issues/7)) ([22f2e2b](https://github.com/robhowley/okf-minisearch/commit/22f2e2b21bea1d640bcc71765a205ae237afae3f))
+
 ## [0.2.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v0.1.0...okf-minisearch-v0.2.0) (2026-08-25)
 
 
