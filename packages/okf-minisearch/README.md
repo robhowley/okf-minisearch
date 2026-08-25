@@ -211,7 +211,7 @@ Official fields are validated against their OKF v0.2 definitions. Unknown concep
 
 ## Errors
 
-`openOkf` and `ingest` throw `OkfError` when a document is invalid. `openOkf` also uses it for filesystem errors. `validateOkfDocument` returns document errors as diagnostics instead of throwing.
+`openOkf`, `ingest`, and `remove` throw `OkfError` for invalid documents or paths. `openOkf` also uses it for filesystem errors. `validateOkfDocument` returns document errors as diagnostics instead of throwing.
 
 ```js
 import { OkfError, openOkf } from "okf-minisearch";
@@ -237,7 +237,7 @@ try {
 
 ## Public API
 
-The runtime API contains `openOkf`, `validateOkfDocument`, and `OkfError`. Public TypeScript types can be imported from the package root:
+The package root exports `openOkf`, `validateOkfDocument`, and `OkfError`. `openOkf(root)` returns an `OkfSearch` handle with `search(query, options?)`, `ingest(input)`, and `remove(path)`. Public TypeScript types can be imported from the package root:
 
 ```ts
 import type {
