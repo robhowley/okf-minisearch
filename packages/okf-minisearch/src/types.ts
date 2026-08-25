@@ -1,9 +1,14 @@
+import type {
+  OkfStatus,
+  OkfTrustTier,
+} from "./vocabulary.js";
+
+export type {
+  OkfStatus,
+  OkfTrustTier,
+} from "./vocabulary.js";
+
 export type IsoDateTime = string;
-export type OkfStatus = "draft" | "stable" | "deprecated";
-export type OkfTrustTier =
-  | "unverified"
-  | "machine-confirmed"
-  | "human-reviewed";
 
 export interface OkfTimeWindow {
   from: IsoDateTime;

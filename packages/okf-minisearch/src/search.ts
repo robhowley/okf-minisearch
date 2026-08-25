@@ -3,13 +3,16 @@ import type {
   SearchResult,
 } from "minisearch";
 
+import {
+  isOkfStatus,
+  isOkfTrustTier,
+} from "./vocabulary.js";
+
 import type {
   OkfIndexRecord,
   OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
-  OkfStatus,
-  OkfTrustTier,
 } from "./types.js";
 
 type SearchFilters = NonNullable<
@@ -74,18 +77,6 @@ const FILTER_NAMES = [
 ] as const;
 
 type FilterName = typeof FILTER_NAMES[number];
-
-const VALID_STATUSES: readonly OkfStatus[] = [
-  "draft",
-  "stable",
-  "deprecated",
-];
-
-const VALID_TRUST_TIERS: readonly OkfTrustTier[] = [
-  "unverified",
-  "machine-confirmed",
-  "human-reviewed",
-];
 
 type IndexedHit = SearchResult &
   Pick<
@@ -374,11 +365,7 @@ function validateWhere(
     validated.statuses = validateFilterArray(
       where.statuses,
       "statuses",
-      (entry): entry is OkfStatus =>
-        typeof entry === "string" &&
-        VALID_STATUSES.includes(
-          entry as OkfStatus,
-        ),
+      isOkfStatus,
       "options.where.statuses must contain only valid OkfStatus values",
     );
   }
@@ -387,11 +374,7 @@ function validateWhere(
     validated.trustTiers = validateFilterArray(
       where.trustTiers,
       "trustTiers",
-      (entry): entry is OkfTrustTier =>
-        typeof entry === "string" &&
-        VALID_TRUST_TIERS.includes(
-          entry as OkfTrustTier,
-        ),
+      isOkfTrustTier,
       "options.where.trustTiers must contain only valid OkfTrustTier values",
     );
   }
