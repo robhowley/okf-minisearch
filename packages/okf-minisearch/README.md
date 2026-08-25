@@ -51,7 +51,9 @@ for (const hit of hits) {
 ## Search
 
 ```js
-const hits = okf.search("rollback", {
+const hits = okf.search("rollback snapshot", {
+  match: "all",
+  fields: ["title", "body"],
   limit: 5,
   where: {
     types: ["runbook"],
@@ -69,6 +71,8 @@ Filters are combined with AND. Values within `types`, `tagsAny`, `statuses`, and
 | Option | Behavior |
 | --- | --- |
 | `limit` | Maximum returned documents. Defaults to `10`; `0` returns no hits. |
+| `match` | `"any"` (the default) matches any query term; `"all"` requires every term in one indexed section or chunk. Terms may match different fields in that section. |
+| `fields` | Non-empty readonly list of fields to search. Omission searches all fields. See the alias table below. |
 | `where.types` | Matches the frontmatter `type`. Directory names do not define type. |
 | `where.tagsAny` | Matches documents containing at least one listed tag. |
 | `where.statuses` | Matches `draft`, `stable`, or `deprecated`. |
@@ -76,9 +80,22 @@ Filters are combined with AND. Values within `types`, `tagsAny`, `statuses`, and
 | `where.stale` | Matches whether `stale_after` is at or before `asOf`. |
 | `asOf` | Time used for stale filtering. Defaults to the current time. |
 
-Search covers resource, title, heading path, description, tags, type, source IDs, source titles, source authors, source resources, and body text. The final query term receives prefix matching when it has at least three characters.
+Search covers these public fields:
 
-One hit is returned per document. Hits are ordered by descending score, with deterministic section-ID ordering for exact score ties.
+| Public field | Indexed content |
+| --- | --- |
+| `resource` | Document resource |
+| `title` | Document title |
+| `heading` | Section heading path |
+| `description` | Document description |
+| `tags` | Document tags |
+| `type` | Document type |
+| `sources` | Source IDs, titles, authors, and resources |
+| `body` | Section or chunk body text |
+
+`fields` scopes text matching only; `where` metadata filters remain independent. The final query term receives prefix matching when it has at least three characters.
+
+`match: "all"` is section-level: every processed term must match the same indexed section or chunk. It never combines terms from separate sections of one document. One hit is returned per document. Hits are ordered by descending score, with deterministic section-ID ordering for exact score ties.
 
 Each hit contains:
 
@@ -87,7 +104,7 @@ interface OkfSearchHit {
   documentId: string;
   sectionId: string;
   score: number;
-  matchedFields: string[];
+  matchedFields: OkfSearchField[];
   headingPath: string;
   path: string;
   startLine: number;
@@ -96,7 +113,9 @@ interface OkfSearchHit {
 }
 ```
 
-`documentId` is the normalized relative Markdown path without `.md`. `sectionId` identifies the current indexed section or chunk and may change when headings or chunk boundaries change. `score` is an index-local relevance value; compare it only among hits from the same search.
+`documentId` is the normalized relative Markdown path without `.md`. `sectionId` identifies the current indexed section or chunk and may change when headings or chunk boundaries change. `score` is an index-local relevance value; compare it only among hits from the same search. `matchedFields` uses the public field aliases above and contains unique values in first-match order.
+
+Previous releases exposed MiniSearch field names in `matchedFields`. Migrate `headingPath` to `heading`, `sourceText` to `sources`, and `text` to `body`. The separate `headingPath` hit property is unchanged.
 
 ## Add or replace a document
 
@@ -178,6 +197,7 @@ import type {
   OkfDocumentInput,
   OkfIngestResult,
   OkfSearch,
+  OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
 } from "okf-minisearch";

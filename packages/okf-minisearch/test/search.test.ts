@@ -6,7 +6,11 @@ import {
 } from "vitest";
 
 import { openOkf } from "../src/index.js";
-import type { OkfSearch } from "../src/index.js";
+import type {
+  OkfSearch,
+  OkfSearchField,
+  OkfSearchOptions,
+} from "../src/index.js";
 import {
   concept,
   createBundle,
@@ -109,6 +113,270 @@ describe("search limits", () => {
       asOf: invalidAsOf,
       limit: -1,
     })).toThrowError(expected);
+  });
+});
+
+describe("search controls", () => {
+  it("preserves default OR behavior and supports any/all matching", async () => {
+    const okf = await open({
+      "partial.md": concept(
+        "type: note",
+        "matchalpha",
+      ),
+      "full.md": concept(
+        "type: note",
+        "matchalpha matchbeta",
+      ),
+    });
+
+    const omitted = okf.search(
+      "matchalpha matchbeta",
+    );
+    const any = okf.search(
+      "matchalpha matchbeta",
+      { match: "any" },
+    );
+
+    expect(omitted).toEqual(any);
+    expect(any.map((hit) => hit.documentId).sort()).toEqual([
+      "full",
+      "partial",
+    ]);
+    expect(okf.search("matchalpha matchbeta", {
+      match: "all",
+    }).map((hit) => hit.documentId)).toEqual([
+      "full",
+    ]);
+
+    const crossField = await open({
+      "cross-field.md": concept(
+        `
+          type: note
+          title: allfieldtitlealpha
+        `,
+        "allfieldbodybeta",
+      ),
+    });
+
+    expect(crossField.search(
+      "allfieldtitlealpha allfieldbodybeta",
+      { match: "all" },
+    )).toHaveLength(1);
+  });
+
+  it("keeps all matching terms within one indexed section", async () => {
+    const okf = await open({
+      "split.md": concept(
+        "type: note",
+        "# First\nsectionalpha\n# Second\nsectionbeta",
+      ),
+      "together.md": concept(
+        "type: note",
+        "# Together\nsectionalpha sectionbeta",
+      ),
+    });
+
+    expect(okf.search(
+      "sectionalpha sectionbeta",
+      { match: "all" },
+    ).map((hit) => hit.documentId)).toEqual([
+      "together",
+    ]);
+  });
+
+  it("accepts every public field alias and translates matched fields", async () => {
+    const okf = await open({
+      "aliases.md": concept(
+        `
+          type: publictypealias
+          title: publictitlealias
+          resource: publicresourcealias
+          description: publicdescriptionalias
+          tags: [publictagsalias]
+          sources:
+            - resource: publicsourcesalias
+        `,
+        "# publicheadingalias\npublicbodyalias",
+      ),
+    });
+
+    const cases: Array<[
+      OkfSearchField,
+      string,
+    ]> = [
+      ["resource", "publicresourcealias"],
+      ["title", "publictitlealias"],
+      ["heading", "publicheadingalias"],
+      ["description", "publicdescriptionalias"],
+      ["tags", "publictagsalias"],
+      ["type", "publictypealias"],
+      ["sources", "publicsourcesalias"],
+      ["body", "publicbodyalias"],
+    ];
+
+    for (const [field, term] of cases) {
+      expect(okf.search(term, { fields: [field] })).toEqual([
+        expect.objectContaining({
+          documentId: "aliases",
+          matchedFields: [field],
+        }),
+      ]);
+    }
+
+    expect(okf.search(
+      "publictitlealias publicheadingalias publicbodyalias",
+      { fields: ["title", "heading", "body"] },
+    )[0]!.matchedFields).toEqual([
+      "title",
+      "heading",
+      "body",
+    ]);
+  });
+
+  it("deduplicates fields without changing the caller input", async () => {
+    const okf = await open({
+      "duplicate.md": concept(
+        "type: note",
+        "duplicatebodyalias",
+      ),
+    });
+    const fields: OkfSearchField[] = [
+      "body",
+      "body",
+    ];
+
+    const duplicate = okf.search(
+      "duplicatebodyalias",
+      { fields },
+    );
+    const single = okf.search(
+      "duplicatebodyalias",
+      { fields: ["body"] },
+    );
+
+    expect(fields).toEqual(["body", "body"]);
+    expect(duplicate).toEqual(single);
+    expect(duplicate[0]!.matchedFields).toEqual([
+      "body",
+    ]);
+  });
+
+  it("rejects invalid match and fields values", async () => {
+    const okf = await open({
+      "validation.md": concept(
+        "type: note",
+        "validationneedle",
+      ),
+    });
+    const matchError = new TypeError(
+      'options.match must be "any" or "all"',
+    );
+    const fieldsError = new TypeError(
+      "options.fields must be a non-empty array",
+    );
+    const entriesError = new TypeError(
+      "options.fields must contain only valid OkfSearchField values",
+    );
+
+    for (const match of [
+      null,
+      "sometimes",
+      true,
+      1,
+    ]) {
+      expect(() => okf.search("validationneedle", {
+        match: match as OkfSearchOptions["match"],
+      })).toThrowError(matchError);
+    }
+
+    for (const fields of [
+      [],
+      null,
+      "body",
+      {},
+    ]) {
+      expect(() => okf.search("validationneedle", {
+        fields: fields as OkfSearchOptions["fields"],
+      })).toThrowError(fieldsError);
+    }
+
+    for (const fields of [
+      new Array(1),
+      ["body", "headingPath"],
+      ["unknown"],
+      ["body", undefined],
+    ]) {
+      expect(() => okf.search("validationneedle", {
+        fields: fields as OkfSearchOptions["fields"],
+      })).toThrowError(entriesError);
+    }
+  });
+
+  it("validates new options before blank and zero-limit returns", async () => {
+    const okf = await open({
+      "validation-order.md": concept(
+        "type: note",
+        "validationorderneedle",
+      ),
+    });
+    const invalidOptions: Array<[
+      OkfSearchOptions,
+      TypeError,
+    ]> = [
+      [
+        { match: "invalid" as OkfSearchOptions["match"] },
+        new TypeError(
+          'options.match must be "any" or "all"',
+        ),
+      ],
+      [
+        { fields: [] },
+        new TypeError(
+          "options.fields must be a non-empty array",
+        ),
+      ],
+      [
+        {
+          fields: ["headingPath"] as unknown as OkfSearchOptions["fields"],
+        },
+        new TypeError(
+          "options.fields must contain only valid OkfSearchField values",
+        ),
+      ],
+    ];
+
+    for (const [options, error] of invalidOptions) {
+      expect(() => okf.search("", options))
+        .toThrowError(error);
+      expect(() => okf.search(
+        "validationorderneedle",
+        { ...options, limit: 0 },
+      )).toThrowError(error);
+    }
+  });
+
+  it("keeps filters, deduplication, and tie ordering with scoped fields", async () => {
+    const body = "# First\nscopedtie\n# Second\nscopedtie";
+    const okf = await open({
+      "b.md": concept("type: note", body),
+      "a.md": concept("type: note", body),
+      "c.md": concept("type: recipe", body),
+    });
+
+    const hits = okf.search("scopedtie", {
+      fields: ["body"],
+      where: { types: ["note"] },
+      limit: 10,
+    });
+
+    expect(hits.map((hit) => hit.sectionId)).toEqual([
+      "a#first",
+      "b#first",
+    ]);
+    expect(hits[0]!.score).toBe(hits[1]!.score);
+    expect(hits.every((hit) =>
+      hit.matchedFields.every((field) => field === "body"),
+    )).toBe(true);
   });
 });
 

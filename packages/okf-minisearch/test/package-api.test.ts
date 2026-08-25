@@ -20,6 +20,7 @@ import type {
   OkfIngestResult,
   OkfParameter,
   OkfSearch,
+  OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
   OkfSource,
@@ -192,6 +193,35 @@ describe("package API", () => {
     expectTypeOf(document).toEqualTypeOf<OkfDocument>();
     expectTypeOf(record).toEqualTypeOf<OkfIndexRecord>();
     expectTypeOf(diagnostic).toEqualTypeOf<OkfDiagnostic>();
+  });
+
+  it("exports the exact search controls contract", () => {
+    const fields = ["heading", "body"] as const;
+    const options: OkfSearchOptions = {
+      match: "all",
+      fields,
+    };
+
+    expectTypeOf<OkfSearchField>().toEqualTypeOf<
+      | "resource"
+      | "title"
+      | "heading"
+      | "description"
+      | "tags"
+      | "type"
+      | "sources"
+      | "body"
+    >();
+    expectTypeOf<OkfSearchOptions["fields"]>()
+      .toEqualTypeOf<
+        readonly OkfSearchField[] | undefined
+      >();
+    expectTypeOf<OkfSearchHit["matchedFields"]>()
+      .toEqualTypeOf<OkfSearchField[]>();
+    expect(options).toMatchObject({
+      match: "all",
+      fields,
+    });
   });
 
   it("keeps generated-declaration source types usable", () => {

@@ -5,9 +5,59 @@ import type {
 
 import type {
   OkfIndexRecord,
+  OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
 } from "./types.js";
+
+type IndexedField =
+  | "resource"
+  | "title"
+  | "headingPath"
+  | "description"
+  | "tags"
+  | "type"
+  | "sourceText"
+  | "text";
+
+const PUBLIC_FIELDS: readonly OkfSearchField[] = [
+  "resource",
+  "title",
+  "heading",
+  "description",
+  "tags",
+  "type",
+  "sources",
+  "body",
+];
+
+const PUBLIC_TO_INDEXED_FIELD: Record<
+  OkfSearchField,
+  IndexedField
+> = {
+  resource: "resource",
+  title: "title",
+  heading: "headingPath",
+  description: "description",
+  tags: "tags",
+  type: "type",
+  sources: "sourceText",
+  body: "text",
+};
+
+const INDEXED_TO_PUBLIC_FIELD: Record<
+  IndexedField,
+  OkfSearchField
+> = {
+  resource: "resource",
+  title: "title",
+  headingPath: "heading",
+  description: "description",
+  tags: "tags",
+  type: "type",
+  sourceText: "sources",
+  text: "body",
+};
 
 type IndexedHit = SearchResult &
   Pick<
@@ -59,6 +109,13 @@ export function search(
     );
   }
 
+  const combineWith = validateMatch(
+    options.match,
+  );
+  const fields = normalizeFields(
+    options.fields,
+  );
+
   const normalizedQuery = query.trim();
 
   if (!normalizedQuery || limit === 0) {
@@ -86,6 +143,9 @@ export function search(
       ) =>
         index === terms.length - 1 &&
         term.length >= 3,
+
+      combineWith,
+      ...(fields ? { fields } : {}),
 
       filter: (result) =>
         matchesFilters(
@@ -131,11 +191,9 @@ export function search(
       sectionId: String(hit.id),
       score: hit.score,
 
-      matchedFields: [
-        ...new Set(
-          Object.values(hit.match).flat(),
-        ),
-      ],
+      matchedFields: translateMatchedFields(
+        hit.match,
+      ),
 
       headingPath: hit.headingPath,
       path: hit.path,
@@ -154,6 +212,92 @@ export function search(
   }
 
   return hits;
+}
+
+function validateMatch(
+  match: OkfSearchOptions["match"],
+): "OR" | "AND" {
+  if (
+    match !== undefined &&
+    match !== "any" &&
+    match !== "all"
+  ) {
+    throw new TypeError(
+      'options.match must be "any" or "all"',
+    );
+  }
+
+  return match === "all" ? "AND" : "OR";
+}
+
+function normalizeFields(
+  fields: OkfSearchOptions["fields"],
+): IndexedField[] | undefined {
+  if (fields === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(fields) || fields.length === 0) {
+    throw new TypeError(
+      "options.fields must be a non-empty array",
+    );
+  }
+
+  const normalized: IndexedField[] = [];
+
+  for (const field of fields as readonly unknown[]) {
+    if (
+      typeof field !== "string" ||
+      !PUBLIC_FIELDS.includes(
+        field as OkfSearchField,
+      )
+    ) {
+      throw new TypeError(
+        "options.fields must contain only valid OkfSearchField values",
+      );
+    }
+
+    const indexedField =
+      PUBLIC_TO_INDEXED_FIELD[
+        field as OkfSearchField
+      ];
+
+    if (!normalized.includes(indexedField)) {
+      normalized.push(indexedField);
+    }
+  }
+
+  return normalized;
+}
+
+function translateMatchedFields(
+  match: Record<string, readonly string[]>,
+): OkfSearchField[] {
+  const fields: OkfSearchField[] = [];
+
+  for (const matchedFields of Object.values(match)) {
+    for (const indexedField of matchedFields) {
+      if (
+        !Object.hasOwn(
+          INDEXED_TO_PUBLIC_FIELD,
+          indexedField,
+        )
+      ) {
+        continue;
+      }
+
+      const publicField =
+        INDEXED_TO_PUBLIC_FIELD[
+          indexedField as IndexedField
+        ];
+
+      if (!fields.includes(publicField)) {
+        fields.push(publicField);
+      }
+    }
+  }
+
+  return fields;
 }
 
 function matchesFilters(
