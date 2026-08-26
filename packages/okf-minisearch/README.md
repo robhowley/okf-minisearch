@@ -56,10 +56,7 @@ Pass options to control query matching, searchable fields, metadata filters, and
 const hits = okf.search("rollback snapshot", {
   match: "all",
   fields: ["title", "body"],
-  boost: {
-    title: 1.5,
-    body: 2,
-  },
+  boost: { title: 8 },
   limit: 5,
   where: {
     types: ["runbook"],
@@ -80,9 +77,9 @@ const hits = okf.search("rollback snapshot", {
 | `match` | `"any"` (the default) matches any query term. `"all"` requires every term to match the same indexed section or chunk, though terms may match different fields within it. |
 | `fields` | Non-empty readonly list of fields to search. Omission searches every public field listed below. |
 | `fuzzy` | Enables spelling-near matching. Omission and `false` keep it off. |
-| `boost` | Sets the ranking weight for each named public field. |
+| `boost` | Changes how strongly matches in each selected field affect ranking. |
 
-Field boosts replace the default ranking weights for the named fields. Omitted fields retain their built-in baselines, listed below. Values must be finite numbers between `0.1` and `10`, inclusive. `0` is invalid—use `fields` to exclude a field. For example, `{ boost: { title: 2 } }` sets the title weight to `2`; omitting `boost`, setting it to `undefined`, or using `boost: {}` preserves the default results.
+`boost` values replace the default weights—not multiply them—and must be between `0.1` and `10`. Omitted fields keep the defaults listed below. Use `fields` to choose which fields are searched.
 
 The final query term receives prefix matching when it has at least three characters. This remains active with `fuzzy: true`, so earlier terms can use fuzzy matching while the final term uses prefix matching.
 
@@ -103,7 +100,7 @@ All `where` filters are combined with AND. Values within a filter array are comb
 
 ### Search fields
 
-| Public field | Indexed content | Default baseline |
+| Public field | Indexed content | Default weight |
 | --- | --- | ---: |
 | `resource` | Document resource | 6 |
 | `title` | Document title | 5 |
@@ -114,7 +111,7 @@ All `where` filters are combined with AND. Values within a filter array are comb
 | `sources` | Source IDs, titles, authors, and resources | 1 |
 | `body` | Section or chunk body text | 1 |
 
-Only these eight public aliases are accepted by `fields` and `boost`; internal names such as `headingPath`, `sourceText`, and `text` are not accepted. Boosts affect ranking only among fields selected by `fields` and do not override `fields` or `where`. Metadata filters under `where` remain independent.
+`fields` and `boost` accept only the names above. Boosting a field does not make it searchable when it is excluded by `fields`; `where` filters remain independent.
 
 ### Results
 
@@ -140,8 +137,7 @@ Details worth knowing:
 - `documentId` is the normalized relative Markdown path without `.md`.
 - `title` is the frontmatter title. If omitted, it is derived from the final filename segment: hyphens and underscores become spaces, and the first character is capitalized (`nested/derived-title.md` → `Derived title`).
 - `sectionId` identifies the indexed section or chunk and may change when headings or chunk boundaries change.
-- Boosts can change hit ordering and which matching section represents a document; scores are not comparable across searches.
-- `score` is local to one search and should only be compared with other hits from that search.
+- `score` is meaningful only within one search; changing boosts can change document ordering and the section chosen to represent each document.
 - `matchedFields` contains unique public field names in first-match order.
 
 ### Migrating `matchedFields`
@@ -266,16 +262,6 @@ try {
 If `ingest` or `remove` throws `ERR_OKF_INDEX_UNUSABLE`, discard the handle and rebuild it with `openOkf(root)`.
 
 `search` throws `TypeError("options.asOf must be a valid Date")` for an invalid `asOf`, `TypeError("options.limit must be a finite non-negative integer")` for an invalid limit, and `TypeError("options.fuzzy must be a boolean")` for a non-boolean `fuzzy` value.
-
-`boost` is validated after `asOf`, `limit`, `match`, `fields`, `fuzzy`, and `where`, and before trimming the query or returning early for a blank query or `limit: 0`. Its exact `TypeError` messages are:
-
-```text
-options.boost must be an object
-options.boost must contain only valid OkfSearchField keys
-options.boost.<field> must be a finite number between 0.1 and 10, inclusive
-```
-
-`<field>` is replaced by the invalid public field name.
 
 ## Public API
 
