@@ -148,6 +148,36 @@ describe("poisoned MiniSearch handle", () => {
     expect(searchSpy).not.toHaveBeenCalled();
   });
 
+  it("poisons after a replacement ingest discard fails", async () => {
+    const okf = await openedSearch({
+      [failedPath]: concept("type: guide", "guideneedle"),
+      "present.md": concept("type: present", "presentneedle"),
+    });
+    const rawError = new Error("injected MiniSearch replacement discard failure");
+    const originalDiscard = MiniSearch.prototype.discard;
+    const discardSpy = vi.spyOn(MiniSearch.prototype, "discard")
+      .mockImplementation(function (this: MiniSearch, id) {
+        originalDiscard.call(this, id);
+        throw rawError;
+      });
+
+    const failure = thrownBy(() => okf.ingest({
+      path: "./nested//guide.md",
+      markdown: concept("type: replacement", "replacementneedle"),
+    }));
+
+    expect(discardSpy).toHaveBeenCalledTimes(1);
+    expectPoisonError(failure, rawError);
+
+    const addSpy = vi.spyOn(MiniSearch.prototype, "add");
+    const searchSpy = vi.spyOn(MiniSearch.prototype, "search");
+    expectEveryLaterOperationToRethrow(okf, failure);
+
+    expect(discardSpy).toHaveBeenCalledTimes(1);
+    expect(addSpy).not.toHaveBeenCalled();
+    expect(searchSpy).not.toHaveBeenCalled();
+  });
+
   it("does not poison the handle after parse or field failures", async () => {
     const okf = await openedSearch();
 
