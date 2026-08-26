@@ -19,6 +19,14 @@ type SearchFilters = NonNullable<
   OkfSearchOptions["where"]
 >;
 
+type SearchRelevance = NonNullable<
+  OkfSearchOptions["relevance"]
+>;
+
+type FieldBoostMultipliers = Partial<
+  Record<OkfSearchField, number>
+>;
+
 type IndexedField =
   | "resource"
   | "title"
@@ -67,6 +75,27 @@ const INDEXED_TO_PUBLIC_FIELD: Record<
   sourceText: "sources",
   text: "body",
 };
+
+const BASELINE_FIELD_BOOSTS: Record<
+  OkfSearchField,
+  number
+> = {
+  resource: 6,
+  title: 5,
+  heading: 4,
+  description: 3,
+  tags: 2,
+  type: 1.5,
+  sources: 1,
+  body: 1,
+};
+
+const RELEVANCE_NAMES = [
+  "fieldBoosts",
+] as const;
+
+type RelevanceName =
+  typeof RELEVANCE_NAMES[number];
 
 const FILTER_NAMES = [
   "types",
@@ -148,6 +177,9 @@ export function search(
   const where = validateWhere(
     options.where,
   );
+  const fieldBoosts = validateRelevance(
+    options.relevance,
+  );
 
   const normalizedQuery = query.trim();
 
@@ -158,16 +190,9 @@ export function search(
   const rawHits = index.search(
     normalizedQuery,
     {
-      boost: {
-        resource: 6,
-        title: 5,
-        headingPath: 4,
-        description: 3,
-        tags: 2,
-        type: 1.5,
-        sourceText: 1,
-        text: 1,
-      },
+      boost: makeIndexedBoosts(
+        fieldBoosts,
+      ),
 
       prefix: (
         term,
@@ -305,6 +330,126 @@ function normalizeFields(
   }
 
   return normalized;
+}
+
+function validateRelevance(
+  relevance: SearchRelevance | undefined,
+): FieldBoostMultipliers {
+  if (relevance === undefined) {
+    return {};
+  }
+
+  if (
+    relevance === null ||
+    typeof relevance !== "object" ||
+    Array.isArray(relevance)
+  ) {
+    throw new TypeError(
+      "options.relevance must be an object",
+    );
+  }
+
+  for (const key of Reflect.ownKeys(relevance)) {
+    if (
+      Object.prototype.propertyIsEnumerable.call(
+        relevance,
+        key,
+      ) &&
+      (
+        typeof key !== "string" ||
+        !RELEVANCE_NAMES.includes(
+          key as RelevanceName,
+        )
+      )
+    ) {
+      throw new TypeError(
+        "options.relevance must contain only valid relevance option names",
+      );
+    }
+  }
+
+  const multipliers: FieldBoostMultipliers = {};
+
+  if (!Object.hasOwn(relevance, "fieldBoosts")) {
+    return multipliers;
+  }
+
+  const fieldBoosts = relevance.fieldBoosts;
+
+  if (
+    fieldBoosts === null ||
+    typeof fieldBoosts !== "object" ||
+    Array.isArray(fieldBoosts)
+  ) {
+    throw new TypeError(
+      "options.relevance.fieldBoosts must be an object",
+    );
+  }
+
+  for (const key of Reflect.ownKeys(fieldBoosts)) {
+    if (
+      Object.prototype.propertyIsEnumerable.call(
+        fieldBoosts,
+        key,
+      ) &&
+      (
+        typeof key !== "string" ||
+        !PUBLIC_FIELDS.includes(
+          key as OkfSearchField,
+        )
+      )
+    ) {
+      throw new TypeError(
+        "options.relevance.fieldBoosts must contain only valid OkfSearchField keys",
+      );
+    }
+  }
+
+  for (const field of PUBLIC_FIELDS) {
+    if (!Object.hasOwn(fieldBoosts, field)) {
+      continue;
+    }
+
+    const multiplier = fieldBoosts[field];
+
+    if (
+      typeof multiplier !== "number" ||
+      !Number.isFinite(multiplier) ||
+      multiplier < 0.1 ||
+      multiplier > 10
+    ) {
+      throw new TypeError(
+        `options.relevance.fieldBoosts.${field} must be a finite number between 0.1 and 10, inclusive`,
+      );
+    }
+
+    multipliers[field] = multiplier;
+  }
+
+  return multipliers;
+}
+
+function makeIndexedBoosts(
+  multipliers: FieldBoostMultipliers,
+): Record<IndexedField, number> {
+  const boosts = {} as Record<
+    IndexedField,
+    number
+  >;
+
+  for (const field of PUBLIC_FIELDS) {
+    const multiplier = Object.hasOwn(
+      multipliers,
+      field,
+    )
+      ? multipliers[field] as number
+      : 1;
+
+    boosts[PUBLIC_TO_INDEXED_FIELD[field]] =
+      BASELINE_FIELD_BOOSTS[field] * multiplier;
+  }
+
+  return boosts;
 }
 
 function validateWhere(

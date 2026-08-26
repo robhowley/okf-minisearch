@@ -19,6 +19,7 @@ export type {
   OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
+  OkfSearchRelevance,
   OkfSource,
   OkfStatus,
   OkfTimeWindow,
