@@ -101,7 +101,7 @@ All `where` filters are combined with AND. Values within a filter array are comb
 ### Search fields
 
 | Public field | Indexed content | Default weight |
-| --- | --- | ---: |
+| --- | --- | --- |
 | `resource` | Document resource | 6 |
 | `title` | Document title | 5 |
 | `heading` | Section heading path | 4 |
