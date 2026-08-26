@@ -56,6 +56,7 @@ Pass options to control query matching, searchable fields, metadata filters, and
 const hits = okf.search("rollback snapshot", {
   match: "all",
   fields: ["title", "body"],
+  boost: { title: 8 },
   limit: 5,
   where: {
     types: ["runbook"],
@@ -76,6 +77,9 @@ const hits = okf.search("rollback snapshot", {
 | `match` | `"any"` (the default) matches any query term. `"all"` requires every term to match the same indexed section or chunk, though terms may match different fields within it. |
 | `fields` | Non-empty readonly list of fields to search. Omission searches every public field listed below. |
 | `fuzzy` | Enables spelling-near matching. Omission and `false` keep it off. |
+| `boost` | Changes how strongly matches in each selected field affect ranking. |
+
+`boost` values replace the default weights—not multiply them—and must be between `0.1` and `10`. Omitted fields keep the defaults listed below. Use `fields` to choose which fields are searched.
 
 The final query term receives prefix matching when it has at least three characters. This remains active with `fuzzy: true`, so earlier terms can use fuzzy matching while the final term uses prefix matching.
 
@@ -96,18 +100,18 @@ All `where` filters are combined with AND. Values within a filter array are comb
 
 ### Search fields
 
-| Public field | Indexed content |
-| --- | --- |
-| `resource` | Document resource |
-| `title` | Document title |
-| `heading` | Section heading path |
-| `description` | Document description |
-| `tags` | Document tags |
-| `type` | Document type |
-| `sources` | Source IDs, titles, authors, and resources |
-| `body` | Section or chunk body text |
+| Public field | Indexed content | Default weight |
+| --- | --- | :---: |
+| `resource` | Document resource | 6 |
+| `title` | Document title | 5 |
+| `heading` | Section heading path | 4 |
+| `description` | Document description | 3 |
+| `tags` | Document tags | 2 |
+| `type` | Document type | 1.5 |
+| `sources` | Source IDs, titles, authors, and resources | 1 |
+| `body` | Section or chunk body text | 1 |
 
-`fields` controls text matching only. Metadata filters under `where` remain independent.
+`fields` and `boost` accept only the names above. Boosting a field does not make it searchable when it is excluded by `fields`; `where` filters remain independent.
 
 ### Results
 
@@ -133,7 +137,7 @@ Details worth knowing:
 - `documentId` is the normalized relative Markdown path without `.md`.
 - `title` is the frontmatter title. If omitted, it is derived from the final filename segment: hyphens and underscores become spaces, and the first character is capitalized (`nested/derived-title.md` → `Derived title`).
 - `sectionId` identifies the indexed section or chunk and may change when headings or chunk boundaries change.
-- `score` is local to one search and should only be compared with other hits from that search.
+- `score` is meaningful only within one search; changing boosts can change document ordering and the section chosen to represent each document.
 - `matchedFields` contains unique public field names in first-match order.
 
 ### Migrating `matchedFields`

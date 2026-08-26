@@ -19,6 +19,10 @@ type SearchFilters = NonNullable<
   OkfSearchOptions["where"]
 >;
 
+type SearchBoosts = Partial<
+  Record<OkfSearchField, number>
+>;
+
 type IndexedField =
   | "resource"
   | "title"
@@ -66,6 +70,20 @@ const INDEXED_TO_PUBLIC_FIELD: Record<
   type: "type",
   sourceText: "sources",
   text: "body",
+};
+
+const BASELINE_FIELD_BOOSTS: Record<
+  OkfSearchField,
+  number
+> = {
+  resource: 6,
+  title: 5,
+  heading: 4,
+  description: 3,
+  tags: 2,
+  type: 1.5,
+  sources: 1,
+  body: 1,
 };
 
 const FILTER_NAMES = [
@@ -148,6 +166,9 @@ export function search(
   const where = validateWhere(
     options.where,
   );
+  const boosts = validateBoost(
+    options.boost,
+  );
 
   const normalizedQuery = query.trim();
 
@@ -158,16 +179,7 @@ export function search(
   const rawHits = index.search(
     normalizedQuery,
     {
-      boost: {
-        resource: 6,
-        title: 5,
-        headingPath: 4,
-        description: 3,
-        tags: 2,
-        type: 1.5,
-        sourceText: 1,
-        text: 1,
-      },
+      boost: makeIndexedBoosts(boosts),
 
       prefix: (
         term,
@@ -305,6 +317,90 @@ function normalizeFields(
   }
 
   return normalized;
+}
+
+function validateBoost(
+  boost: OkfSearchOptions["boost"],
+): SearchBoosts {
+  if (boost === undefined) {
+    return {};
+  }
+
+  if (
+    boost === null ||
+    typeof boost !== "object" ||
+    Array.isArray(boost)
+  ) {
+    throw new TypeError(
+      "options.boost must be an object",
+    );
+  }
+
+  for (const key of Reflect.ownKeys(boost)) {
+    if (
+      Object.prototype.propertyIsEnumerable.call(
+        boost,
+        key,
+      ) &&
+      (
+        typeof key !== "string" ||
+        !PUBLIC_FIELDS.includes(
+          key as OkfSearchField,
+        )
+      )
+    ) {
+      throw new TypeError(
+        "options.boost must contain only valid OkfSearchField keys",
+      );
+    }
+  }
+
+  const boosts: SearchBoosts = {};
+
+  for (const field of PUBLIC_FIELDS) {
+    if (!Object.hasOwn(boost, field)) {
+      continue;
+    }
+
+    const value = boost[field];
+
+    if (
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      value < 0.1 ||
+      value > 10
+    ) {
+      throw new TypeError(
+        `options.boost.${field} must be a finite number between 0.1 and 10, inclusive`,
+      );
+    }
+
+    boosts[field] = value;
+  }
+
+  return boosts;
+}
+
+function makeIndexedBoosts(
+  boosts: SearchBoosts,
+): Record<IndexedField, number> {
+  const indexedBoosts = {} as Record<
+    IndexedField,
+    number
+  >;
+
+  for (const field of PUBLIC_FIELDS) {
+    const boost = Object.hasOwn(
+      boosts,
+      field,
+    )
+      ? boosts[field] as number
+      : BASELINE_FIELD_BOOSTS[field];
+
+    indexedBoosts[PUBLIC_TO_INDEXED_FIELD[field]] = boost;
+  }
+
+  return indexedBoosts;
 }
 
 function validateWhere(

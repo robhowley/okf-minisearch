@@ -44,6 +44,10 @@ type ExactOkfRemove = Assert<Same<
   OkfSearch["remove"],
   (path: string) => boolean
 >>;
+type ExactOkfSearchBoost = Assert<Same<
+  OkfSearchOptions["boost"],
+  Readonly<Partial<Record<OkfSearchField, number>>> | undefined
+>>;
 type ExactOkfErrorCode = Assert<Same<
   OkfErrorCode,
   | "ERR_OKF_READ"
@@ -87,6 +91,7 @@ void [
   null as unknown as ExactOkfIngestResult,
   null as unknown as ExactOkfDocumentStatus,
   null as unknown as ExactOkfRemove,
+  null as unknown as ExactOkfSearchBoost,
 ];
 
 void (undefined as unknown as OkfBundle | OkfReservedFile | OkfIndexRecord);
@@ -100,6 +105,31 @@ const numericFuzzy: OkfSearchOptions = { fuzzy: 0.2 };
 const stringFuzzy: OkfSearchOptions = { fuzzy: "true" };
 
 void [booleanFuzzy, numericFuzzy, stringFuzzy];
+
+const readonlyBoosts = { title: 1.5, body: 2 } as const;
+const readonlySearchOptions: OkfSearchOptions = {
+  boost: readonlyBoosts,
+};
+// @ts-expect-error MiniSearch's internal field name is not public.
+const internalHeadingBoost: OkfSearchOptions = { boost: { headingPath: 2 } };
+// @ts-expect-error MiniSearch's internal field name is not public.
+const internalSourceBoost: OkfSearchOptions = { boost: { sourceText: 2 } };
+// @ts-expect-error MiniSearch's internal field name is not public.
+const internalBodyBoost: OkfSearchOptions = { boost: { text: 2 } };
+// @ts-expect-error Boost values must be numbers.
+const stringBoost: OkfSearchOptions = { boost: { title: "high" } };
+// @ts-expect-error Nested boost wrapper is not a public search option.
+const nestedBoostOption: OkfSearchOptions = { ["relevance"]: { boost: { title: 2 } } };
+
+void [
+  readonlyBoosts,
+  readonlySearchOptions,
+  internalHeadingBoost,
+  internalSourceBoost,
+  internalBodyBoost,
+  stringBoost,
+  nestedBoostOption,
+];
 
 // @ts-expect-error MiniSearch's internal field name is not public.
 const internalHeading: OkfSearchField = "headingPath";

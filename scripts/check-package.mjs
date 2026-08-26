@@ -139,6 +139,12 @@ type ExactSearchField = Assert<
 type ExactFuzzy = Assert<
   Same<OkfSearchOptions["fuzzy"], boolean | undefined>
 >;
+type ExactSearchBoost = Assert<
+  Same<
+    OkfSearchOptions["boost"],
+    Readonly<Partial<Record<OkfSearchField, number>>> | undefined
+  >
+>;
 type ExactRemove = Assert<
   Same<OkfSearch["remove"], (path: string) => boolean>
 >;
@@ -155,11 +161,23 @@ type ExactDocumentStatus = Assert<
   Same<OkfDocument["status"], OkfStatus>
 >;
 const readonlyFields = ["heading", "body"] as const;
+const readonlyBoosts = { title: 1.5, body: 2 } as const;
 const searchOptions: OkfSearchOptions = {
   match: "all",
   fields: readonlyFields,
   fuzzy: true,
+  boost: readonlyBoosts,
 };
+// @ts-expect-error MiniSearch's internal field name is not public.
+const internalHeadingBoost: OkfSearchOptions = { boost: { headingPath: 2 } };
+// @ts-expect-error MiniSearch's internal field name is not public.
+const internalSourceBoost: OkfSearchOptions = { boost: { sourceText: 2 } };
+// @ts-expect-error MiniSearch's internal field name is not public.
+const internalBodyBoost: OkfSearchOptions = { boost: { text: 2 } };
+// @ts-expect-error Boost values must be numbers.
+const stringBoost: OkfSearchOptions = { boost: { title: "high" } };
+// @ts-expect-error Nested boost wrapper is not a public search option.
+const nestedBoostOption: OkfSearchOptions = { ["relevance"]: { boost: { title: 2 } } };
 const searchHit = null as unknown as OkfSearchHit;
 const matchedField: OkfSearchField =
   searchHit.matchedFields[0] ?? "body";
@@ -204,12 +222,19 @@ void [
   null as OkfSearch | null,
   null as OkfSearchHit | null,
   null as OkfSearchOptions | null,
+  readonlyBoosts,
+  internalHeadingBoost,
+  internalSourceBoost,
+  internalBodyBoost,
+  stringBoost,
+  nestedBoostOption,
   searchOptions,
   matchedField,
   removalResult,
   null as ExactSearchField | null,
   null as ExactRemove | null,
   null as ExactFuzzy | null,
+  null as ExactSearchBoost | null,
   null as ExactValidationResult | null,
   null as ExactIngestResult | null,
   null as ExactDocumentStatus | null,
@@ -252,6 +277,12 @@ try {
   assert.equal(Object.hasOwn(ingestResult, "diagnostics"), false);
 
   assert.equal(typeof okf.remove, "function");
+  assert.equal(
+    okf.search("packedremovalneedle", {
+      boost: { body: 2 },
+    }).length,
+    1,
+  );
   assert.equal(okf.search("packedremovalneedle").length, 1);
   assert.equal(okf.remove("./consumer.md"), true);
   assert.deepEqual(okf.search("packedremovalneedle"), []);
