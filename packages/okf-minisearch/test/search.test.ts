@@ -34,6 +34,82 @@ async function open(
   return openOkf(tree.root);
 }
 
+function relevanceOptions(
+  relevance: unknown,
+  options: OkfSearchOptions = {},
+): OkfSearchOptions {
+  return Object.assign({}, options, {
+    relevance,
+  }) as OkfSearchOptions;
+}
+
+function fieldBoostOptions(
+  fieldBoosts: unknown,
+  options: OkfSearchOptions = {},
+): OkfSearchOptions {
+  return relevanceOptions({ fieldBoosts }, options);
+}
+
+function fieldDocument(
+  field: OkfSearchField,
+  term: string,
+): string {
+  const metadata = ["type: note"];
+  let body = "field control filler";
+
+  switch (field) {
+    case "resource":
+      metadata.push(`resource: ${term}`);
+      break;
+    case "title":
+      metadata.push(`title: ${term}`);
+      break;
+    case "heading":
+      body = `# ${term}\nfield control filler`;
+      break;
+    case "description":
+      metadata.push(`description: ${term}`);
+      break;
+    case "tags":
+      metadata.push(`tags: [${term}]`);
+      break;
+    case "type":
+      metadata[0] = `type: ${term}`;
+      break;
+    case "sources":
+      metadata.push(
+        "sources:",
+        `  - resource: ${term}`,
+      );
+      break;
+    case "body":
+      body = term;
+      break;
+  }
+
+  return concept(metadata.join("\n"), body);
+}
+
+function titleBodyFiles(
+  term: string,
+): Record<string, string> {
+  return {
+    "title.md": fieldDocument("title", term),
+    "body.md": fieldDocument("body", term),
+  };
+}
+
+function resultFields(
+  okf: OkfSearch,
+  term: string,
+  options?: OkfSearchOptions,
+) {
+  return okf.search(term, options).map((hit) => ({
+    documentId: hit.documentId,
+    matchedFields: hit.matchedFields,
+  }));
+}
+
 describe("search limits", () => {
   it("accepts zero and positive limits and defaults to ten", async () => {
     const files = Object.fromEntries(
@@ -377,6 +453,792 @@ describe("search controls", () => {
     expect(hits.every((hit) =>
       hit.matchedFields.every((field) => field === "body"),
     )).toBe(true);
+  });
+});
+
+describe("search relevance", () => {
+  it("preserves omitted baselines for empty and neutral relevance", async () => {
+    const term = "neutralboostneedle";
+    const okf = await open({
+      "all-fields.md": concept(`
+        type: ${term}
+        resource: ${term}
+        title: ${term}
+        description: ${term}
+        tags: [${term}]
+        sources:
+          - resource: ${term}
+      `, `# ${term}\n${term}`),
+    });
+    const baseline = okf.search(term);
+    const omissionCases: Array<OkfSearchOptions | undefined> = [
+      undefined,
+      relevanceOptions(undefined),
+      relevanceOptions({}),
+      fieldBoostOptions({}),
+    ];
+
+    for (const options of omissionCases) {
+      expect(okf.search(term, options)).toEqual(baseline);
+    }
+
+    const fields: readonly OkfSearchField[] = [
+      "resource",
+      "title",
+      "heading",
+      "description",
+      "tags",
+      "type",
+      "sources",
+      "body",
+    ];
+
+    for (const field of fields) {
+      expect(okf.search(term, fieldBoostOptions({
+        [field]: 1,
+      }))).toEqual(baseline);
+    }
+  });
+
+  it("translates all public boost fields through public results", async () => {
+    const cases: Array<[
+      OkfSearchField,
+      OkfSearchField,
+      number,
+      string,
+      string,
+    ]> = [
+      ["resource", "body", 0.1, "target", "control"],
+      ["title", "body", 0.1, "target", "control"],
+      ["heading", "body", 0.1, "target", "control"],
+      ["description", "body", 0.1, "target", "control"],
+      ["tags", "body", 0.1, "target", "control"],
+      ["type", "body", 0.1, "target", "control"],
+      ["sources", "title", 10, "control", "target"],
+      ["body", "title", 10, "control", "target"],
+    ];
+
+    for (const [
+      targetField,
+      controlField,
+      multiplier,
+      defaultFirst,
+      customizedFirst,
+    ] of cases) {
+      const term = `${targetField}translationneedle`;
+      const okf = await open({
+        "target.md": fieldDocument(targetField, term),
+        "control.md": fieldDocument(controlField, term),
+      });
+      const fields = [targetField, controlField];
+      const baseline = resultFields(okf, term, { fields });
+      const customized = resultFields(okf, term, fieldBoostOptions(
+        { [targetField]: multiplier },
+        { fields },
+      ));
+
+      expect(baseline).toEqual([
+        {
+          documentId: defaultFirst,
+          matchedFields: [
+            defaultFirst === "target"
+              ? targetField
+              : controlField,
+          ],
+        },
+        {
+          documentId: defaultFirst === "target"
+            ? "control"
+            : "target",
+          matchedFields: [
+            defaultFirst === "target"
+              ? controlField
+              : targetField,
+          ],
+        },
+      ]);
+      expect(customized).toEqual([
+        {
+          documentId: customizedFirst,
+          matchedFields: [
+            customizedFirst === "target"
+              ? targetField
+              : controlField,
+          ],
+        },
+        {
+          documentId: customizedFirst === "target"
+            ? "control"
+            : "target",
+          matchedFields: [
+            customizedFirst === "target"
+              ? controlField
+              : targetField,
+          ],
+        },
+      ]);
+    }
+  });
+
+  it("changes ordering without changing match eligibility", async () => {
+    const term = "orderboostneedle";
+    const okf = await open(titleBodyFiles(term));
+
+    expect(okf.search(term).map((hit) => hit.documentId)).toEqual([
+      "title",
+      "body",
+    ]);
+    expect(okf.search(term, fieldBoostOptions({
+      body: 10,
+    })).map((hit) => hit.documentId)).toEqual([
+      "body",
+      "title",
+    ]);
+  });
+
+  it("changes the representative section through the public fields", async () => {
+    const term = "representativeboostneedle";
+    const okf = await open({
+      "representative.md": concept(
+        "type: note",
+        `# ${term}\nheading filler\n# Body section\n${term}`,
+      ),
+    });
+
+    expect(okf.search(term).map((hit) => ({
+      sectionId: hit.sectionId,
+      matchedFields: hit.matchedFields,
+    }))).toEqual([{
+      sectionId: `representative#${term}`,
+      matchedFields: ["heading"],
+    }]);
+    expect(okf.search(term, fieldBoostOptions({
+      heading: 0.1,
+      body: 10,
+    })).map((hit) => ({
+      sectionId: hit.sectionId,
+      matchedFields: hit.matchedFields,
+    }))).toEqual([{
+      sectionId: "representative#body-section",
+      matchedFields: ["body"],
+    }]);
+  });
+
+  it("keeps fields, filters, and document deduplication independent", async () => {
+    const term = "interactionboostneedle";
+    const body = `# First\n${term}\n# Second\n${term}`;
+    const okf = await open({
+      "allowed.md": concept(`
+        type: note
+        title: ${term}
+      `, body),
+      "filtered.md": concept(`
+        type: recipe
+        title: ${term}
+      `, body),
+    });
+
+    expect(okf.search(term, fieldBoostOptions({
+      title: 10,
+    }, {
+      fields: ["body"],
+      where: { types: ["note"] },
+    })).map((hit) => ({
+      documentId: hit.documentId,
+      sectionId: hit.sectionId,
+      matchedFields: hit.matchedFields,
+    }))).toEqual([{
+      documentId: "allowed",
+      sectionId: "allowed#first",
+      matchedFields: ["body"],
+    }]);
+  });
+
+  it("rejects malformed relevance and fieldBoosts containers", async () => {
+    const okf = await open({
+      "validation.md": concept("type: note", "relevancevalidation"),
+    });
+    const malformed: unknown[] = [
+      null,
+      [],
+      () => undefined,
+      "object",
+      1,
+      1n,
+      true,
+      Symbol("container"),
+    ];
+
+    for (const relevance of malformed) {
+      expect(() => okf.search(
+        "relevancevalidation",
+        relevanceOptions(relevance),
+      )).toThrowError(new TypeError(
+        "options.relevance must be an object",
+      ));
+    }
+
+    for (const fieldBoosts of [...malformed, undefined]) {
+      expect(() => okf.search(
+        "relevancevalidation",
+        fieldBoostOptions(fieldBoosts),
+      )).toThrowError(new TypeError(
+        "options.relevance.fieldBoosts must be an object",
+      ));
+    }
+  });
+
+  it("accepts all planned object shapes without mutating them", async () => {
+    const term = "shapeboostneedle";
+    const okf = await open(titleBodyFiles(term));
+    const expected = okf.search(term, fieldBoostOptions(
+      { title: 0.1 },
+      { fields: ["title", "body"] },
+    ));
+
+    class RelevanceContainer {
+      fieldBoosts = { title: 0.1 };
+    }
+
+    class FieldBoostContainer {
+      title = 0.1;
+    }
+
+    const nullPrototypeRelevance = Object.assign(
+      Object.create(null) as object,
+      { fieldBoosts: { title: 0.1 } },
+    );
+    const relevanceShapes: unknown[] = [
+      { fieldBoosts: { title: 0.1 } },
+      Object.freeze({
+        fieldBoosts: Object.freeze({ title: 0.1 }),
+      }),
+      new RelevanceContainer(),
+      nullPrototypeRelevance,
+    ];
+
+    for (const relevance of relevanceShapes) {
+      expect(okf.search(term, relevanceOptions(relevance, {
+        fields: ["title", "body"],
+      }))).toEqual(expected);
+    }
+
+    const nullPrototypeBoosts = Object.assign(
+      Object.create(null) as object,
+      { title: 0.1 },
+    );
+    const boostShapes: unknown[] = [
+      { title: 0.1 },
+      Object.freeze({ title: 0.1 }),
+      new FieldBoostContainer(),
+      nullPrototypeBoosts,
+    ];
+
+    for (const boosts of boostShapes) {
+      expect(okf.search(term, fieldBoostOptions(boosts, {
+        fields: ["title", "body"],
+      }))).toEqual(expected);
+    }
+
+    const frozenBoosts = Object.freeze({ title: 0.1 });
+    const frozenRelevance = Object.freeze({
+      fieldBoosts: frozenBoosts,
+    });
+    const frozenOptions = Object.freeze(
+      relevanceOptions(frozenRelevance, {
+        fields: ["title", "body"],
+      }),
+    );
+
+    expect(okf.search(term, frozenOptions)).toEqual(expected);
+    expect(okf.search(term, frozenOptions)).toEqual(expected);
+    expect(frozenOptions).toEqual({
+      fields: ["title", "body"],
+      relevance: { fieldBoosts: { title: 0.1 } },
+    });
+    expect(Object.isFrozen(frozenOptions)).toBe(true);
+    expect(Object.isFrozen(frozenRelevance)).toBe(true);
+    expect(Object.isFrozen(frozenBoosts)).toBe(true);
+  });
+
+  it("enforces enumerable own keys at both relevance levels", async () => {
+    const okf = await open({
+      "validation.md": concept("type: note", "relevancekeys"),
+    });
+    const unknownSymbol = Symbol("unknown");
+
+    for (const relevance of [
+      { unknown: true },
+      { [unknownSymbol]: true },
+    ]) {
+      expect(() => okf.search(
+        "relevancekeys",
+        relevanceOptions(relevance),
+      )).toThrowError(new TypeError(
+        "options.relevance must contain only valid relevance option names",
+      ));
+    }
+
+    const invalidBoostKeys: PropertyKey[] = [
+      "headingPath",
+      "sourceText",
+      "text",
+      "documentId",
+      "unknown",
+      unknownSymbol,
+    ];
+
+    for (const key of invalidBoostKeys) {
+      expect(() => okf.search(
+        "relevancekeys",
+        fieldBoostOptions({ [key]: 1 }),
+      )).toThrowError(new TypeError(
+        "options.relevance.fieldBoosts must contain only valid OkfSearchField keys",
+      ));
+    }
+  });
+
+  it("uses supported non-enumerable keys and ignores other hidden keys", async () => {
+    const term = "descriptorboostneedle";
+    const okf = await open(titleBodyFiles(term));
+    const expected = okf.search(term, fieldBoostOptions(
+      { title: 0.1 },
+      { fields: ["title", "body"] },
+    ));
+    const hiddenSymbol = Symbol("hidden");
+    const boosts: object = {};
+    const relevance: object = {};
+
+    Object.defineProperties(boosts, {
+      title: { value: 0.1 },
+      ignored: { value: true },
+      [hiddenSymbol]: { value: true },
+    });
+    Object.defineProperties(relevance, {
+      fieldBoosts: { value: boosts },
+      ignored: { value: true },
+      [hiddenSymbol]: { value: true },
+    });
+
+    expect(okf.search(term, relevanceOptions(relevance, {
+      fields: ["title", "body"],
+    }))).toEqual(expected);
+  });
+
+  it("ignores inherited keys inside relevance objects", async () => {
+    const term = "inheritedboostneedle";
+    const okf = await open(titleBodyFiles(term));
+    const fields: OkfSearchOptions["fields"] = ["title", "body"];
+    const baseline = okf.search(term, { fields });
+    const inheritedSymbol = Symbol("inherited");
+    const relevancePrototype = {
+      fieldBoosts: { title: 0.1 },
+      unknown: true,
+      [inheritedSymbol]: true,
+    };
+    const boostsPrototype = {
+      title: 0.1,
+      unknown: true,
+      [inheritedSymbol]: true,
+    };
+
+    expect(okf.search(term, relevanceOptions(
+      Object.create(relevancePrototype),
+      { fields },
+    ))).toEqual(baseline);
+    expect(okf.search(term, fieldBoostOptions(
+      Object.create(boostsPrototype),
+      { fields },
+    ))).toEqual(baseline);
+  });
+
+  it("reads inherited top-level relevance through normal property access", async () => {
+    const term = "topinheritanceboostneedle";
+    const okf = await open(titleBodyFiles(term));
+    const expected = okf.search(term, fieldBoostOptions(
+      { title: 0.1 },
+      { fields: ["title", "body"] },
+    ));
+    const inheritedValid = Object.assign(Object.create({
+      relevance: { fieldBoosts: { title: 0.1 } },
+    }) as object, {
+      fields: ["title", "body"],
+    }) as OkfSearchOptions;
+    const inheritedInvalid = Object.assign(Object.create({
+      relevance: null,
+    }) as object, {
+      fields: ["title", "body"],
+    }) as OkfSearchOptions;
+
+    expect(okf.search(term, inheritedValid)).toEqual(expected);
+    expect(() => okf.search(term, inheritedInvalid)).toThrowError(
+      new TypeError("options.relevance must be an object"),
+    );
+  });
+
+  it("accepts endpoints and rejects every invalid multiplier shape", async () => {
+    const term = "numberboostneedle";
+    const okf = await open(titleBodyFiles(term));
+
+    expect(okf.search(term, fieldBoostOptions({
+      title: 0.1,
+    }, {
+      fields: ["title", "body"],
+    })).map((hit) => hit.documentId)).toEqual([
+      "body",
+      "title",
+    ]);
+    expect(okf.search(term, fieldBoostOptions({
+      body: 10,
+    })).map((hit) => hit.documentId)).toEqual([
+      "body",
+      "title",
+    ]);
+
+    const invalidValues: unknown[] = [
+      0,
+      -1,
+      0.09,
+      10.01,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      "1",
+      new Number(1),
+      null,
+      true,
+      1n,
+      Symbol("value"),
+      [],
+      {},
+      () => 1,
+      undefined,
+    ];
+    const error = new TypeError(
+      "options.relevance.fieldBoosts.title must be a finite number between 0.1 and 10, inclusive",
+    );
+
+    for (const title of invalidValues) {
+      expect(() => okf.search(
+        term,
+        fieldBoostOptions({ title }),
+      )).toThrowError(error);
+    }
+  });
+
+  it("snapshots each boost once per search and propagates access errors", async () => {
+    const term = "snapshotboostneedle";
+    const okf = await open(titleBodyFiles(term));
+    let reads = 0;
+    const boosts = Object.defineProperty({}, "title", {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return reads === 1 ? 0.1 : 10;
+      },
+    });
+    const options = fieldBoostOptions(boosts, {
+      fields: ["title", "body"],
+    });
+
+    expect(okf.search(term, options).map((hit) => hit.documentId)).toEqual([
+      "body",
+      "title",
+    ]);
+    expect(reads).toBe(1);
+    expect(okf.search(term, options).map((hit) => hit.documentId)).toEqual([
+      "title",
+      "body",
+    ]);
+    expect(reads).toBe(2);
+
+    const getterError = new Error("getter sentinel");
+    const throwingBoosts = Object.defineProperty({}, "title", {
+      enumerable: true,
+      get() {
+        throw getterError;
+      },
+    });
+    let thrown: unknown;
+
+    try {
+      okf.search(term, fieldBoostOptions(throwingBoosts));
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(getterError);
+  });
+
+  it("propagates relevance proxy errors unchanged", async () => {
+    const okf = await open({
+      "proxy.md": concept("type: note", "proxyboostneedle"),
+    });
+    const relevanceError = new Error("relevance proxy sentinel");
+    const boostError = new Error("boost proxy sentinel");
+    const cases: Array<[OkfSearchOptions, Error]> = [
+      [
+        relevanceOptions(new Proxy({}, {
+          ownKeys() {
+            throw relevanceError;
+          },
+        })),
+        relevanceError,
+      ],
+      [
+        fieldBoostOptions(new Proxy({}, {
+          ownKeys() {
+            throw boostError;
+          },
+        })),
+        boostError,
+      ],
+    ];
+
+    for (const [options, sentinel] of cases) {
+      let thrown: unknown;
+
+      try {
+        okf.search("proxyboostneedle", options);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBe(sentinel);
+    }
+  });
+
+  it("keeps full option validation precedence before empty returns", async () => {
+    const term = "precedenceboostneedle";
+    const okf = await open({
+      "precedence.md": concept("type: note", term),
+    });
+    const earlierCases: Array<[
+      OkfSearchOptions,
+      string,
+    ]> = [
+      [
+        { asOf: new Date(Number.NaN) },
+        "options.asOf must be a valid Date",
+      ],
+      [
+        { limit: -1 },
+        "options.limit must be a finite non-negative integer",
+      ],
+      [
+        { match: "invalid" as OkfSearchOptions["match"] },
+        'options.match must be "any" or "all"',
+      ],
+      [
+        { fields: [] },
+        "options.fields must be a non-empty array",
+      ],
+      [
+        {
+          fields: ["unknown"] as unknown as OkfSearchOptions["fields"],
+        },
+        "options.fields must contain only valid OkfSearchField values",
+      ],
+      [
+        { fuzzy: "true" as unknown as boolean },
+        "options.fuzzy must be a boolean",
+      ],
+      [
+        { where: null as unknown as OkfSearchOptions["where"] },
+        "options.where must be an object",
+      ],
+      [
+        {
+          where: { unknown: true } as unknown as OkfSearchOptions["where"],
+        },
+        "options.where must contain only valid filter names",
+      ],
+      [
+        {
+          where: { types: "note" } as unknown as OkfSearchOptions["where"],
+        },
+        "options.where.types must be an array",
+      ],
+      [
+        {
+          where: { tagsAny: "tag" } as unknown as OkfSearchOptions["where"],
+        },
+        "options.where.tagsAny must be an array",
+      ],
+      [
+        {
+          where: { statuses: ["pending"] } as unknown as OkfSearchOptions["where"],
+        },
+        "options.where.statuses must contain only valid OkfStatus values",
+      ],
+      [
+        {
+          where: { trustTiers: ["manual"] } as unknown as OkfSearchOptions["where"],
+        },
+        "options.where.trustTiers must contain only valid OkfTrustTier values",
+      ],
+      [
+        {
+          where: { stale: "false" } as unknown as OkfSearchOptions["where"],
+        },
+        "options.where.stale must be a boolean",
+      ],
+    ];
+
+    for (const [index, [earlier, message]] of earlierCases.entries()) {
+      const expected = new TypeError(message);
+
+      expect(() => okf.search(
+        "",
+        relevanceOptions(null, earlier),
+      )).toThrowError(expected);
+
+      if (index !== 1) {
+        expect(() => okf.search(
+          term,
+          relevanceOptions(null, {
+            ...earlier,
+            limit: 0,
+          }),
+        )).toThrowError(expected);
+      }
+    }
+
+    const invalidWhereSuffixes: Array<[
+      OkfSearchOptions["where"],
+      string,
+    ]> = [
+      [
+        {
+          types: "note",
+          tagsAny: "tag",
+          statuses: ["pending"],
+          trustTiers: ["manual"],
+          stale: "false",
+        } as unknown as OkfSearchOptions["where"],
+        "options.where.types must be an array",
+      ],
+      [
+        {
+          tagsAny: "tag",
+          statuses: ["pending"],
+          trustTiers: ["manual"],
+          stale: "false",
+        } as unknown as OkfSearchOptions["where"],
+        "options.where.tagsAny must be an array",
+      ],
+      [
+        {
+          statuses: ["pending"],
+          trustTiers: ["manual"],
+          stale: "false",
+        } as unknown as OkfSearchOptions["where"],
+        "options.where.statuses must contain only valid OkfStatus values",
+      ],
+      [
+        {
+          trustTiers: ["manual"],
+          stale: "false",
+        } as unknown as OkfSearchOptions["where"],
+        "options.where.trustTiers must contain only valid OkfTrustTier values",
+      ],
+      [
+        { stale: "false" } as unknown as OkfSearchOptions["where"],
+        "options.where.stale must be a boolean",
+      ],
+    ];
+
+    for (const [where, message] of invalidWhereSuffixes) {
+      expect(() => okf.search("", relevanceOptions(null, {
+        where,
+      }))).toThrowError(new TypeError(message));
+    }
+  });
+
+  it("orders relevance key and value errors before empty returns", async () => {
+    const term = "relevanceprecedenceneedle";
+    const okf = await open({
+      "precedence.md": concept("type: note", term),
+    });
+    const relevanceNameError = new TypeError(
+      "options.relevance must contain only valid relevance option names",
+    );
+    const boostNameError = new TypeError(
+      "options.relevance.fieldBoosts must contain only valid OkfSearchField keys",
+    );
+
+    for (const options of [
+      relevanceOptions({
+        unknown: true,
+        fieldBoosts: null,
+      }),
+      relevanceOptions({
+        fieldBoosts: { title: 0 },
+        unknown: true,
+      }),
+    ]) {
+      expect(() => okf.search("", options)).toThrowError(
+        relevanceNameError,
+      );
+      expect(() => okf.search(term, {
+        ...options,
+        limit: 0,
+      })).toThrowError(relevanceNameError);
+    }
+
+    for (const options of [
+      fieldBoostOptions({ unknown: true, title: 0 }),
+      fieldBoostOptions({ title: 0, headingPath: 1 }),
+    ]) {
+      expect(() => okf.search("", options)).toThrowError(boostNameError);
+      expect(() => okf.search(term, {
+        ...options,
+        limit: 0,
+      })).toThrowError(boostNameError);
+    }
+
+    const orderedFields: readonly OkfSearchField[] = [
+      "resource",
+      "title",
+      "heading",
+      "description",
+      "tags",
+      "type",
+      "sources",
+      "body",
+    ];
+
+    for (let index = 0; index < orderedFields.length; index++) {
+      const suffix = Object.fromEntries(
+        orderedFields.slice(index).map((field) => [field, 0]),
+      );
+      const first = orderedFields[index]!;
+      const error = new TypeError(
+        `options.relevance.fieldBoosts.${first} must be a finite number between 0.1 and 10, inclusive`,
+      );
+
+      expect(() => okf.search("", fieldBoostOptions(suffix)))
+        .toThrowError(error);
+      expect(() => okf.search(term, fieldBoostOptions(suffix, {
+        limit: 0,
+      }))).toThrowError(error);
+    }
+
+    const invalidContainer = fieldBoostOptions(undefined);
+    expect(() => okf.search("", invalidContainer)).toThrowError(
+      new TypeError("options.relevance.fieldBoosts must be an object"),
+    );
+    expect(() => okf.search(term, {
+      ...invalidContainer,
+      limit: 0,
+    })).toThrowError(
+      new TypeError("options.relevance.fieldBoosts must be an object"),
+    );
+
+    expect(okf.search("", fieldBoostOptions({ title: 0.1 }))).toEqual([]);
+    expect(okf.search(term, fieldBoostOptions({ body: 10 }, {
+      limit: 0,
+    }))).toEqual([]);
   });
 });
 
