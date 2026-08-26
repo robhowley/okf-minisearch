@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v0.5.0...okf-minisearch-v1.0.0) (2026-08-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **okf-minisearch:** narrow ingest result API ([#15](https://github.com/robhowley/okf-minisearch/issues/15))
+
+### Features
+
+* **okf-minisearch:** narrow ingest result API ([#15](https://github.com/robhowley/okf-minisearch/issues/15)) ([608ac84](https://github.com/robhowley/okf-minisearch/commit/608ac8470c8aaaed9a6c9cbe31c7237575c1fee9))
+
+
+### Bug Fixes
+
+* **okf-minisearch:** poison failed index handles ([#19](https://github.com/robhowley/okf-minisearch/issues/19)) ([27785f4](https://github.com/robhowley/okf-minisearch/commit/27785f4b7b70d9f37bf51ce1515fc4274e9cbe57))
+
 ## [0.5.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v0.4.0...okf-minisearch-v0.5.0) (2026-08-25)
 
 
