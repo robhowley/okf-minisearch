@@ -56,11 +56,9 @@ Pass options to control query matching, searchable fields, metadata filters, and
 const hits = okf.search("rollback snapshot", {
   match: "all",
   fields: ["title", "body"],
-  relevance: {
-    boost: {
-      title: 1.5,
-      body: 2,
-    },
+  boost: {
+    title: 1.5,
+    body: 2,
   },
   limit: 5,
   where: {
@@ -82,9 +80,9 @@ const hits = okf.search("rollback snapshot", {
 | `match` | `"any"` (the default) matches any query term. `"all"` requires every term to match the same indexed section or chunk, though terms may match different fields within it. |
 | `fields` | Non-empty readonly list of fields to search. Omission searches every public field listed below. |
 | `fuzzy` | Enables spelling-near matching. Omission and `false` keep it off. |
-| `relevance.boost` | Sets the ranking weight for each named public field. |
+| `boost` | Sets the ranking weight for each named public field. |
 
-Field boosts replace the default ranking weights for the named fields. Omitted fields retain their built-in baselines, listed below. Values must be between `0.1` and `10`, inclusive. `0` is invalid—use `fields` to exclude a field. For example, `{ relevance: { boost: { title: 2 } } }` sets the title weight to `2`; omitting `relevance`, setting it to `undefined`, using `relevance: {}`, omitting `boost` from `relevance`, or using `boost: {}` preserves the default results.
+Field boosts replace the default ranking weights for the named fields. Omitted fields retain their built-in baselines, listed below. Values must be finite numbers between `0.1` and `10`, inclusive. `0` is invalid—use `fields` to exclude a field. For example, `{ boost: { title: 2 } }` sets the title weight to `2`; omitting `boost`, setting it to `undefined`, or using `boost: {}` preserves the default results.
 
 The final query term receives prefix matching when it has at least three characters. This remains active with `fuzzy: true`, so earlier terms can use fuzzy matching while the final term uses prefix matching.
 
@@ -116,7 +114,7 @@ All `where` filters are combined with AND. Values within a filter array are comb
 | `sources` | Source IDs, titles, authors, and resources | 1 |
 | `body` | Section or chunk body text | 1 |
 
-Only these eight public aliases are accepted by `fields` and `relevance.boost`; internal names such as `headingPath`, `sourceText`, and `text` are not accepted. Boosts affect ranking only among fields selected by `fields` and do not override `fields` or `where`. Metadata filters under `where` remain independent.
+Only these eight public aliases are accepted by `fields` and `boost`; internal names such as `headingPath`, `sourceText`, and `text` are not accepted. Boosts affect ranking only among fields selected by `fields` and do not override `fields` or `where`. Metadata filters under `where` remain independent.
 
 ### Results
 
@@ -269,14 +267,12 @@ If `ingest` or `remove` throws `ERR_OKF_INDEX_UNUSABLE`, discard the handle and 
 
 `search` throws `TypeError("options.asOf must be a valid Date")` for an invalid `asOf`, `TypeError("options.limit must be a finite non-negative integer")` for an invalid limit, and `TypeError("options.fuzzy must be a boolean")` for a non-boolean `fuzzy` value.
 
-`relevance` is validated after `asOf`, `limit`, `match`, `fields`, `fuzzy`, and `where`, and before trimming the query or returning early for a blank query or `limit: 0`. Its exact `TypeError` messages are:
+`boost` is validated after `asOf`, `limit`, `match`, `fields`, `fuzzy`, and `where`, and before trimming the query or returning early for a blank query or `limit: 0`. Its exact `TypeError` messages are:
 
 ```text
-options.relevance must be an object
-options.relevance must contain only valid relevance option names
-options.relevance.boost must be an object
-options.relevance.boost must contain only valid OkfSearchField keys
-options.relevance.boost.<field> must be a finite number between 0.1 and 10, inclusive
+options.boost must be an object
+options.boost must contain only valid OkfSearchField keys
+options.boost.<field> must be a finite number between 0.1 and 10, inclusive
 ```
 
 `<field>` is replaced by the invalid public field name.
@@ -296,7 +292,6 @@ import type {
   OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
-  OkfSearchRelevance,
 } from "okf-minisearch";
 ```
 

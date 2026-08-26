@@ -128,10 +128,6 @@ export type OkfSearchField =
   | "sources"
   | "body";
 
-export interface OkfSearchRelevance {
-  boost?: Readonly<Partial<Record<OkfSearchField, number>>>;
-}
-
 export interface OkfSearchOptions {
   limit?: number;
 
@@ -147,8 +143,8 @@ export interface OkfSearchOptions {
 
   match?: "any" | "all";
   fields?: readonly OkfSearchField[];
+  boost?: Readonly<Partial<Record<OkfSearchField, number>>>;
   fuzzy?: boolean;
-  relevance?: OkfSearchRelevance;
 }
 
 export interface OkfSearchHit {

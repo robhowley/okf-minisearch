@@ -19,11 +19,7 @@ type SearchFilters = NonNullable<
   OkfSearchOptions["where"]
 >;
 
-type SearchRelevance = NonNullable<
-  OkfSearchOptions["relevance"]
->;
-
-type RelevanceBoosts = Partial<
+type SearchBoosts = Partial<
   Record<OkfSearchField, number>
 >;
 
@@ -89,13 +85,6 @@ const BASELINE_FIELD_BOOSTS: Record<
   sources: 1,
   body: 1,
 };
-
-const RELEVANCE_NAMES = [
-  "boost",
-] as const;
-
-type RelevanceName =
-  typeof RELEVANCE_NAMES[number];
 
 const FILTER_NAMES = [
   "types",
@@ -177,8 +166,8 @@ export function search(
   const where = validateWhere(
     options.where,
   );
-  const relevanceBoosts = validateRelevance(
-    options.relevance,
+  const boosts = validateBoost(
+    options.boost,
   );
 
   const normalizedQuery = query.trim();
@@ -190,9 +179,7 @@ export function search(
   const rawHits = index.search(
     normalizedQuery,
     {
-      boost: makeIndexedBoosts(
-        relevanceBoosts,
-      ),
+      boost: makeIndexedBoosts(boosts),
 
       prefix: (
         term,
@@ -332,49 +319,12 @@ function normalizeFields(
   return normalized;
 }
 
-function validateRelevance(
-  relevance: SearchRelevance | undefined,
-): RelevanceBoosts {
-  if (relevance === undefined) {
+function validateBoost(
+  boost: OkfSearchOptions["boost"],
+): SearchBoosts {
+  if (boost === undefined) {
     return {};
   }
-
-  if (
-    relevance === null ||
-    typeof relevance !== "object" ||
-    Array.isArray(relevance)
-  ) {
-    throw new TypeError(
-      "options.relevance must be an object",
-    );
-  }
-
-  for (const key of Reflect.ownKeys(relevance)) {
-    if (
-      Object.prototype.propertyIsEnumerable.call(
-        relevance,
-        key,
-      ) &&
-      (
-        typeof key !== "string" ||
-        !RELEVANCE_NAMES.includes(
-          key as RelevanceName,
-        )
-      )
-    ) {
-      throw new TypeError(
-        "options.relevance must contain only valid relevance option names",
-      );
-    }
-  }
-
-  const boosts: RelevanceBoosts = {};
-
-  if (!Object.hasOwn(relevance, "boost")) {
-    return boosts;
-  }
-
-  const boost = relevance.boost;
 
   if (
     boost === null ||
@@ -382,7 +332,7 @@ function validateRelevance(
     Array.isArray(boost)
   ) {
     throw new TypeError(
-      "options.relevance.boost must be an object",
+      "options.boost must be an object",
     );
   }
 
@@ -400,10 +350,12 @@ function validateRelevance(
       )
     ) {
       throw new TypeError(
-        "options.relevance.boost must contain only valid OkfSearchField keys",
+        "options.boost must contain only valid OkfSearchField keys",
       );
     }
   }
+
+  const boosts: SearchBoosts = {};
 
   for (const field of PUBLIC_FIELDS) {
     if (!Object.hasOwn(boost, field)) {
@@ -419,7 +371,7 @@ function validateRelevance(
       value > 10
     ) {
       throw new TypeError(
-        `options.relevance.boost.${field} must be a finite number between 0.1 and 10, inclusive`,
+        `options.boost.${field} must be a finite number between 0.1 and 10, inclusive`,
       );
     }
 
@@ -430,25 +382,25 @@ function validateRelevance(
 }
 
 function makeIndexedBoosts(
-  relevanceBoosts: RelevanceBoosts,
+  boosts: SearchBoosts,
 ): Record<IndexedField, number> {
-  const boosts = {} as Record<
+  const indexedBoosts = {} as Record<
     IndexedField,
     number
   >;
 
   for (const field of PUBLIC_FIELDS) {
     const boost = Object.hasOwn(
-      relevanceBoosts,
+      boosts,
       field,
     )
-      ? relevanceBoosts[field] as number
+      ? boosts[field] as number
       : BASELINE_FIELD_BOOSTS[field];
 
-    boosts[PUBLIC_TO_INDEXED_FIELD[field]] = boost;
+    indexedBoosts[PUBLIC_TO_INDEXED_FIELD[field]] = boost;
   }
 
-  return boosts;
+  return indexedBoosts;
 }
 
 function validateWhere(

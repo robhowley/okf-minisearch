@@ -17,7 +17,6 @@ import type {
   OkfSearch,
   OkfSearchField,
   OkfSearchOptions,
-  OkfSearchRelevance,
   OkfStatus,
   OkfValidationResult,
 } from "../src/index.js";
@@ -45,15 +44,9 @@ type ExactOkfRemove = Assert<Same<
   OkfSearch["remove"],
   (path: string) => boolean
 >>;
-type ExactOkfSearchRelevance = Assert<Same<
-  OkfSearchRelevance,
-  {
-    boost?: Readonly<Partial<Record<OkfSearchField, number>>>;
-  }
->>;
-type ExactOkfSearchRelevanceOption = Assert<Same<
-  OkfSearchOptions["relevance"],
-  OkfSearchRelevance | undefined
+type ExactOkfSearchBoost = Assert<Same<
+  OkfSearchOptions["boost"],
+  Readonly<Partial<Record<OkfSearchField, number>>> | undefined
 >>;
 type ExactOkfErrorCode = Assert<Same<
   OkfErrorCode,
@@ -98,8 +91,7 @@ void [
   null as unknown as ExactOkfIngestResult,
   null as unknown as ExactOkfDocumentStatus,
   null as unknown as ExactOkfRemove,
-  null as unknown as ExactOkfSearchRelevance,
-  null as unknown as ExactOkfSearchRelevanceOption,
+  null as unknown as ExactOkfSearchBoost,
 ];
 
 void (undefined as unknown as OkfBundle | OkfReservedFile | OkfIndexRecord);
@@ -115,29 +107,28 @@ const stringFuzzy: OkfSearchOptions = { fuzzy: "true" };
 void [booleanFuzzy, numericFuzzy, stringFuzzy];
 
 const readonlyBoosts = { title: 1.5, body: 2 } as const;
-const readonlyRelevance: OkfSearchRelevance = {
+const readonlySearchOptions: OkfSearchOptions = {
   boost: readonlyBoosts,
 };
-const readonlySearchOptions: OkfSearchOptions = {
-  relevance: readonlyRelevance,
-};
 // @ts-expect-error MiniSearch's internal field name is not public.
-const internalHeadingBoost: OkfSearchRelevance = { boost: { headingPath: 2 } };
+const internalHeadingBoost: OkfSearchOptions = { boost: { headingPath: 2 } };
 // @ts-expect-error MiniSearch's internal field name is not public.
-const internalSourceBoost: OkfSearchRelevance = { boost: { sourceText: 2 } };
+const internalSourceBoost: OkfSearchOptions = { boost: { sourceText: 2 } };
 // @ts-expect-error MiniSearch's internal field name is not public.
-const internalBodyBoost: OkfSearchRelevance = { boost: { text: 2 } };
-// @ts-expect-error Relevance boosts must be numbers.
-const stringBoost: OkfSearchRelevance = { boost: { title: "high" } };
+const internalBodyBoost: OkfSearchOptions = { boost: { text: 2 } };
+// @ts-expect-error Boost values must be numbers.
+const stringBoost: OkfSearchOptions = { boost: { title: "high" } };
+// @ts-expect-error Nested boost wrapper is not a public search option.
+const nestedBoostOption: OkfSearchOptions = { ["relevance"]: { boost: { title: 2 } } };
 
 void [
   readonlyBoosts,
-  readonlyRelevance,
   readonlySearchOptions,
   internalHeadingBoost,
   internalSourceBoost,
   internalBodyBoost,
   stringBoost,
+  nestedBoostOption,
 ];
 
 // @ts-expect-error MiniSearch's internal field name is not public.
