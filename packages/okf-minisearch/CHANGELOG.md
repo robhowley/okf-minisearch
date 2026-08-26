@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v1.0.0...okf-minisearch-v1.1.0) (2026-08-26)
+
+
+### Features
+
+* **okf-minisearch:** add relevance field boosts ([#24](https://github.com/robhowley/okf-minisearch/issues/24)) ([9892956](https://github.com/robhowley/okf-minisearch/commit/98929562f748ea7629b3d663a9d01415a873bdcd))
+* **okf-minisearch:** support numeric fuzzy matching ([#26](https://github.com/robhowley/okf-minisearch/issues/26)) ([31230c0](https://github.com/robhowley/okf-minisearch/commit/31230c0e6f27d5478a34e8a1546ff27ea725a57f))
+
 ## [1.0.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v0.5.0...okf-minisearch-v1.0.0) (2026-08-26)
 
 
