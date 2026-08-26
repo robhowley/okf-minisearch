@@ -237,7 +237,7 @@ describe("package API", () => {
         readonly OkfSearchField[] | undefined
       >();
     expectTypeOf<OkfSearchOptions["fuzzy"]>()
-      .toEqualTypeOf<boolean | undefined>();
+      .toEqualTypeOf<boolean | number | undefined>();
     expectTypeOf<OkfSearchOptions["boost"]>()
       .toEqualTypeOf<Readonly<Partial<Record<OkfSearchField, number>>> | undefined>();
     expectTypeOf<OkfSearchHit["matchedFields"]>()

@@ -965,8 +965,8 @@ describe("search boosts", () => {
         "options.fields must contain only valid OkfSearchField values",
       ],
       [
-        { fuzzy: "true" as unknown as boolean },
-        "options.fuzzy must be a boolean",
+        { fuzzy: "true" as unknown as OkfSearchOptions["fuzzy"] },
+        "options.fuzzy must be a boolean or a finite number between 0 and 1, inclusive",
       ],
       [
         { where: null as unknown as OkfSearchOptions["where"] },
@@ -1328,7 +1328,7 @@ describe("search where filters", () => {
       [
         { fuzzy: "true" as unknown as OkfSearchOptions["fuzzy"] },
         new TypeError(
-          "options.fuzzy must be a boolean",
+          "options.fuzzy must be a boolean or a finite number between 0 and 1, inclusive",
         ),
       ],
     ];
@@ -1454,17 +1454,40 @@ describe("fuzzy search", () => {
       ),
     });
 
-    expect(okf.search("alphi")).toEqual([]);
+    const searchIds = (
+      fuzzy?: OkfSearchOptions["fuzzy"],
+    ) => (fuzzy === undefined
+      ? okf.search("alphi")
+      : okf.search("alphi", { fuzzy }))
+      .map((hit) => hit.documentId);
+
+    expect(searchIds()).toEqual([]);
+    expect(searchIds(false)).toEqual([]);
+    expect(searchIds(0)).toEqual([]);
+
+    for (const fuzzy of [true, 0.2, 1]) {
+      expect(searchIds(fuzzy)).toEqual(["alpha"]);
+    }
+  });
+
+  it("combines numeric fuzzy matching with field, filter, and limit options", async () => {
+    const okf = await open({
+      "allowed.md": concept(
+        "type: note\ntitle: Unrelated title",
+        "alpha",
+      ),
+      "filtered.md": concept(
+        "type: recipe\ntitle: Unrelated title",
+        "alpha",
+      ),
+    });
+
     expect(okf.search("alphi", {
-      fuzzy: false,
-    })).toEqual([]);
-    expect(okf.search("alphi", {
-      fuzzy: true,
-    })).toEqual([
-      expect.objectContaining({
-        documentId: "alpha",
-      }),
-    ]);
+      fuzzy: 0.2,
+      fields: ["body"],
+      where: { types: ["note"] },
+      limit: 1,
+    }).map((hit) => hit.documentId)).toEqual(["allowed"]);
   });
 
   it("combines earlier fuzzy matching with final-term prefix matching", async () => {
@@ -1481,7 +1504,7 @@ describe("fuzzy search", () => {
     })).toEqual([]);
     expect(okf.search(query, {
       match: "all",
-      fuzzy: true,
+      fuzzy: 0.2,
     })).toEqual([
       expect.objectContaining({
         documentId: "fuzzy-prefix",
@@ -1499,10 +1522,21 @@ describe("fuzzy search", () => {
       ),
     });
     const fuzzyError = new TypeError(
-      "options.fuzzy must be a boolean",
+      "options.fuzzy must be a boolean or a finite number between 0 and 1, inclusive",
     );
 
-    for (const fuzzy of [null, "true", 0, {}]) {
+    for (const fuzzy of [
+      null,
+      "true",
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      -0.1,
+      1.1,
+      new Number(0.2),
+      () => 0.2,
+      {},
+    ]) {
       const options = {
         fuzzy: fuzzy as unknown as OkfSearchOptions["fuzzy"],
       };

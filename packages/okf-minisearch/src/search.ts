@@ -154,14 +154,9 @@ export function search(
     options.fields,
   );
 
-  if (
-    options.fuzzy !== undefined &&
-    typeof options.fuzzy !== "boolean"
-  ) {
-    throw new TypeError(
-      "options.fuzzy must be a boolean",
-    );
-  }
+  const fuzzy = normalizeFuzzy(
+    options.fuzzy,
+  );
 
   const where = validateWhere(
     options.where,
@@ -191,9 +186,9 @@ export function search(
 
       combineWith,
       ...(fields ? { fields } : {}),
-      ...(options.fuzzy === true
-        ? { fuzzy: 0.2 }
-        : {}),
+      ...(fuzzy === undefined
+        ? {}
+        : { fuzzy }),
 
       filter: (result) =>
         matchesFilters(
@@ -261,6 +256,31 @@ export function search(
   }
 
   return hits;
+}
+
+function normalizeFuzzy(
+  fuzzy: OkfSearchOptions["fuzzy"],
+): number | undefined {
+  if (fuzzy === undefined || fuzzy === false) {
+    return undefined;
+  }
+
+  if (fuzzy === true) {
+    return 0.2;
+  }
+
+  if (
+    typeof fuzzy !== "number" ||
+    !Number.isFinite(fuzzy) ||
+    fuzzy < 0 ||
+    fuzzy > 1
+  ) {
+    throw new TypeError(
+      "options.fuzzy must be a boolean or a finite number between 0 and 1, inclusive",
+    );
+  }
+
+  return fuzzy;
 }
 
 function validateMatch(
