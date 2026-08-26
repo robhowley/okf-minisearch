@@ -76,14 +76,14 @@ const hits = okf.search("rollback snapshot", {
 | `limit` | Maximum returned documents. Defaults to `10`; `0` returns no hits. |
 | `match` | `"any"` (the default) matches any query term. `"all"` requires every term to match the same indexed section or chunk, though terms may match different fields within it. |
 | `fields` | Non-empty readonly list of fields to search. Omission searches every public field listed below. |
-| `fuzzy` | Enables spelling-near matching. Omission, `false`, and `0` keep it off. `true` uses a `0.2` ratio; numbers from `0` to `1` choose the ratio. |
+| `fuzzy` | Enables spelling-near matching. Omission, `false`, and `0` keep it off. `true` uses a `0.2` ratio; positive values below `1` use a term-length ratio, while `1` allows an absolute edit distance of one. |
 | `boost` | Changes how strongly matches in each selected field affect ranking. |
 
 `boost` values replace the default weights—not multiply them—and must be between `0.1` and `10`. Omitted fields keep the defaults listed below. Use `fields` to choose which fields are searched.
 
 The final query term receives prefix matching when it has at least three characters. This remains active with fuzzy matching, so earlier terms can use fuzzy matching while the final term uses prefix matching.
 
-`fuzzy: true` uses a fixed MiniSearch fuzziness ratio of `0.2`. A numeric `fuzzy` value from `0` to `1`, inclusive, chooses the ratio; `0` behaves as off. Fuzzy matching can recover typos, but it can also return unrelated words with similar spelling.
+`fuzzy: true` uses a fixed MiniSearch fuzziness ratio of `0.2`. Positive numeric values below `1` use a term-length ratio; `1` uses an absolute edit distance of one. `0` behaves as off. Fuzzy matching can recover typos, but it can also return unrelated words with similar spelling.
 
 ### Filters
 

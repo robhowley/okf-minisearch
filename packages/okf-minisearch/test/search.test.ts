@@ -1470,6 +1470,24 @@ describe("fuzzy search", () => {
     }
   });
 
+  it("keeps distinct numeric fuzzy thresholds observable", async () => {
+    const okf = await open({
+      "threshold.md": concept(
+        "type: note",
+        "abcdefghij",
+      ),
+    });
+    const query = "abxdeyghij";
+
+    const searchIds = (fuzzy: number) =>
+      okf.search(query, { fuzzy })
+        .map((hit) => hit.documentId);
+
+    expect(searchIds(0.1)).toEqual([]);
+    expect(searchIds(0.2)).toEqual(["threshold"]);
+    expect(searchIds(1)).toEqual([]);
+  });
+
   it("combines numeric fuzzy matching with field, filter, and limit options", async () => {
     const okf = await open({
       "allowed.md": concept(
