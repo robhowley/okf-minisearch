@@ -56,6 +56,12 @@ Pass options to control query matching, searchable fields, metadata filters, and
 const hits = okf.search("rollback snapshot", {
   match: "all",
   fields: ["title", "body"],
+  relevance: {
+    fieldBoosts: {
+      title: 1.5,
+      body: 2,
+    },
+  },
   limit: 5,
   where: {
     types: ["runbook"],
@@ -76,6 +82,9 @@ const hits = okf.search("rollback snapshot", {
 | `match` | `"any"` (the default) matches any query term. `"all"` requires every term to match the same indexed section or chunk, though terms may match different fields within it. |
 | `fields` | Non-empty readonly list of fields to search. Omission searches every public field listed below. |
 | `fuzzy` | Enables spelling-near matching. Omission and `false` keep it off. |
+| `relevance.fieldBoosts` | Multiplies the default ranking baseline for each named public field. |
+
+Field boosts are multipliers, not absolute weights. The default baselines are listed below; `1` is neutral. Values must be between `0.1` and `10`, inclusive. `0` is invalid—use `fields` to exclude a field. Omitting `relevance`, setting it to `undefined`, using `relevance: {}`, omitting `fieldBoosts` from `relevance`, or using `fieldBoosts: {}` preserves the default results.
 
 The final query term receives prefix matching when it has at least three characters. This remains active with `fuzzy: true`, so earlier terms can use fuzzy matching while the final term uses prefix matching.
 
@@ -96,18 +105,18 @@ All `where` filters are combined with AND. Values within a filter array are comb
 
 ### Search fields
 
-| Public field | Indexed content |
-| --- | --- |
-| `resource` | Document resource |
-| `title` | Document title |
-| `heading` | Section heading path |
-| `description` | Document description |
-| `tags` | Document tags |
-| `type` | Document type |
-| `sources` | Source IDs, titles, authors, and resources |
-| `body` | Section or chunk body text |
+| Public field | Indexed content | Default baseline |
+| --- | --- | ---: |
+| `resource` | Document resource | 6 |
+| `title` | Document title | 5 |
+| `heading` | Section heading path | 4 |
+| `description` | Document description | 3 |
+| `tags` | Document tags | 2 |
+| `type` | Document type | 1.5 |
+| `sources` | Source IDs, titles, authors, and resources | 1 |
+| `body` | Section or chunk body text | 1 |
 
-`fields` controls text matching only. Metadata filters under `where` remain independent.
+Only these eight public aliases are accepted by `fields` and `relevance.fieldBoosts`; internal names such as `headingPath`, `sourceText`, and `text` are not accepted. Boosts affect ranking only among fields selected by `fields` and do not override `fields` or `where`. Metadata filters under `where` remain independent.
 
 ### Results
 
@@ -133,6 +142,7 @@ Details worth knowing:
 - `documentId` is the normalized relative Markdown path without `.md`.
 - `title` is the frontmatter title. If omitted, it is derived from the final filename segment: hyphens and underscores become spaces, and the first character is capitalized (`nested/derived-title.md` → `Derived title`).
 - `sectionId` identifies the indexed section or chunk and may change when headings or chunk boundaries change.
+- Boosts can change hit ordering and which matching section represents a document; scores are not comparable across searches.
 - `score` is local to one search and should only be compared with other hits from that search.
 - `matchedFields` contains unique public field names in first-match order.
 
@@ -259,6 +269,18 @@ If `ingest` or `remove` throws `ERR_OKF_INDEX_UNUSABLE`, discard the handle and 
 
 `search` throws `TypeError("options.asOf must be a valid Date")` for an invalid `asOf`, `TypeError("options.limit must be a finite non-negative integer")` for an invalid limit, and `TypeError("options.fuzzy must be a boolean")` for a non-boolean `fuzzy` value.
 
+`relevance` is validated after `asOf`, `limit`, `match`, `fields`, `fuzzy`, and `where`, and before trimming the query or returning early for a blank query or `limit: 0`. Its exact `TypeError` messages are:
+
+```text
+options.relevance must be an object
+options.relevance must contain only valid relevance option names
+options.relevance.fieldBoosts must be an object
+options.relevance.fieldBoosts must contain only valid OkfSearchField keys
+options.relevance.fieldBoosts.<field> must be a finite number between 0.1 and 10, inclusive
+```
+
+`<field>` is replaced by the invalid public field name.
+
 ## Public API
 
 The package root exports `openOkf`, `validateOkfDocument`, and `OkfError`. `openOkf(root)` returns an `OkfSearch` handle with `search(query, options?)`, `ingest(input)`, and `remove(path)`. Public TypeScript types can be imported from the package root:
@@ -274,6 +296,7 @@ import type {
   OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
+  OkfSearchRelevance,
 } from "okf-minisearch";
 ```
 
