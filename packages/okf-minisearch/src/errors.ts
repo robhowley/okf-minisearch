@@ -1,7 +1,8 @@
 export type OkfErrorCode =
   | "ERR_OKF_READ"
   | "ERR_OKF_PARSE"
-  | "ERR_OKF_FIELD";
+  | "ERR_OKF_FIELD"
+  | "ERR_OKF_INDEX_UNUSABLE";
 
 export interface OkfErrorOptions {
   field?: string;
@@ -51,5 +52,7 @@ function message(
       return `Cannot parse OKF concept: ${subject}`;
     case "ERR_OKF_FIELD":
       return `Invalid OKF field: ${subject}`;
+    case "ERR_OKF_INDEX_UNUSABLE":
+      return `MiniSearch failed while mutating the index for ${path}; this OkfSearch handle is permanently unusable and must be rebuilt`;
   }
 }

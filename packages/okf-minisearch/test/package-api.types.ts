@@ -12,6 +12,7 @@ import type {
   OkfDiagnosticCode,
   OkfDocument,
   OkfDocumentInput,
+  OkfErrorCode,
   OkfIngestResult,
   OkfSearch,
   OkfSearchField,
@@ -43,6 +44,17 @@ type ExactOkfRemove = Assert<Same<
   OkfSearch["remove"],
   (path: string) => boolean
 >>;
+type ExactOkfErrorCode = Assert<Same<
+  OkfErrorCode,
+  | "ERR_OKF_READ"
+  | "ERR_OKF_PARSE"
+  | "ERR_OKF_FIELD"
+  | "ERR_OKF_INDEX_UNUSABLE"
+>>;
+type ExactOkfDiagnosticCode = Assert<Same<
+  OkfDiagnosticCode,
+  "ERR_OKF_PARSE" | "ERR_OKF_FIELD"
+>>;
 
 const validate: (
   input: OkfDocumentInput,
@@ -60,10 +72,17 @@ validation.errors.push({
   message: "diagnostic",
 });
 const diagnosticCode: OkfDiagnosticCode = "ERR_OKF_PARSE";
+const unusableCode: OkfErrorCode = "ERR_OKF_INDEX_UNUSABLE";
+// @ts-expect-error Fatal handle state is not a document diagnostic.
+const unusableDiagnostic: OkfDiagnosticCode = "ERR_OKF_INDEX_UNUSABLE";
 void [
   validate,
   validation,
   diagnosticCode,
+  unusableCode,
+  unusableDiagnostic,
+  null as unknown as ExactOkfErrorCode,
+  null as unknown as ExactOkfDiagnosticCode,
   null as unknown as ExactOkfValidationResult,
   null as unknown as ExactOkfIngestResult,
   null as unknown as ExactOkfDocumentStatus,
