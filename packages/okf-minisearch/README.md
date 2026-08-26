@@ -253,6 +253,9 @@ try {
 | `ERR_OKF_READ` | A selected directory or concept could not be read. |
 | `ERR_OKF_PARSE` | Frontmatter, YAML, UTF-8, or Markdown could not be parsed. |
 | `ERR_OKF_FIELD` | A caller-supplied path or known field is invalid. |
+| `ERR_OKF_INDEX_UNUSABLE` | MiniSearch failed during an `ingest` or `remove` mutation, so the handle can no longer be used safely. |
+
+If `ingest` or `remove` throws `ERR_OKF_INDEX_UNUSABLE`, discard the handle and rebuild it with `openOkf(root)`.
 
 `search` throws `TypeError("options.asOf must be a valid Date")` for an invalid `asOf`, `TypeError("options.limit must be a finite non-negative integer")` for an invalid limit, and `TypeError("options.fuzzy must be a boolean")` for a non-boolean `fuzzy` value.
 

@@ -65,18 +65,50 @@ export async function openOkf(
 
   addRecords(index, records);
 
+  let unusableError: OkfError | undefined;
+
+  const assertUsable = (): void => {
+    if (unusableError) {
+      throw unusableError;
+    }
+  };
+
+  const poison = (
+    path: string,
+    cause: unknown,
+  ): never => {
+    const error = new OkfError(
+      "ERR_OKF_INDEX_UNUSABLE",
+      path,
+      { cause },
+    );
+    unusableError = error;
+    throw error;
+  };
+
   return {
     ingest(input): OkfIngestResult {
+      assertUsable();
       const result = prepareDocument(input);
+      const indexedRecords = cloneRecords(result.records);
+      const path = result.records[0]?.path ?? `${result.document.id}.md`;
       const previousIds = recordIds.get(
         result.document.id,
       );
 
       if (previousIds?.length) {
-        index.discardAll(previousIds);
+        try {
+          index.discardAll(previousIds);
+        } catch (cause) {
+          poison(path, cause);
+        }
       }
 
-      addRecords(index, result.records);
+      try {
+        index.addAll(indexedRecords);
+      } catch (cause) {
+        poison(path, cause);
+      }
       recordIds.set(
         result.document.id,
         result.records.map((record) => record.id),
@@ -86,20 +118,26 @@ export async function openOkf(
     },
 
     remove(path) {
-      const { documentId } = normalizeDocumentIdentity(path);
-      const ids = recordIds.get(documentId);
+      assertUsable();
+      const identity = normalizeDocumentIdentity(path);
+      const ids = recordIds.get(identity.documentId);
 
       if (ids === undefined) {
         return false;
       }
 
-      assertOwnedRecordIds(index, documentId, ids);
-      index.discardAll(ids);
-      recordIds.delete(documentId);
+      assertOwnedRecordIds(index, identity.documentId, ids);
+      try {
+        index.discardAll(ids);
+      } catch (cause) {
+        poison(identity.path, cause);
+      }
+      recordIds.delete(identity.documentId);
       return true;
     },
 
     search(query, options) {
+      assertUsable();
       return search(index, query, options);
     },
   };
@@ -125,10 +163,16 @@ function addRecords(
   index: MiniSearch<OkfIndexRecord>,
   records: readonly OkfIndexRecord[],
 ): void {
-  index.addAll(records.map((record) => ({
+  index.addAll(cloneRecords(records));
+}
+
+function cloneRecords(
+  records: readonly OkfIndexRecord[],
+): OkfIndexRecord[] {
+  return records.map((record) => ({
     ...record,
     tags: [...record.tags],
-  })));
+  }));
 }
 
 function createIndex():

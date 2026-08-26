@@ -147,7 +147,11 @@ function analyzeDocument(input: OkfDocumentInput): DocumentAnalysis {
 }
 
 function expectedFailure(error: unknown): DocumentAnalysis {
-  if (!(error instanceof OkfError) || error.code === "ERR_OKF_READ") {
+  if (
+    !(error instanceof OkfError) ||
+    error.code === "ERR_OKF_READ" ||
+    error.code === "ERR_OKF_INDEX_UNUSABLE"
+  ) {
     throw error;
   }
 

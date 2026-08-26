@@ -195,6 +195,12 @@ describe("package API", () => {
     expectTypeOf<OkfIngestResult>().toEqualTypeOf<{
       document: OkfDocument;
     }>();
+    expectTypeOf<OkfErrorCode>().toEqualTypeOf<
+      | "ERR_OKF_READ"
+      | "ERR_OKF_PARSE"
+      | "ERR_OKF_FIELD"
+      | "ERR_OKF_INDEX_UNUSABLE"
+    >();
     expectTypeOf<OkfDiagnosticCode>().toEqualTypeOf<
       "ERR_OKF_PARSE" | "ERR_OKF_FIELD"
     >();
