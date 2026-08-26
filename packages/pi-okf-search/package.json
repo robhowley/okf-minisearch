@@ -1,0 +1,50 @@
+{
+  "name": "@robhowley/pi-okf-search",
+  "version": "0.1.0",
+  "description": "Search local Open Knowledge Format content from Pi.",
+  "keywords": [
+    "pi-package",
+    "open-knowledge-format",
+    "okf",
+    "search"
+  ],
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/extensions/okf-search"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robhowley/okf-minisearch.git",
+    "directory": "packages/pi-okf-search"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "okf-minisearch": "workspace:^"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.84.3",
+    "@earendil-works/pi-coding-agent": "0.84.3",
+    "typebox": "1.3.7"
+  }
+}
