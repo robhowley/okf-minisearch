@@ -380,6 +380,36 @@ describe("search controls", () => {
   });
 });
 
+describe("search result contract", () => {
+  it("accepts equivalent LF and CRLF nested-heading documents", async () => {
+    const source = concept(
+      "type: note",
+      "# Parent\n\n## Child\nlineendingneedle",
+    );
+
+    for (const newline of ["\n", "\r\n"] as const) {
+      const okf = await open({
+        "nested.md": source.replaceAll("\n", newline),
+      });
+      const projections = okf.search("lineendingneedle").map((hit) => ({
+        headingPath: hit.headingPath,
+        startLine: hit.startLine,
+        endLine: hit.endLine,
+        snippet: hit.snippet,
+      }));
+
+      expect(projections).toEqual([
+        {
+          headingPath: "Parent > Child",
+          startLine: 6,
+          endLine: 7,
+          snippet: "lineendingneedle",
+        },
+      ]);
+    }
+  });
+});
+
 describe("search where filters", () => {
   it("rejects malformed containers, names, facets, and entries", async () => {
     const okf = await open({
