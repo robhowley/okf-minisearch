@@ -401,11 +401,6 @@ describe("createRuntime", () => {
     const call = calls[0]!;
     expect(call.query).toBe("needle");
     expect(call.options).toStrictEqual({ limit: 5 });
-    expect(Object.hasOwn(call.options!, "match")).toBe(false);
-    expect(Object.hasOwn(call.options!, "fields")).toBe(false);
-    expect(Object.hasOwn(call.options!, "fuzzy")).toBe(false);
-    expect(Object.hasOwn(call.options!, "where")).toBe(false);
-    expect(Object.hasOwn(call.options!, "asOf")).toBe(false);
   });
 
   it("preserves supplied options, including false and an empty where", async () => {
@@ -453,7 +448,6 @@ describe("createRuntime", () => {
         where,
       },
     });
-    expect(Object.hasOwn(call.options!, "asOf")).toBe(false);
     expect(request).toStrictEqual(before);
     expect(call.options!.fields).toBe(fields);
     expect(call.options!.where).toBe(where);
@@ -516,24 +510,6 @@ describe("createRuntime", () => {
         matchedFields: ["title"],
         snippet: "first snippet",
       },
-    ]);
-    expect(Object.keys(result[0]!).sort()).toStrictEqual([
-      "absolutePath",
-      "endLine",
-      "headingPath",
-      "matchedFields",
-      "snippet",
-      "startLine",
-      "title",
-    ]);
-    expect(Object.keys(result[1]!).sort()).toStrictEqual([
-      "absolutePath",
-      "endLine",
-      "headingPath",
-      "matchedFields",
-      "snippet",
-      "startLine",
-      "title",
     ]);
   });
 
