@@ -1166,6 +1166,7 @@ describe("search relevance", () => {
     const boostNameError = new TypeError(
       "options.relevance.fieldBoosts must contain only valid OkfSearchField keys",
     );
+    const unknownSymbol = Symbol("unknown");
 
     for (const options of [
       relevanceOptions({
@@ -1175,6 +1176,14 @@ describe("search relevance", () => {
       relevanceOptions({
         fieldBoosts: { title: 0 },
         unknown: true,
+      }),
+      relevanceOptions({
+        [unknownSymbol]: true,
+        fieldBoosts: null,
+      }),
+      relevanceOptions({
+        fieldBoosts: { title: 0 },
+        [unknownSymbol]: true,
       }),
     ]) {
       expect(() => okf.search("", options)).toThrowError(
@@ -1189,6 +1198,8 @@ describe("search relevance", () => {
     for (const options of [
       fieldBoostOptions({ unknown: true, title: 0 }),
       fieldBoostOptions({ title: 0, headingPath: 1 }),
+      fieldBoostOptions({ [unknownSymbol]: true, title: 0 }),
+      fieldBoostOptions({ title: 0, [unknownSymbol]: true }),
     ]) {
       expect(() => okf.search("", options)).toThrowError(boostNameError);
       expect(() => okf.search(term, {
@@ -1210,7 +1221,7 @@ describe("search relevance", () => {
 
     for (let index = 0; index < orderedFields.length; index++) {
       const suffix = Object.fromEntries(
-        orderedFields.slice(index).map((field) => [field, 0]),
+        orderedFields.slice(index).reverse().map((field) => [field, 0]),
       );
       const first = orderedFields[index]!;
       const error = new TypeError(
