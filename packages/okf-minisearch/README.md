@@ -57,7 +57,7 @@ const hits = okf.search("rollback snapshot", {
   match: "all",
   fields: ["title", "body"],
   relevance: {
-    fieldBoosts: {
+    boost: {
       title: 1.5,
       body: 2,
     },
@@ -82,9 +82,9 @@ const hits = okf.search("rollback snapshot", {
 | `match` | `"any"` (the default) matches any query term. `"all"` requires every term to match the same indexed section or chunk, though terms may match different fields within it. |
 | `fields` | Non-empty readonly list of fields to search. Omission searches every public field listed below. |
 | `fuzzy` | Enables spelling-near matching. Omission and `false` keep it off. |
-| `relevance.fieldBoosts` | Multiplies the default ranking baseline for each named public field. |
+| `relevance.boost` | Sets the ranking weight for each named public field. |
 
-Field boosts are multipliers, not absolute weights. The default baselines are listed below; `1` is neutral. Values must be between `0.1` and `10`, inclusive. `0` is invalid—use `fields` to exclude a field. Omitting `relevance`, setting it to `undefined`, using `relevance: {}`, omitting `fieldBoosts` from `relevance`, or using `fieldBoosts: {}` preserves the default results.
+Field boosts replace the default ranking weights for the named fields. Omitted fields retain their built-in baselines, listed below. Values must be between `0.1` and `10`, inclusive. `0` is invalid—use `fields` to exclude a field. For example, `{ relevance: { boost: { title: 2 } } }` sets the title weight to `2`; omitting `relevance`, setting it to `undefined`, using `relevance: {}`, omitting `boost` from `relevance`, or using `boost: {}` preserves the default results.
 
 The final query term receives prefix matching when it has at least three characters. This remains active with `fuzzy: true`, so earlier terms can use fuzzy matching while the final term uses prefix matching.
 
@@ -116,7 +116,7 @@ All `where` filters are combined with AND. Values within a filter array are comb
 | `sources` | Source IDs, titles, authors, and resources | 1 |
 | `body` | Section or chunk body text | 1 |
 
-Only these eight public aliases are accepted by `fields` and `relevance.fieldBoosts`; internal names such as `headingPath`, `sourceText`, and `text` are not accepted. Boosts affect ranking only among fields selected by `fields` and do not override `fields` or `where`. Metadata filters under `where` remain independent.
+Only these eight public aliases are accepted by `fields` and `relevance.boost`; internal names such as `headingPath`, `sourceText`, and `text` are not accepted. Boosts affect ranking only among fields selected by `fields` and do not override `fields` or `where`. Metadata filters under `where` remain independent.
 
 ### Results
 
@@ -274,9 +274,9 @@ If `ingest` or `remove` throws `ERR_OKF_INDEX_UNUSABLE`, discard the handle and 
 ```text
 options.relevance must be an object
 options.relevance must contain only valid relevance option names
-options.relevance.fieldBoosts must be an object
-options.relevance.fieldBoosts must contain only valid OkfSearchField keys
-options.relevance.fieldBoosts.<field> must be a finite number between 0.1 and 10, inclusive
+options.relevance.boost must be an object
+options.relevance.boost must contain only valid OkfSearchField keys
+options.relevance.boost.<field> must be a finite number between 0.1 and 10, inclusive
 ```
 
 `<field>` is replaced by the invalid public field name.

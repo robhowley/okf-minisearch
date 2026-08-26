@@ -141,7 +141,7 @@ type ExactFuzzy = Assert<
   Same<OkfSearchOptions["fuzzy"], boolean | undefined>
 >;
 type ExpectedSearchRelevance = {
-  fieldBoosts?: Readonly<Partial<Record<OkfSearchField, number>>>;
+  boost?: Readonly<Partial<Record<OkfSearchField, number>>>;
 };
 type ExactSearchRelevance = Assert<
   Same<OkfSearchRelevance, ExpectedSearchRelevance>
@@ -165,9 +165,9 @@ type ExactDocumentStatus = Assert<
   Same<OkfDocument["status"], OkfStatus>
 >;
 const readonlyFields = ["heading", "body"] as const;
-const readonlyFieldBoosts = { title: 1.5, body: 2 } as const;
+const readonlyBoosts = { title: 1.5, body: 2 } as const;
 const relevance: OkfSearchRelevance = {
-  fieldBoosts: readonlyFieldBoosts,
+  boost: readonlyBoosts,
 };
 const searchOptions: OkfSearchOptions = {
   match: "all",
@@ -176,13 +176,13 @@ const searchOptions: OkfSearchOptions = {
   relevance,
 };
 // @ts-expect-error MiniSearch's internal field name is not public.
-const internalHeadingBoost: OkfSearchRelevance = { fieldBoosts: { headingPath: 2 } };
+const internalHeadingBoost: OkfSearchRelevance = { boost: { headingPath: 2 } };
 // @ts-expect-error MiniSearch's internal field name is not public.
-const internalSourceBoost: OkfSearchRelevance = { fieldBoosts: { sourceText: 2 } };
+const internalSourceBoost: OkfSearchRelevance = { boost: { sourceText: 2 } };
 // @ts-expect-error MiniSearch's internal field name is not public.
-const internalBodyBoost: OkfSearchRelevance = { fieldBoosts: { text: 2 } };
-// @ts-expect-error Relevance multipliers must be numbers.
-const stringBoost: OkfSearchRelevance = { fieldBoosts: { title: "high" } };
+const internalBodyBoost: OkfSearchRelevance = { boost: { text: 2 } };
+// @ts-expect-error Relevance boosts must be numbers.
+const stringBoost: OkfSearchRelevance = { boost: { title: "high" } };
 const searchHit = null as unknown as OkfSearchHit;
 const matchedField: OkfSearchField =
   searchHit.matchedFields[0] ?? "body";
@@ -227,7 +227,7 @@ void [
   null as OkfSearch | null,
   null as OkfSearchHit | null,
   null as OkfSearchOptions | null,
-  readonlyFieldBoosts,
+  readonlyBoosts,
   relevance,
   internalHeadingBoost,
   internalSourceBoost,
@@ -285,7 +285,7 @@ try {
   assert.equal(typeof okf.remove, "function");
   assert.equal(
     okf.search("packedremovalneedle", {
-      relevance: { fieldBoosts: { body: 2 } },
+      relevance: { boost: { body: 2 } },
     }).length,
     1,
   );

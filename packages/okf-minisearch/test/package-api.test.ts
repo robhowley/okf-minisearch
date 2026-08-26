@@ -215,8 +215,8 @@ describe("package API", () => {
 
   it("exports the exact search controls contract", () => {
     const fields = ["heading", "body"] as const;
-    const fieldBoosts = { title: 1.5, body: 2 } as const;
-    const relevance: OkfSearchRelevance = { fieldBoosts };
+    const boost = { title: 1.5, body: 2 } as const;
+    const relevance: OkfSearchRelevance = { boost };
     const options: OkfSearchOptions = {
       match: "all",
       fields,
@@ -241,7 +241,7 @@ describe("package API", () => {
     expectTypeOf<OkfSearchOptions["fuzzy"]>()
       .toEqualTypeOf<boolean | undefined>();
     expectTypeOf<OkfSearchRelevance>().toEqualTypeOf<{
-      fieldBoosts?: Readonly<Partial<Record<OkfSearchField, number>>>;
+      boost?: Readonly<Partial<Record<OkfSearchField, number>>>;
     }>();
     expectTypeOf<OkfSearchOptions["relevance"]>()
       .toEqualTypeOf<OkfSearchRelevance | undefined>();

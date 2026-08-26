@@ -129,9 +129,7 @@ export type OkfSearchField =
   | "body";
 
 export interface OkfSearchRelevance {
-  fieldBoosts?: Readonly<
-    Partial<Record<OkfSearchField, number>>
-  >;
+  boost?: Readonly<Partial<Record<OkfSearchField, number>>>;
 }
 
 export interface OkfSearchOptions {

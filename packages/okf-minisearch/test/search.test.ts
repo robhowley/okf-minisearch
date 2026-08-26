@@ -43,11 +43,11 @@ function relevanceOptions(
   }) as OkfSearchOptions;
 }
 
-function fieldBoostOptions(
-  fieldBoosts: unknown,
+function boostOptions(
+  boost: unknown,
   options: OkfSearchOptions = {},
 ): OkfSearchOptions {
-  return relevanceOptions({ fieldBoosts }, options);
+  return relevanceOptions({ boost }, options);
 }
 
 function fieldDocument(
@@ -457,7 +457,7 @@ describe("search controls", () => {
 });
 
 describe("search relevance", () => {
-  it("preserves omitted baselines for empty and neutral relevance", async () => {
+  it("preserves omitted baselines for empty and direct baseline relevance", async () => {
     const term = "neutralboostneedle";
     const okf = await open({
       "all-fields.md": concept(`
@@ -475,32 +475,35 @@ describe("search relevance", () => {
       undefined,
       relevanceOptions(undefined),
       relevanceOptions({}),
-      fieldBoostOptions({}),
+      boostOptions({}),
     ];
 
     for (const options of omissionCases) {
       expect(okf.search(term, options)).toEqual(baseline);
     }
 
-    const fields: readonly OkfSearchField[] = [
-      "resource",
-      "title",
-      "heading",
-      "description",
-      "tags",
-      "type",
-      "sources",
-      "body",
-    ];
+    const baselineBoosts: Record<OkfSearchField, number> = {
+      resource: 6,
+      title: 5,
+      heading: 4,
+      description: 3,
+      tags: 2,
+      type: 1.5,
+      sources: 1,
+      body: 1,
+    };
 
-    for (const field of fields) {
-      expect(okf.search(term, fieldBoostOptions({
-        [field]: 1,
+    for (const [field, boost] of Object.entries(baselineBoosts) as Array<[
+      OkfSearchField,
+      number,
+    ]>) {
+      expect(okf.search(term, boostOptions({
+        [field]: boost,
       }))).toEqual(baseline);
     }
   });
 
-  it("translates all public boost fields through public results", async () => {
+  it("applies boosts through all public field aliases", async () => {
     const cases: Array<[
       OkfSearchField,
       OkfSearchField,
@@ -521,7 +524,7 @@ describe("search relevance", () => {
     for (const [
       targetField,
       controlField,
-      multiplier,
+      boost,
       defaultFirst,
       customizedFirst,
     ] of cases) {
@@ -532,8 +535,8 @@ describe("search relevance", () => {
       });
       const fields = [targetField, controlField];
       const baseline = resultFields(okf, term, { fields });
-      const customized = resultFields(okf, term, fieldBoostOptions(
-        { [targetField]: multiplier },
+      const customized = resultFields(okf, term, boostOptions(
+        { [targetField]: boost },
         { fields },
       ));
 
@@ -580,17 +583,19 @@ describe("search relevance", () => {
     }
   });
 
-  it("changes ordering without changing match eligibility", async () => {
+  it("uses direct boosts without changing match eligibility", async () => {
     const term = "orderboostneedle";
     const okf = await open(titleBodyFiles(term));
 
-    expect(okf.search(term).map((hit) => hit.documentId)).toEqual([
+    const fields = ["title", "body"] as const;
+
+    expect(okf.search(term, { fields }).map((hit) => hit.documentId)).toEqual([
       "title",
       "body",
     ]);
-    expect(okf.search(term, fieldBoostOptions({
-      body: 10,
-    })).map((hit) => hit.documentId)).toEqual([
+    expect(okf.search(term, boostOptions({
+      title: 0.5,
+    }, { fields })).map((hit) => hit.documentId)).toEqual([
       "body",
       "title",
     ]);
@@ -612,7 +617,7 @@ describe("search relevance", () => {
       sectionId: `representative#${term}`,
       matchedFields: ["heading"],
     }]);
-    expect(okf.search(term, fieldBoostOptions({
+    expect(okf.search(term, boostOptions({
       heading: 0.1,
       body: 10,
     })).map((hit) => ({
@@ -638,7 +643,7 @@ describe("search relevance", () => {
       `, body),
     });
 
-    expect(okf.search(term, fieldBoostOptions({
+    expect(okf.search(term, boostOptions({
       title: 10,
     }, {
       fields: ["body"],
@@ -654,7 +659,7 @@ describe("search relevance", () => {
     }]);
   });
 
-  it("rejects malformed relevance and fieldBoosts containers", async () => {
+  it("rejects malformed relevance and boost containers", async () => {
     const okf = await open({
       "validation.md": concept("type: note", "relevancevalidation"),
     });
@@ -678,12 +683,12 @@ describe("search relevance", () => {
       ));
     }
 
-    for (const fieldBoosts of [...malformed, undefined]) {
+    for (const boost of [...malformed, undefined]) {
       expect(() => okf.search(
         "relevancevalidation",
-        fieldBoostOptions(fieldBoosts),
+        boostOptions(boost),
       )).toThrowError(new TypeError(
-        "options.relevance.fieldBoosts must be an object",
+        "options.relevance.boost must be an object",
       ));
     }
   });
@@ -691,27 +696,27 @@ describe("search relevance", () => {
   it("accepts all planned object shapes without mutating them", async () => {
     const term = "shapeboostneedle";
     const okf = await open(titleBodyFiles(term));
-    const expected = okf.search(term, fieldBoostOptions(
+    const expected = okf.search(term, boostOptions(
       { title: 0.1 },
       { fields: ["title", "body"] },
     ));
 
     class RelevanceContainer {
-      fieldBoosts = { title: 0.1 };
+      boost = { title: 0.1 };
     }
 
-    class FieldBoostContainer {
+    class BoostContainer {
       title = 0.1;
     }
 
     const nullPrototypeRelevance = Object.assign(
       Object.create(null) as object,
-      { fieldBoosts: { title: 0.1 } },
+      { boost: { title: 0.1 } },
     );
     const relevanceShapes: unknown[] = [
-      { fieldBoosts: { title: 0.1 } },
+      { boost: { title: 0.1 } },
       Object.freeze({
-        fieldBoosts: Object.freeze({ title: 0.1 }),
+        boost: Object.freeze({ title: 0.1 }),
       }),
       new RelevanceContainer(),
       nullPrototypeRelevance,
@@ -730,19 +735,19 @@ describe("search relevance", () => {
     const boostShapes: unknown[] = [
       { title: 0.1 },
       Object.freeze({ title: 0.1 }),
-      new FieldBoostContainer(),
+      new BoostContainer(),
       nullPrototypeBoosts,
     ];
 
     for (const boosts of boostShapes) {
-      expect(okf.search(term, fieldBoostOptions(boosts, {
+      expect(okf.search(term, boostOptions(boosts, {
         fields: ["title", "body"],
       }))).toEqual(expected);
     }
 
     const frozenBoosts = Object.freeze({ title: 0.1 });
     const frozenRelevance = Object.freeze({
-      fieldBoosts: frozenBoosts,
+      boost: frozenBoosts,
     });
     const frozenOptions = Object.freeze(
       relevanceOptions(frozenRelevance, {
@@ -754,7 +759,7 @@ describe("search relevance", () => {
     expect(okf.search(term, frozenOptions)).toEqual(expected);
     expect(frozenOptions).toEqual({
       fields: ["title", "body"],
-      relevance: { fieldBoosts: { title: 0.1 } },
+      relevance: { boost: { title: 0.1 } },
     });
     expect(Object.isFrozen(frozenOptions)).toBe(true);
     expect(Object.isFrozen(frozenRelevance)).toBe(true);
@@ -791,9 +796,9 @@ describe("search relevance", () => {
     for (const key of invalidBoostKeys) {
       expect(() => okf.search(
         "relevancekeys",
-        fieldBoostOptions({ [key]: 1 }),
+        boostOptions({ [key]: 1 }),
       )).toThrowError(new TypeError(
-        "options.relevance.fieldBoosts must contain only valid OkfSearchField keys",
+        "options.relevance.boost must contain only valid OkfSearchField keys",
       ));
     }
   });
@@ -801,7 +806,7 @@ describe("search relevance", () => {
   it("uses supported non-enumerable keys and ignores other hidden keys", async () => {
     const term = "descriptorboostneedle";
     const okf = await open(titleBodyFiles(term));
-    const expected = okf.search(term, fieldBoostOptions(
+    const expected = okf.search(term, boostOptions(
       { title: 0.1 },
       { fields: ["title", "body"] },
     ));
@@ -815,7 +820,7 @@ describe("search relevance", () => {
       [hiddenSymbol]: { value: true },
     });
     Object.defineProperties(relevance, {
-      fieldBoosts: { value: boosts },
+      boost: { value: boosts },
       ignored: { value: true },
       [hiddenSymbol]: { value: true },
     });
@@ -832,7 +837,7 @@ describe("search relevance", () => {
     const baseline = okf.search(term, { fields });
     const inheritedSymbol = Symbol("inherited");
     const relevancePrototype = {
-      fieldBoosts: { title: 0.1 },
+      boost: { title: 0.1 },
       unknown: true,
       [inheritedSymbol]: true,
     };
@@ -846,7 +851,7 @@ describe("search relevance", () => {
       Object.create(relevancePrototype),
       { fields },
     ))).toEqual(baseline);
-    expect(okf.search(term, fieldBoostOptions(
+    expect(okf.search(term, boostOptions(
       Object.create(boostsPrototype),
       { fields },
     ))).toEqual(baseline);
@@ -855,12 +860,12 @@ describe("search relevance", () => {
   it("reads inherited top-level relevance through normal property access", async () => {
     const term = "topinheritanceboostneedle";
     const okf = await open(titleBodyFiles(term));
-    const expected = okf.search(term, fieldBoostOptions(
+    const expected = okf.search(term, boostOptions(
       { title: 0.1 },
       { fields: ["title", "body"] },
     ));
     const inheritedValid = Object.assign(Object.create({
-      relevance: { fieldBoosts: { title: 0.1 } },
+      relevance: { boost: { title: 0.1 } },
     }) as object, {
       fields: ["title", "body"],
     }) as OkfSearchOptions;
@@ -876,11 +881,11 @@ describe("search relevance", () => {
     );
   });
 
-  it("accepts endpoints and rejects every invalid multiplier shape", async () => {
+  it("accepts endpoints and rejects every invalid boost value", async () => {
     const term = "numberboostneedle";
     const okf = await open(titleBodyFiles(term));
 
-    expect(okf.search(term, fieldBoostOptions({
+    expect(okf.search(term, boostOptions({
       title: 0.1,
     }, {
       fields: ["title", "body"],
@@ -888,7 +893,7 @@ describe("search relevance", () => {
       "body",
       "title",
     ]);
-    expect(okf.search(term, fieldBoostOptions({
+    expect(okf.search(term, boostOptions({
       body: 10,
     })).map((hit) => hit.documentId)).toEqual([
       "body",
@@ -915,13 +920,13 @@ describe("search relevance", () => {
       undefined,
     ];
     const error = new TypeError(
-      "options.relevance.fieldBoosts.title must be a finite number between 0.1 and 10, inclusive",
+      "options.relevance.boost.title must be a finite number between 0.1 and 10, inclusive",
     );
 
     for (const title of invalidValues) {
       expect(() => okf.search(
         term,
-        fieldBoostOptions({ title }),
+        boostOptions({ title }),
       )).toThrowError(error);
     }
   });
@@ -937,7 +942,7 @@ describe("search relevance", () => {
         return reads === 1 ? 0.1 : 10;
       },
     });
-    const options = fieldBoostOptions(boosts, {
+    const options = boostOptions(boosts, {
       fields: ["title", "body"],
     });
 
@@ -962,7 +967,7 @@ describe("search relevance", () => {
     let thrown: unknown;
 
     try {
-      okf.search(term, fieldBoostOptions(throwingBoosts));
+      okf.search(term, boostOptions(throwingBoosts));
     } catch (error) {
       thrown = error;
     }
@@ -986,7 +991,7 @@ describe("search relevance", () => {
         relevanceError,
       ],
       [
-        fieldBoostOptions(new Proxy({}, {
+        boostOptions(new Proxy({}, {
           ownKeys() {
             throw boostError;
           },
@@ -1164,25 +1169,25 @@ describe("search relevance", () => {
       "options.relevance must contain only valid relevance option names",
     );
     const boostNameError = new TypeError(
-      "options.relevance.fieldBoosts must contain only valid OkfSearchField keys",
+      "options.relevance.boost must contain only valid OkfSearchField keys",
     );
     const unknownSymbol = Symbol("unknown");
 
     for (const options of [
       relevanceOptions({
         unknown: true,
-        fieldBoosts: null,
+        boost: null,
       }),
       relevanceOptions({
-        fieldBoosts: { title: 0 },
+        boost: { title: 0 },
         unknown: true,
       }),
       relevanceOptions({
         [unknownSymbol]: true,
-        fieldBoosts: null,
+        boost: null,
       }),
       relevanceOptions({
-        fieldBoosts: { title: 0 },
+        boost: { title: 0 },
         [unknownSymbol]: true,
       }),
     ]) {
@@ -1196,10 +1201,10 @@ describe("search relevance", () => {
     }
 
     for (const options of [
-      fieldBoostOptions({ unknown: true, title: 0 }),
-      fieldBoostOptions({ title: 0, headingPath: 1 }),
-      fieldBoostOptions({ [unknownSymbol]: true, title: 0 }),
-      fieldBoostOptions({ title: 0, [unknownSymbol]: true }),
+      boostOptions({ unknown: true, title: 0 }),
+      boostOptions({ title: 0, headingPath: 1 }),
+      boostOptions({ [unknownSymbol]: true, title: 0 }),
+      boostOptions({ title: 0, [unknownSymbol]: true }),
     ]) {
       expect(() => okf.search("", options)).toThrowError(boostNameError);
       expect(() => okf.search(term, {
@@ -1225,29 +1230,29 @@ describe("search relevance", () => {
       );
       const first = orderedFields[index]!;
       const error = new TypeError(
-        `options.relevance.fieldBoosts.${first} must be a finite number between 0.1 and 10, inclusive`,
+        `options.relevance.boost.${first} must be a finite number between 0.1 and 10, inclusive`,
       );
 
-      expect(() => okf.search("", fieldBoostOptions(suffix)))
+      expect(() => okf.search("", boostOptions(suffix)))
         .toThrowError(error);
-      expect(() => okf.search(term, fieldBoostOptions(suffix, {
+      expect(() => okf.search(term, boostOptions(suffix, {
         limit: 0,
       }))).toThrowError(error);
     }
 
-    const invalidContainer = fieldBoostOptions(undefined);
+    const invalidContainer = boostOptions(undefined);
     expect(() => okf.search("", invalidContainer)).toThrowError(
-      new TypeError("options.relevance.fieldBoosts must be an object"),
+      new TypeError("options.relevance.boost must be an object"),
     );
     expect(() => okf.search(term, {
       ...invalidContainer,
       limit: 0,
     })).toThrowError(
-      new TypeError("options.relevance.fieldBoosts must be an object"),
+      new TypeError("options.relevance.boost must be an object"),
     );
 
-    expect(okf.search("", fieldBoostOptions({ title: 0.1 }))).toEqual([]);
-    expect(okf.search(term, fieldBoostOptions({ body: 10 }, {
+    expect(okf.search("", boostOptions({ title: 0.1 }))).toEqual([]);
+    expect(okf.search(term, boostOptions({ body: 10 }, {
       limit: 0,
     }))).toEqual([]);
   });

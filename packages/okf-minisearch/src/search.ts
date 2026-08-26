@@ -23,7 +23,7 @@ type SearchRelevance = NonNullable<
   OkfSearchOptions["relevance"]
 >;
 
-type FieldBoostMultipliers = Partial<
+type RelevanceBoosts = Partial<
   Record<OkfSearchField, number>
 >;
 
@@ -91,7 +91,7 @@ const BASELINE_FIELD_BOOSTS: Record<
 };
 
 const RELEVANCE_NAMES = [
-  "fieldBoosts",
+  "boost",
 ] as const;
 
 type RelevanceName =
@@ -177,7 +177,7 @@ export function search(
   const where = validateWhere(
     options.where,
   );
-  const fieldBoosts = validateRelevance(
+  const relevanceBoosts = validateRelevance(
     options.relevance,
   );
 
@@ -191,7 +191,7 @@ export function search(
     normalizedQuery,
     {
       boost: makeIndexedBoosts(
-        fieldBoosts,
+        relevanceBoosts,
       ),
 
       prefix: (
@@ -334,7 +334,7 @@ function normalizeFields(
 
 function validateRelevance(
   relevance: SearchRelevance | undefined,
-): FieldBoostMultipliers {
+): RelevanceBoosts {
   if (relevance === undefined) {
     return {};
   }
@@ -368,28 +368,28 @@ function validateRelevance(
     }
   }
 
-  const multipliers: FieldBoostMultipliers = {};
+  const boosts: RelevanceBoosts = {};
 
-  if (!Object.hasOwn(relevance, "fieldBoosts")) {
-    return multipliers;
+  if (!Object.hasOwn(relevance, "boost")) {
+    return boosts;
   }
 
-  const fieldBoosts = relevance.fieldBoosts;
+  const boost = relevance.boost;
 
   if (
-    fieldBoosts === null ||
-    typeof fieldBoosts !== "object" ||
-    Array.isArray(fieldBoosts)
+    boost === null ||
+    typeof boost !== "object" ||
+    Array.isArray(boost)
   ) {
     throw new TypeError(
-      "options.relevance.fieldBoosts must be an object",
+      "options.relevance.boost must be an object",
     );
   }
 
-  for (const key of Reflect.ownKeys(fieldBoosts)) {
+  for (const key of Reflect.ownKeys(boost)) {
     if (
       Object.prototype.propertyIsEnumerable.call(
-        fieldBoosts,
+        boost,
         key,
       ) &&
       (
@@ -400,37 +400,37 @@ function validateRelevance(
       )
     ) {
       throw new TypeError(
-        "options.relevance.fieldBoosts must contain only valid OkfSearchField keys",
+        "options.relevance.boost must contain only valid OkfSearchField keys",
       );
     }
   }
 
   for (const field of PUBLIC_FIELDS) {
-    if (!Object.hasOwn(fieldBoosts, field)) {
+    if (!Object.hasOwn(boost, field)) {
       continue;
     }
 
-    const multiplier = fieldBoosts[field];
+    const value = boost[field];
 
     if (
-      typeof multiplier !== "number" ||
-      !Number.isFinite(multiplier) ||
-      multiplier < 0.1 ||
-      multiplier > 10
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      value < 0.1 ||
+      value > 10
     ) {
       throw new TypeError(
-        `options.relevance.fieldBoosts.${field} must be a finite number between 0.1 and 10, inclusive`,
+        `options.relevance.boost.${field} must be a finite number between 0.1 and 10, inclusive`,
       );
     }
 
-    multipliers[field] = multiplier;
+    boosts[field] = value;
   }
 
-  return multipliers;
+  return boosts;
 }
 
 function makeIndexedBoosts(
-  multipliers: FieldBoostMultipliers,
+  relevanceBoosts: RelevanceBoosts,
 ): Record<IndexedField, number> {
   const boosts = {} as Record<
     IndexedField,
@@ -438,15 +438,14 @@ function makeIndexedBoosts(
   >;
 
   for (const field of PUBLIC_FIELDS) {
-    const multiplier = Object.hasOwn(
-      multipliers,
+    const boost = Object.hasOwn(
+      relevanceBoosts,
       field,
     )
-      ? multipliers[field] as number
-      : 1;
+      ? relevanceBoosts[field] as number
+      : BASELINE_FIELD_BOOSTS[field];
 
-    boosts[PUBLIC_TO_INDEXED_FIELD[field]] =
-      BASELINE_FIELD_BOOSTS[field] * multiplier;
+    boosts[PUBLIC_TO_INDEXED_FIELD[field]] = boost;
   }
 
   return boosts;
