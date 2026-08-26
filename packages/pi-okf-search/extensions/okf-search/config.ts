@@ -22,9 +22,7 @@ export function loadConfig(ctx: ConfigContext): OkfSearchConfig {
   const projectPath = join(projectDir, "settings.json");
   const settings = SettingsManager.create(ctx.cwd, agentDir, { projectTrusted });
   const global = settings.getGlobalSettings() as Record<string, unknown>;
-  const project = projectTrusted
-    ? (settings.getProjectSettings() as Record<string, unknown>)
-    : undefined;
+  const project = settings.getProjectSettings() as Record<string, unknown>;
   const errors = settings.drainErrors();
   const projectError = errors.find((error) => error.scope === "project");
 
@@ -33,7 +31,7 @@ export function loadConfig(ctx: ConfigContext): OkfSearchConfig {
   }
 
   const globalError = errors.find((error) => error.scope === "global");
-  const hasProjectConfig = project !== undefined && Object.hasOwn(project, PACKAGE_KEY);
+  const hasProjectConfig = Object.hasOwn(project, PACKAGE_KEY);
   const projectValidationError = hasProjectConfig
     ? configValidationError(project[PACKAGE_KEY])
     : undefined;
