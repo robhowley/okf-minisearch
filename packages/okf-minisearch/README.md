@@ -57,6 +57,7 @@ const hits = okf.search("rollback snapshot", {
   match: "all",
   fields: ["title", "body"],
   boost: { title: 8 },
+  fuzzy: 0.2,
   limit: 5,
   where: {
     types: ["runbook"],
@@ -76,14 +77,14 @@ const hits = okf.search("rollback snapshot", {
 | `limit` | Maximum returned documents. Defaults to `10`; `0` returns no hits. |
 | `match` | `"any"` (the default) matches any query term. `"all"` requires every term to match the same indexed section or chunk, though terms may match different fields within it. |
 | `fields` | Non-empty readonly list of fields to search. Omission searches every public field listed below. |
-| `fuzzy` | Enables spelling-near matching. Omission and `false` keep it off. |
+| `fuzzy` | Enables typo-tolerant matching with `true` or a number from `0` through `1`. Omission, `false`, and `0` disable it. |
 | `boost` | Changes how strongly matches in each selected field affect ranking. |
 
 `boost` values replace the default weights—not multiply them—and must be between `0.1` and `10`. Omitted fields keep the defaults listed below. Use `fields` to choose which fields are searched.
 
-The final query term receives prefix matching when it has at least three characters. This remains active with `fuzzy: true`, so earlier terms can use fuzzy matching while the final term uses prefix matching.
+The final query term receives prefix matching when it has at least three characters. This remains active with fuzzy matching, so earlier terms can use fuzzy matching while the final term uses prefix matching.
 
-`fuzzy: true` uses a fixed MiniSearch fuzziness ratio of `0.2`. It can recover typos, but it can also return unrelated words with similar spelling. The ratio is not configurable.
+`fuzzy: true` is equivalent to `fuzzy: 0.2`. Fractional values use a term-length ratio; `1` allows one character edit. Higher values may also match unrelated words with similar spelling.
 
 ### Filters
 
@@ -261,7 +262,7 @@ try {
 
 If `ingest` or `remove` throws `ERR_OKF_INDEX_UNUSABLE`, discard the handle and rebuild it with `openOkf(root)`.
 
-`search` throws `TypeError("options.asOf must be a valid Date")` for an invalid `asOf`, `TypeError("options.limit must be a finite non-negative integer")` for an invalid limit, and `TypeError("options.fuzzy must be a boolean")` for a non-boolean `fuzzy` value.
+`search` rejects invalid dates, limits, and fuzzy settings with `TypeError`.
 
 ## Public API
 

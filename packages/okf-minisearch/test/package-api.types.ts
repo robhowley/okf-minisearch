@@ -99,9 +99,8 @@ void (undefined as unknown as OkfBundle | OkfReservedFile | OkfIndexRecord);
 const booleanFuzzy: OkfSearchOptions = {
   fuzzy: true,
 };
-// @ts-expect-error Fuzzy search does not accept a numeric ratio.
 const numericFuzzy: OkfSearchOptions = { fuzzy: 0.2 };
-// @ts-expect-error Fuzzy search only accepts a boolean.
+// @ts-expect-error Fuzzy search does not accept strings.
 const stringFuzzy: OkfSearchOptions = { fuzzy: "true" };
 
 void [booleanFuzzy, numericFuzzy, stringFuzzy];

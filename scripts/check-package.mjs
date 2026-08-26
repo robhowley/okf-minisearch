@@ -137,7 +137,7 @@ type ExactSearchField = Assert<
   Same<OkfSearchField, ExpectedOkfSearchField>
 >;
 type ExactFuzzy = Assert<
-  Same<OkfSearchOptions["fuzzy"], boolean | undefined>
+  Same<OkfSearchOptions["fuzzy"], boolean | number | undefined>
 >;
 type ExactSearchBoost = Assert<
   Same<
@@ -165,7 +165,7 @@ const readonlyBoosts = { title: 1.5, body: 2 } as const;
 const searchOptions: OkfSearchOptions = {
   match: "all",
   fields: readonlyFields,
-  fuzzy: true,
+  fuzzy: 0.2,
   boost: readonlyBoosts,
 };
 // @ts-expect-error MiniSearch's internal field name is not public.

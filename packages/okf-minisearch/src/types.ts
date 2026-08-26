@@ -144,7 +144,7 @@ export interface OkfSearchOptions {
   match?: "any" | "all";
   fields?: readonly OkfSearchField[];
   boost?: Readonly<Partial<Record<OkfSearchField, number>>>;
-  fuzzy?: boolean;
+  fuzzy?: boolean | number;
 }
 
 export interface OkfSearchHit {
