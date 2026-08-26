@@ -110,6 +110,7 @@ import type {
   OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
+  OkfSearchRelevance,
   OkfSource,
   OkfStatus,
   OkfTimeWindow,
@@ -139,6 +140,15 @@ type ExactSearchField = Assert<
 type ExactFuzzy = Assert<
   Same<OkfSearchOptions["fuzzy"], boolean | undefined>
 >;
+type ExpectedSearchRelevance = {
+  fieldBoosts?: Readonly<Partial<Record<OkfSearchField, number>>>;
+};
+type ExactSearchRelevance = Assert<
+  Same<OkfSearchRelevance, ExpectedSearchRelevance>
+>;
+type ExactSearchRelevanceOption = Assert<
+  Same<OkfSearchOptions["relevance"], OkfSearchRelevance | undefined>
+>;
 type ExactRemove = Assert<
   Same<OkfSearch["remove"], (path: string) => boolean>
 >;
@@ -155,11 +165,24 @@ type ExactDocumentStatus = Assert<
   Same<OkfDocument["status"], OkfStatus>
 >;
 const readonlyFields = ["heading", "body"] as const;
+const readonlyFieldBoosts = { title: 1.5, body: 2 } as const;
+const relevance: OkfSearchRelevance = {
+  fieldBoosts: readonlyFieldBoosts,
+};
 const searchOptions: OkfSearchOptions = {
   match: "all",
   fields: readonlyFields,
   fuzzy: true,
+  relevance,
 };
+// @ts-expect-error MiniSearch's internal field name is not public.
+const internalHeadingBoost: OkfSearchRelevance = { fieldBoosts: { headingPath: 2 } };
+// @ts-expect-error MiniSearch's internal field name is not public.
+const internalSourceBoost: OkfSearchRelevance = { fieldBoosts: { sourceText: 2 } };
+// @ts-expect-error MiniSearch's internal field name is not public.
+const internalBodyBoost: OkfSearchRelevance = { fieldBoosts: { text: 2 } };
+// @ts-expect-error Relevance multipliers must be numbers.
+const stringBoost: OkfSearchRelevance = { fieldBoosts: { title: "high" } };
 const searchHit = null as unknown as OkfSearchHit;
 const matchedField: OkfSearchField =
   searchHit.matchedFields[0] ?? "body";
@@ -204,12 +227,20 @@ void [
   null as OkfSearch | null,
   null as OkfSearchHit | null,
   null as OkfSearchOptions | null,
+  readonlyFieldBoosts,
+  relevance,
+  internalHeadingBoost,
+  internalSourceBoost,
+  internalBodyBoost,
+  stringBoost,
   searchOptions,
   matchedField,
   removalResult,
   null as ExactSearchField | null,
   null as ExactRemove | null,
   null as ExactFuzzy | null,
+  null as ExactSearchRelevance | null,
+  null as ExactSearchRelevanceOption | null,
   null as ExactValidationResult | null,
   null as ExactIngestResult | null,
   null as ExactDocumentStatus | null,
@@ -252,6 +283,12 @@ try {
   assert.equal(Object.hasOwn(ingestResult, "diagnostics"), false);
 
   assert.equal(typeof okf.remove, "function");
+  assert.equal(
+    okf.search("packedremovalneedle", {
+      relevance: { fieldBoosts: { body: 2 } },
+    }).length,
+    1,
+  );
   assert.equal(okf.search("packedremovalneedle").length, 1);
   assert.equal(okf.remove("./consumer.md"), true);
   assert.deepEqual(okf.search("packedremovalneedle"), []);

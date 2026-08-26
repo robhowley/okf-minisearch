@@ -17,6 +17,7 @@ import type {
   OkfSearch,
   OkfSearchField,
   OkfSearchOptions,
+  OkfSearchRelevance,
   OkfStatus,
   OkfValidationResult,
 } from "../src/index.js";
@@ -43,6 +44,16 @@ type ExactOkfDocumentStatus = Assert<Same<
 type ExactOkfRemove = Assert<Same<
   OkfSearch["remove"],
   (path: string) => boolean
+>>;
+type ExactOkfSearchRelevance = Assert<Same<
+  OkfSearchRelevance,
+  {
+    fieldBoosts?: Readonly<Partial<Record<OkfSearchField, number>>>;
+  }
+>>;
+type ExactOkfSearchRelevanceOption = Assert<Same<
+  OkfSearchOptions["relevance"],
+  OkfSearchRelevance | undefined
 >>;
 type ExactOkfErrorCode = Assert<Same<
   OkfErrorCode,
@@ -87,6 +98,8 @@ void [
   null as unknown as ExactOkfIngestResult,
   null as unknown as ExactOkfDocumentStatus,
   null as unknown as ExactOkfRemove,
+  null as unknown as ExactOkfSearchRelevance,
+  null as unknown as ExactOkfSearchRelevanceOption,
 ];
 
 void (undefined as unknown as OkfBundle | OkfReservedFile | OkfIndexRecord);
@@ -100,6 +113,32 @@ const numericFuzzy: OkfSearchOptions = { fuzzy: 0.2 };
 const stringFuzzy: OkfSearchOptions = { fuzzy: "true" };
 
 void [booleanFuzzy, numericFuzzy, stringFuzzy];
+
+const readonlyFieldBoosts = { title: 1.5, body: 2 } as const;
+const readonlyRelevance: OkfSearchRelevance = {
+  fieldBoosts: readonlyFieldBoosts,
+};
+const readonlySearchOptions: OkfSearchOptions = {
+  relevance: readonlyRelevance,
+};
+// @ts-expect-error MiniSearch's internal field name is not public.
+const internalHeadingBoost: OkfSearchRelevance = { fieldBoosts: { headingPath: 2 } };
+// @ts-expect-error MiniSearch's internal field name is not public.
+const internalSourceBoost: OkfSearchRelevance = { fieldBoosts: { sourceText: 2 } };
+// @ts-expect-error MiniSearch's internal field name is not public.
+const internalBodyBoost: OkfSearchRelevance = { fieldBoosts: { text: 2 } };
+// @ts-expect-error Relevance multipliers must be numbers.
+const stringBoost: OkfSearchRelevance = { fieldBoosts: { title: "high" } };
+
+void [
+  readonlyFieldBoosts,
+  readonlyRelevance,
+  readonlySearchOptions,
+  internalHeadingBoost,
+  internalSourceBoost,
+  internalBodyBoost,
+  stringBoost,
+];
 
 // @ts-expect-error MiniSearch's internal field name is not public.
 const internalHeading: OkfSearchField = "headingPath";
