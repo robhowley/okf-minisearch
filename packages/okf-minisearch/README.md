@@ -255,7 +255,7 @@ try {
 | `ERR_OKF_FIELD` | A caller-supplied path or known field is invalid. |
 | `ERR_OKF_INDEX_UNUSABLE` | MiniSearch failed during an `ingest` or `remove` mutation, so the handle can no longer be used safely. |
 
-When MiniSearch throws during an `ingest` or `remove` mutation, that call throws `ERR_OKF_INDEX_UNUSABLE` with the normalized document path and the MiniSearch error as its `cause`. The handle is permanently unusable: every later `search`, `ingest`, or `remove` call rethrows the same `OkfError`. Discard the handle and call `openOkf(root)` again to rebuild it.
+If `ingest` or `remove` throws `ERR_OKF_INDEX_UNUSABLE`, discard the handle and rebuild it with `openOkf(root)`.
 
 `search` throws `TypeError("options.asOf must be a valid Date")` for an invalid `asOf`, `TypeError("options.limit must be a finite non-negative integer")` for an invalid limit, and `TypeError("options.fuzzy must be a boolean")` for a non-boolean `fuzzy` value.
 
