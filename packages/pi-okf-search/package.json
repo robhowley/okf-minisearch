@@ -10,16 +10,15 @@
   ],
   "type": "module",
   "files": [
-    "dist"
+    "extensions"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run"
   },
   "pi": {
     "extensions": [
-      "./dist/extensions/okf-search"
+      "./extensions/okf-search/index.ts"
     ]
   },
   "repository": {
