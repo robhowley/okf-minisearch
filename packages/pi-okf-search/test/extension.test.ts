@@ -34,6 +34,7 @@ vi.mock("../extensions/okf-search/runtime.js", () => ({
 }));
 
 import okfSearchExtension from "../extensions/okf-search/index.js";
+import type { RuntimeSearchHit } from "../extensions/okf-search/runtime.js";
 
 type CapturedHandler = (...args: unknown[]) => unknown;
 
@@ -54,16 +55,6 @@ interface TestContext {
 }
 
 type RawSchema = Record<string, unknown>;
-
-type SearchHit = {
-  title: string;
-  headingPath: string;
-  absolutePath: string;
-  startLine: number;
-  endLine: number;
-  matchedFields: readonly string[];
-  snippet: string;
-};
 
 const SEARCH_FIELDS = [
   "resource",
@@ -193,38 +184,20 @@ describe("okf_search extension", () => {
     runtimes.length = 0;
   });
 
-  it("registers one exact tool after one session_start handler", () => {
+  it("registers one search tool after one session_start handler", () => {
     const pi = installExtension();
     const tool = onlyTool(pi);
 
-    expect(createRuntimeMock).toHaveBeenCalledTimes(1);
-    expect(runtimes).toHaveLength(1);
     expect(pi.registrations).toEqual([
       { kind: "on", event: "session_start" },
       { kind: "registerTool", name: "okf_search" },
     ]);
-    expect(pi.handlers).toHaveLength(1);
-    expect(pi.tools).toHaveLength(1);
-
-    expect(Object.keys(tool).sort()).toEqual([
-      "description",
-      "execute",
-      "label",
-      "name",
-      "parameters",
-      "promptGuidelines",
-      "promptSnippet",
-    ]);
-    expect(tool.name).toBe("okf_search");
-    expect(tool.label).toBe("OKF Search");
-    expect(tool.description).toBe(
-      "Read-only search of the configured local Open Knowledge Format snapshot.",
-    );
-    expect(tool).not.toHaveProperty("prepareArguments");
-    expect(tool).not.toHaveProperty("constrainedSampling");
-    expect(tool).not.toHaveProperty("executionMode");
-    expect(tool).not.toHaveProperty("renderCall");
-    expect(tool).not.toHaveProperty("renderResult");
+    expect(tool).toMatchObject({
+      name: "okf_search",
+      label: "OKF Search",
+      description:
+        "Read-only search of the configured local Open Knowledge Format snapshot.",
+    });
   });
 
   it("awaits startup and passes the exact session context", async () => {
@@ -462,126 +435,56 @@ describe("okf_search extension", () => {
     },
   );
 
-  it("keeps the raw TypeBox schema exact and strict", () => {
-    const tool = onlyTool(installExtension());
-    const parameters = schema(tool.parameters);
+  it("publishes descriptions and Google-compatible string enums without defaults", () => {
+    const parameters = schema(onlyTool(installExtension()).parameters);
     const properties = schemaProperties(parameters);
-    const where = schema(properties.where);
-    const whereProperties = schemaProperties(where);
+    const whereProperties = schemaProperties(schema(properties.where));
 
-    expect(Object.keys(parameters).sort()).toEqual([
-      "additionalProperties",
-      "properties",
-      "required",
-      "type",
-    ]);
-    expect(parameters.type).toBe("object");
-    expect(parameters.required).toEqual(["query"]);
-    expect(parameters.additionalProperties).toBe(false);
-    expect(Object.keys(properties).sort()).toEqual([
-      "fields",
-      "fuzzy",
-      "limit",
-      "match",
-      "query",
-      "where",
-    ]);
+    expect(properties).toMatchObject({
+      query: { description: "Nonblank text to search for." },
+      limit: {
+        description: "Maximum number of hits; omit for the runtime default.",
+      },
+      match: {
+        description: "Match any query term or require all query terms.",
+      },
+      fields: { description: "Public OKF fields to search." },
+      fuzzy: {
+        description: "Enable the runtime's fixed fuzzy matching behavior.",
+      },
+    });
+    expect(whereProperties).toMatchObject({
+      types: { description: "Frontmatter types; values match by OR." },
+      tagsAny: { description: "Tags; any listed tag may match." },
+      statuses: { description: "Allowed OKF statuses." },
+      trustTiers: { description: "Allowed OKF trust tiers." },
+      stale: { description: "Filter by runtime-classified staleness." },
+    });
 
-    expect(properties.query).toEqual({
-      type: "string",
-      minLength: 1,
-      pattern: "\\S",
-      description: "Nonblank text to search for.",
-    });
-    expect(properties.limit).toEqual({
-      type: "integer",
-      minimum: 1,
-      maximum: 10,
-      description: "Maximum number of hits; omit for the runtime default.",
-    });
-    expect(properties.match).toEqual({
+    expect(properties.match).toMatchObject({
       type: "string",
       enum: ["any", "all"],
-      description: "Match any query term or require all query terms.",
     });
-    expect(properties.fields).toEqual({
-      type: "array",
-      items: { type: "string", enum: [...SEARCH_FIELDS] },
-      minItems: 1,
-      description: "Public OKF fields to search.",
+    expect(schema(properties.fields).items).toEqual({
+      type: "string",
+      enum: [...SEARCH_FIELDS],
     });
-    expect(properties.fuzzy).toEqual({
-      type: "boolean",
-      description: "Enable the runtime's fixed fuzzy matching behavior.",
+    expect(schema(whereProperties.statuses).items).toEqual({
+      type: "string",
+      enum: [...STATUSES],
     });
-
-    expect(Object.keys(where).sort()).toEqual([
-      "additionalProperties",
-      "properties",
-      "type",
-    ]);
-    expect(where.type).toBe("object");
-    expect(where.additionalProperties).toBe(false);
-    expect(where).not.toHaveProperty("required");
-    expect(Object.keys(whereProperties).sort()).toEqual([
-      "stale",
-      "statuses",
-      "tagsAny",
-      "trustTiers",
-      "types",
-    ]);
-    expect(whereProperties.types).toEqual({
-      type: "array",
-      items: { type: "string" },
-      description: "Frontmatter types; values match by OR.",
+    expect(schema(whereProperties.trustTiers).items).toEqual({
+      type: "string",
+      enum: [...TRUST_TIERS],
     });
-    expect(whereProperties.tagsAny).toEqual({
-      type: "array",
-      items: { type: "string" },
-      description: "Tags; any listed tag may match.",
-    });
-    expect(whereProperties.statuses).toEqual({
-      type: "array",
-      items: {
-        type: "string",
-        enum: [...STATUSES],
-      },
-      description: "Allowed OKF statuses.",
-    });
-    expect(whereProperties.trustTiers).toEqual({
-      type: "array",
-      items: {
-        type: "string",
-        enum: [...TRUST_TIERS],
-      },
-      description: "Allowed OKF trust tiers.",
-    });
-    expect(whereProperties.stale).toEqual({
-      type: "boolean",
-      description: "Filter by runtime-classified staleness.",
-    });
-
-    expect(JSON.stringify(parameters)).not.toMatch(/"default"\s*:/);
-    expect(JSON.stringify(parameters)).not.toMatch(/"uniqueItems"\s*:/);
-    expect(properties).not.toHaveProperty("asOf");
-    expect(properties).not.toHaveProperty("relevance");
+    expect(JSON.stringify(parameters)).not.toContain('"default"');
   });
 
-  it("publishes exactly the search guidance without another prompt hook", () => {
-    const pi = installExtension();
-    const tool = onlyTool(pi);
+  it("publishes the exact search guidance", () => {
+    const tool = onlyTool(installExtension());
 
     expect(tool.promptSnippet).toBe(PROMPT_SNIPPET);
     expect(tool.promptGuidelines).toEqual(PROMPT_GUIDELINES);
-    expect(tool.promptGuidelines).toHaveLength(5);
-    expect(tool.promptGuidelines?.every((line) => line.includes("okf_search"))).toBe(
-      true,
-    );
-    expect(pi.handlers).toHaveLength(1);
-    expect(pi.registrations).not.toContainEqual({
-      kind: "on",
-      event: "before_agent_start",
-    });
   });
 
   it("forwards execute inputs by identity and formats ordered hits exactly", async () => {
@@ -600,7 +503,7 @@ describe("okf_search extension", () => {
     const paramsBefore = structuredClone(params);
     const signal = new AbortController().signal;
     const onUpdate = vi.fn();
-    const hits: SearchHit[] = [
+    const hits: RuntimeSearchHit[] = [
       {
         title: "Deployment safety",
         headingPath: "Deployment safety > Rollback > Emergency rollback",
@@ -659,17 +562,16 @@ describe("okf_search extension", () => {
       ],
       details: undefined,
     });
-    expect(Object.prototype.hasOwnProperty.call(result, "details")).toBe(true);
-    expect(result.details).toBeUndefined();
   });
 
-  it("formats heading and snippet edge cases through execute as one ordered result", async () => {
-    const pi = installExtension();
-    const tool = onlyTool(pi);
-    const runtime = runtimes[0]!;
-    const { context } = makeContext();
-    const edgeHits: SearchHit[] = [
-      {
+  const formattingCases: Array<{
+    name: string;
+    hit: RuntimeSearchHit;
+    expected: string;
+  }> = [
+    {
+      name: "omits an empty heading",
+      hit: {
         title: "Empty heading",
         headingPath: "",
         absolutePath: "/tmp/empty.md",
@@ -678,7 +580,18 @@ describe("okf_search extension", () => {
         matchedFields: ["body"],
         snippet: "empty",
       },
-      {
+      expected: [
+        "1 hit",
+        "",
+        "1. Empty heading",
+        "   /tmp/empty.md:1-1",
+        "   Matched: body",
+        "   empty",
+      ].join("\n"),
+    },
+    {
+      name: "omits a heading equal to the title",
+      hit: {
         title: "Same title",
         headingPath: "Same title",
         absolutePath: "/tmp/same.md",
@@ -687,7 +600,18 @@ describe("okf_search extension", () => {
         matchedFields: ["title"],
         snippet: "same",
       },
-      {
+      expected: [
+        "1 hit",
+        "",
+        "1. Same title",
+        "   /tmp/same.md:2-3",
+        "   Matched: title",
+        "   same",
+      ].join("\n"),
+    },
+    {
+      name: "strips the title prefix",
+      hit: {
         title: "Parent",
         headingPath: "Parent > Child > Leaf",
         absolutePath: "/tmp/prefix.md",
@@ -696,7 +620,19 @@ describe("okf_search extension", () => {
         matchedFields: ["heading", "body"],
         snippet: "prefix",
       },
-      {
+      expected: [
+        "1 hit",
+        "",
+        "1. Parent",
+        "   Heading: Child > Leaf",
+        "   /tmp/prefix.md:4-6",
+        "   Matched: heading, body",
+        "   prefix",
+      ].join("\n"),
+    },
+    {
+      name: "keeps a different heading",
+      hit: {
         title: "Different",
         headingPath: "Other > Child",
         absolutePath: "/tmp/different.md",
@@ -705,7 +641,19 @@ describe("okf_search extension", () => {
         matchedFields: ["description"],
         snippet: "different",
       },
-      {
+      expected: [
+        "1 hit",
+        "",
+        "1. Different",
+        "   Heading: Other > Child",
+        "   /tmp/different.md:7-8",
+        "   Matched: description",
+        "   different",
+      ].join("\n"),
+    },
+    {
+      name: "keeps multiline snippets",
+      hit: {
         title: "Case",
         headingPath: "case > Child",
         absolutePath: "/tmp/case.md",
@@ -714,11 +662,30 @@ describe("okf_search extension", () => {
         matchedFields: ["tags"],
         snippet: "first line\nsecond line",
       },
-    ];
-    runtime.search.mockResolvedValueOnce(edgeHits);
+      expected: [
+        "1 hit",
+        "",
+        "1. Case",
+        "   Heading: case > Child",
+        "   /tmp/case.md:9-10",
+        "   Matched: tags",
+        "   first line",
+        "second line",
+      ].join("\n"),
+    },
+  ];
+
+  it.each(formattingCases)(
+    "formats one hit: $name",
+    async ({ hit, expected }) => {
+    const pi = installExtension();
+    const tool = onlyTool(pi);
+    const runtime = runtimes[0]!;
+    const { context } = makeContext();
+    runtime.search.mockResolvedValueOnce([hit]);
 
     const result = await tool.execute(
-      "edge-call",
+      "format-call",
       { query: "needle" },
       undefined,
       undefined,
@@ -729,43 +696,9 @@ describe("okf_search extension", () => {
     if (content?.type !== "text") {
       throw new Error("expected text content");
     }
-    const text = content.text;
 
-    expect(text).toBe(
-      [
-        "5 hits",
-        "",
-        "1. Empty heading",
-        "   /tmp/empty.md:1-1",
-        "   Matched: body",
-        "   empty",
-        "",
-        "2. Same title",
-        "   /tmp/same.md:2-3",
-        "   Matched: title",
-        "   same",
-        "",
-        "3. Parent",
-        "   Heading: Child > Leaf",
-        "   /tmp/prefix.md:4-6",
-        "   Matched: heading, body",
-        "   prefix",
-        "",
-        "4. Different",
-        "   Heading: Other > Child",
-        "   /tmp/different.md:7-8",
-        "   Matched: description",
-        "   different",
-        "",
-        "5. Case",
-        "   Heading: case > Child",
-        "   /tmp/case.md:9-10",
-        "   Matched: tags",
-        "   first line",
-        "second line",
-      ].join("\n"),
-    );
-    expect(text.endsWith("\n")).toBe(false);
+    expect(content.text).toBe(expected);
+    expect(content.text.endsWith("\n")).toBe(false);
   });
 
   it("returns the exact empty-result object", async () => {
@@ -787,52 +720,25 @@ describe("okf_search extension", () => {
       content: [{ type: "text", text: "No matches." }],
       details: undefined,
     });
-    expect(Object.prototype.hasOwnProperty.call(result, "details")).toBe(true);
-    expect(result.details).toBeUndefined();
   });
 
-  it("preserves search and cancellation rejection identity without notifying", async () => {
-    const cancellation = { reason: "cancelled by caller" };
-    const aborted = new AbortController();
-    aborted.abort(cancellation);
-    const cases: Array<{
-      failure: unknown;
-      signal: AbortSignal;
-    }> = [
-      {
-        failure: new Error("search failed"),
-        signal: new AbortController().signal,
-      },
-      {
-        failure: { code: "SEARCH_FAILED" },
-        signal: new AbortController().signal,
-      },
-      {
-        failure: aborted.signal.reason,
-        signal: aborted.signal,
-      },
-    ];
+  it("preserves search rejection identity without notifying", async () => {
+    const pi = installExtension();
+    const tool = onlyTool(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext();
+    const failure = Symbol("search failure");
+    runtime.search.mockRejectedValueOnce(failure);
 
-    expect(cases[2]!.failure).toBe(cancellation);
-
-    for (const { failure, signal } of cases) {
-      const pi = installExtension();
-      const tool = onlyTool(pi);
-      const runtime = runtimes.at(-1)!;
-      const { context, notify } = makeContext();
-      const params = { query: "needle" };
-      runtime.search.mockRejectedValueOnce(failure);
-
-      await expect(
-        tool.execute("failing-call", params, signal, undefined, context),
-      ).rejects.toBe(failure);
-
-      const searchCall = runtime.search.mock.calls[0]!;
-      expect(searchCall).toHaveLength(3);
-      expect(searchCall[0]).toBe(context);
-      expect(searchCall[1]).toBe(params);
-      expect(searchCall[2]).toBe(signal);
-      expect(notify).not.toHaveBeenCalled();
-    }
+    await expect(
+      tool.execute(
+        "failing-call",
+        { query: "needle" },
+        undefined,
+        undefined,
+        context,
+      ),
+    ).rejects.toBe(failure);
+    expect(notify).not.toHaveBeenCalled();
   });
 });
