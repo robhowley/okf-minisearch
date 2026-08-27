@@ -1,6 +1,6 @@
 # @robhowley/pi-okf-search
 
-Search a local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown directory from [Pi](https://pi.dev/). The package adds one read-only tool, `okf_search`, which returns ranked snippets with source paths and line ranges. Use `/okf status` to inspect the loaded index and `/okf refresh` to rebuild it.
+Search a local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown directory from [Pi](https://pi.dev/). The package adds one read-only tool, `okf_search`, which returns ranked snippets with source paths and line ranges. The `/okf` command provides utilities for inspecting and refreshing the index.
 
 ## Quick start
 
