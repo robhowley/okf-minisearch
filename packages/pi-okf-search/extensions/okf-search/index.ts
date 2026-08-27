@@ -103,6 +103,24 @@ function formatHeading(title: string, headingPath: string): string {
     : headingPath;
 }
 
+function formatIndexedAge(indexedAt: number, now: number): string {
+  const age = Math.max(0, now - indexedAt);
+
+  if (age < 5_000) {
+    return "just now";
+  }
+  if (age < 60_000) {
+    return `${Math.floor(age / 1_000)}s ago`;
+  }
+  if (age < 3_600_000) {
+    return `${Math.floor(age / 60_000)}m ago`;
+  }
+  if (age < 86_400_000) {
+    return `${Math.floor(age / 3_600_000)}h ago`;
+  }
+  return `${Math.floor(age / 86_400_000)}d ago`;
+}
+
 function formatResults(hits: readonly RuntimeSearchHit[]): string {
   if (hits.length === 0) {
     return "No matches.";
@@ -133,6 +151,53 @@ export default function okfSearchExtension(pi: ExtensionAPI): void {
       const message = error instanceof Error ? error.message : String(error);
       ctx.ui.notify(`OKF search unavailable: ${message}`, "warning");
     }
+  });
+
+  pi.registerCommand("okf", {
+    description: "Show OKF snapshot status.",
+    getArgumentCompletions(argumentPrefix) {
+      return "status".startsWith(argumentPrefix)
+        ? [{ value: "status", label: "status" }]
+        : null;
+    },
+    async handler(args, ctx) {
+      const subcommand = args.trim();
+
+      if (subcommand !== "status") {
+        ctx.ui.notify(
+          "Usage: /okf status",
+          subcommand === "" ? "info" : "warning",
+        );
+        return;
+      }
+
+      try {
+        const invokedAt = Date.now();
+        const { root, types, indexedAt } = await runtime.status(ctx);
+        const theme = ctx.mode === "tui" ? ctx.ui.theme : undefined;
+        const paint = (
+          color: "accent" | "text" | "muted",
+          text: string,
+        ): string => theme?.fg(color, text) ?? text;
+        const label = (text: string): string =>
+          paint("muted", text.padEnd(10));
+        const typeList = types.length === 0 ? "(none)" : types.join(" · ");
+
+        ctx.ui.notify(
+          [
+            `${paint("accent", "◆ OKF")} ${paint("text", "snapshot")}`,
+            "",
+            `  ${label("Root")}${paint("text", root)}`,
+            `  ${label("Types")}${paint("text", typeList)}`,
+            `  ${label("Indexed")}${paint("text", formatIndexedAge(indexedAt, invokedAt))}`,
+          ].join("\n"),
+          "info",
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        ctx.ui.notify(`OKF status unavailable: ${message}`, "warning");
+      }
+    },
   });
 
   pi.registerTool({

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   ExtensionAPI,
@@ -12,6 +12,7 @@ import {
 
 type MockRuntime = {
   start: ReturnType<typeof vi.fn>;
+  status: ReturnType<typeof vi.fn>;
   search: ReturnType<typeof vi.fn>;
 };
 
@@ -20,6 +21,7 @@ const { createRuntimeMock, runtimes } = vi.hoisted(() => {
   const createRuntimeMock = vi.fn(() => {
     const runtime = {
       start: vi.fn(),
+      status: vi.fn(),
       search: vi.fn(),
     };
     runtimes.push(runtime);
@@ -38,14 +40,22 @@ import type { RuntimeSearchHit } from "../extensions/okf-search/runtime.js";
 
 type CapturedHandler = (...args: unknown[]) => unknown;
 
+type CapturedCommand = {
+  description?: string;
+  getArgumentCompletions?: (argumentPrefix: string) => unknown;
+  handler: CapturedHandler;
+};
+
 type Registration =
   | { kind: "on"; event: string }
+  | { kind: "registerCommand"; name: string }
   | { kind: "registerTool"; name: string };
 
 interface FakePi {
   api: ExtensionAPI;
   registrations: Registration[];
   handlers: CapturedHandler[];
+  commands: CapturedCommand[];
   tools: ToolDefinition[];
 }
 
@@ -74,6 +84,8 @@ const TRUST_TIERS = [
   "human-reviewed",
 ] as const;
 
+const NOW = 100_000_000;
+
 const PROMPT_SNIPPET =
   "Search the configured local OKF snapshot and return ranked snippets with exact source coordinates.";
 const PROMPT_GUIDELINES = [
@@ -86,11 +98,16 @@ const PROMPT_GUIDELINES = [
 function makePi(): FakePi {
   const registrations: Registration[] = [];
   const handlers: CapturedHandler[] = [];
+  const commands: CapturedCommand[] = [];
   const tools: ToolDefinition[] = [];
   const fake = {
     on(event: string, handler: CapturedHandler) {
       registrations.push({ kind: "on", event });
       handlers.push(handler);
+    },
+    registerCommand(name: string, command: CapturedCommand) {
+      registrations.push({ kind: "registerCommand", name });
+      commands.push(command);
     },
     registerTool(tool: ToolDefinition) {
       registrations.push({ kind: "registerTool", name: tool.name });
@@ -102,6 +119,7 @@ function makePi(): FakePi {
     api: fake as unknown as ExtensionAPI,
     registrations,
     handlers,
+    commands,
     tools,
   };
 }
@@ -117,18 +135,26 @@ function onlyHandler(pi: FakePi): CapturedHandler {
   return pi.handlers[0]!;
 }
 
+function onlyCommand(pi: FakePi): CapturedCommand {
+  expect(pi.commands).toHaveLength(1);
+  return pi.commands[0]!;
+}
+
 function onlyTool(pi: FakePi): ToolDefinition {
   expect(pi.tools).toHaveLength(1);
   return pi.tools[0]!;
 }
 
-function makeContext(): TestContext {
+function makeContext(mode: "json" | "tui" = "json"): TestContext {
   const notify = vi.fn();
+  const theme = {
+    fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+  };
   const context = {
     cwd: "/workspace/project",
-    mode: "json" as const,
-    hasUI: false,
-    ui: { notify },
+    mode,
+    hasUI: mode === "tui",
+    ui: { notify, theme },
   };
 
   return {
@@ -183,14 +209,23 @@ describe("okf_search extension", () => {
     runtimes.length = 0;
   });
 
-  it("registers one search tool after one session_start handler", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("registers one okf command and search tool after one session_start handler", () => {
     const pi = installExtension();
+    const command = onlyCommand(pi);
     const tool = onlyTool(pi);
 
     expect(pi.registrations).toEqual([
       { kind: "on", event: "session_start" },
+      { kind: "registerCommand", name: "okf" },
       { kind: "registerTool", name: "okf_search" },
     ]);
+    expect(command).toMatchObject({
+      description: "Show OKF snapshot status.",
+    });
     expect(tool).toMatchObject({
       name: "okf_search",
       label: "OKF Search",
@@ -246,6 +281,215 @@ describe("okf_search extension", () => {
       );
     },
   );
+
+  it.each([
+    { prefix: "", expected: [{ value: "status", label: "status" }] },
+    { prefix: "s", expected: [{ value: "status", label: "status" }] },
+    { prefix: "sta", expected: [{ value: "status", label: "status" }] },
+    { prefix: "status", expected: [{ value: "status", label: "status" }] },
+    { prefix: "status ", expected: null },
+    { prefix: "status extra", expected: null },
+    { prefix: "unknown", expected: null },
+  ])("completes only status for the prefix $prefix", ({ prefix, expected }) => {
+    const command = onlyCommand(installExtension());
+
+    expect(command.getArgumentCompletions?.(prefix)).toEqual(expected);
+  });
+
+  it.each([
+    { args: "", level: "info" as const },
+    { args: " \t\n ", level: "info" as const },
+    { args: "unknown", level: "warning" as const },
+    { args: "status extra", level: "warning" as const },
+  ])("shows usage for invalid args: $args", async ({ args, level }) => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext();
+
+    await command.handler(args, context);
+
+    expect(runtime.status).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith("Usage: /okf status", level);
+  });
+
+  it.each([
+    {
+      types: ["guide", "runbook"],
+      expectedTypes: "guide · runbook",
+    },
+    { types: [], expectedTypes: "(none)" },
+  ])("formats status with loaded root and types", async ({ types, expectedTypes }) => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext();
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
+    runtime.status.mockResolvedValueOnce({
+      root: "/workspace/knowledge",
+      types,
+      indexedAt: NOW,
+    });
+
+    await command.handler(" \tstatus\n ", context);
+
+    expect(runtime.status).toHaveBeenCalledTimes(1);
+    expect(runtime.status).toHaveBeenCalledWith(context);
+    expect(notify).toHaveBeenCalledWith(
+      [
+        "◆ OKF snapshot",
+        "",
+        "  Root      /workspace/knowledge",
+        `  Types     ${expectedTypes}`,
+        "  Indexed   just now",
+      ].join("\n"),
+      "info",
+    );
+  });
+
+  it("uses the active TUI theme for status hierarchy", async () => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext("tui");
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
+    runtime.status.mockResolvedValueOnce({
+      root: "/Users/roberthowley/Documents/sample-bundle",
+      types: ["Garden Guide", "concept"],
+      indexedAt: NOW,
+    });
+
+    await command.handler("status", context);
+
+    expect(notify).toHaveBeenCalledWith(
+      [
+        "<accent>◆ OKF</accent> <text>snapshot</text>",
+        "",
+        "  <muted>Root      </muted><text>/Users/roberthowley/Documents/sample-bundle</text>",
+        "  <muted>Types     </muted><text>Garden Guide · concept</text>",
+        "  <muted>Indexed   </muted><text>just now</text>",
+      ].join("\n"),
+      "info",
+    );
+  });
+
+  it.each([
+    { age: 0, expected: "just now" },
+    { age: 4_999, expected: "just now" },
+    { age: 5_000, expected: "5s ago" },
+    { age: 59_999, expected: "59s ago" },
+    { age: 60_000, expected: "1m ago" },
+    { age: 3_599_999, expected: "59m ago" },
+    { age: 3_600_000, expected: "1h ago" },
+    { age: 86_399_999, expected: "23h ago" },
+    { age: 86_400_000, expected: "1d ago" },
+    { age: 172_800_000, expected: "2d ago" },
+  ])("formats indexed age at $age ms", async ({ age, expected }) => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext();
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
+    runtime.status.mockResolvedValueOnce({
+      root: "/workspace/knowledge",
+      types: [],
+      indexedAt: NOW - age,
+    });
+
+    await command.handler("status", context);
+
+    expect(notify).toHaveBeenCalledWith(
+      [
+        "◆ OKF snapshot",
+        "",
+        "  Root      /workspace/knowledge",
+        "  Types     (none)",
+        `  Indexed   ${expected}`,
+      ].join("\n"),
+      "info",
+    );
+  });
+
+  it("recalculates indexed age for each status invocation", async () => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext();
+    const now = vi.spyOn(Date, "now")
+      .mockReturnValueOnce(NOW + 4_999)
+      .mockReturnValueOnce(NOW + 5_000);
+    runtime.status.mockResolvedValue({
+      root: "/workspace/knowledge",
+      types: [],
+      indexedAt: NOW,
+    });
+
+    await command.handler("status", context);
+    await command.handler("status", context);
+
+    expect(now).toHaveBeenCalledTimes(2);
+    expect(notify.mock.calls.map(([message]) => message)).toEqual([
+      [
+        "◆ OKF snapshot",
+        "",
+        "  Root      /workspace/knowledge",
+        "  Types     (none)",
+        "  Indexed   just now",
+      ].join("\n"),
+      [
+        "◆ OKF snapshot",
+        "",
+        "  Root      /workspace/knowledge",
+        "  Types     (none)",
+        "  Indexed   5s ago",
+      ].join("\n"),
+    ]);
+  });
+
+  it("clamps a clock before indexing to just now", async () => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext();
+    vi.spyOn(Date, "now").mockReturnValue(NOW - 1);
+    runtime.status.mockResolvedValueOnce({
+      root: "/workspace/knowledge",
+      types: [],
+      indexedAt: NOW,
+    });
+
+    await command.handler("status", context);
+
+    expect(notify).toHaveBeenCalledWith(
+      [
+        "◆ OKF snapshot",
+        "",
+        "  Root      /workspace/knowledge",
+        "  Types     (none)",
+        "  Indexed   just now",
+      ].join("\n"),
+      "info",
+    );
+  });
+
+  it.each([
+    { failure: new Error("snapshot unavailable"), message: "snapshot unavailable" },
+    { failure: "configuration unavailable", message: "configuration unavailable" },
+  ])("turns status $failure into one warning", async ({ failure, message }) => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext();
+    runtime.status.mockRejectedValueOnce(failure);
+
+    await expect(command.handler("status", context)).resolves.toBeUndefined();
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith(
+      `OKF status unavailable: ${message}`,
+      "warning",
+    );
+  });
 
   it("isolates runtimes across registrations while reusing each within one registration", async () => {
     const first = installExtension();

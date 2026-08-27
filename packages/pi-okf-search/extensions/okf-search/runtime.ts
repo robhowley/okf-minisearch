@@ -17,11 +17,13 @@ type RuntimeContext = Pick<
 interface Snapshot {
   readonly root: string;
   readonly search: OkfSearch;
+  readonly indexedAt: number;
 }
 
 interface RuntimeDependencies {
   readonly loadConfig?: typeof loadConfig;
   readonly openOkf?: typeof openOkf;
+  readonly now?: () => number;
 }
 
 export type RuntimeSearchOptions = Pick<
@@ -47,6 +49,11 @@ export function createRuntime(
   dependencies: RuntimeDependencies = {},
 ): {
   start(ctx: RuntimeContext): Promise<void>;
+  status(ctx: RuntimeContext): Promise<{
+    readonly root: string;
+    readonly types: readonly string[];
+    readonly indexedAt: number;
+  }>;
   search(
     ctx: RuntimeContext,
     request: RuntimeSearchRequest,
@@ -55,6 +62,7 @@ export function createRuntime(
 } {
   const load = dependencies.loadConfig ?? loadConfig;
   const open = dependencies.openOkf ?? openOkf;
+  const now = dependencies.now ?? (() => Date.now());
   let snapshot: Snapshot | undefined;
   let buildPromise: Promise<Snapshot> | undefined;
 
@@ -75,7 +83,7 @@ export function createRuntime(
       const opening = Promise.resolve().then(async () => {
         const { root } = load(ctx);
         const search = await open(root);
-        return { root, search } satisfies Snapshot;
+        return { root, search, indexedAt: now() } satisfies Snapshot;
       });
 
       pending = opening.then(
@@ -109,6 +117,15 @@ export function createRuntime(
   return {
     async start(ctx): Promise<void> {
       await ensureSnapshot(ctx);
+    },
+
+    async status(ctx) {
+      const current = await ensureSnapshot(ctx);
+      return {
+        root: current.root,
+        types: current.search.listTypes(),
+        indexedAt: current.indexedAt,
+      };
     },
 
     async search(ctx, request, signal): Promise<RuntimeSearchHit[]> {
