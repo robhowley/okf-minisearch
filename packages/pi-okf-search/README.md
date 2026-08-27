@@ -81,7 +81,7 @@ The path is absolute and the line range is inclusive. To reopen the result with 
 
 ## Indexing and reloads
 
-The extension recursively indexes regular lowercase `.md` files under `root`, except files named exactly `index.md` or `log.md`. The index is held in memory, does not modify source files, and is not updated automatically.
+The extension recursively indexes `.md` files under `root`, except files named exactly `index.md` or `log.md`. The index is held in memory, does not modify source files, and is not updated automatically.
 
 Run `/reload` or restart Pi after changing the configuration or indexed files.
 
