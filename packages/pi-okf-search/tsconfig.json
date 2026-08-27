@@ -4,11 +4,9 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "rootDir": ".",
-    "outDir": "dist",
-    "declaration": true,
+    "noEmit": true,
     "strict": true,
     "verbatimModuleSyntax": true,
-    "noEmitOnError": true,
     "skipLibCheck": true,
     "types": ["node"]
   },

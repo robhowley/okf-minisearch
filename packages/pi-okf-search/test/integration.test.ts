@@ -155,4 +155,73 @@ describe("OKF search real-tree integration", () => {
       });
     }
   });
+
+  it("uses Pi defaults for OR, 0.2 fuzzy matching, and final-term prefixes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-okf-search-"));
+
+    try {
+      await Promise.all([
+        writeFile(
+          join(root, "or.md"),
+          [
+            "---",
+            "type: note",
+            "title: OR guide",
+            "---",
+            "oronlyterm",
+          ].join("\n"),
+        ),
+        writeFile(
+          join(root, "threshold.md"),
+          [
+            "---",
+            "type: note",
+            "title: Threshold guide",
+            "---",
+            "abcdefghij",
+          ].join("\n"),
+        ),
+        writeFile(
+          join(root, "completion.md"),
+          [
+            "---",
+            "type: note",
+            "title: Prefix guide",
+            "---",
+            "prefixcompletion",
+          ].join("\n"),
+        ),
+      ]);
+
+      const runtime = createRuntime({
+        loadConfig: () => ({ root }),
+      });
+      const ctx = {
+        cwd: root,
+        isProjectTrusted: () => true,
+      };
+
+      const defaultHits = await runtime.search(ctx, {
+        query: "oronlyterm abxdeyghij prefix",
+      });
+      expect(defaultHits.map((hit) => rootRelative(root, hit.absolutePath)).sort())
+        .toEqual(["completion.md", "or.md", "threshold.md"]);
+
+      expect(await runtime.search(ctx, {
+        query: "abxdeyghij",
+        fuzzy: 0.1,
+      })).toEqual([]);
+      expect((await runtime.search(ctx, {
+        query: "prefix",
+        fuzzy: false,
+      })).map((hit) => rootRelative(root, hit.absolutePath))).toEqual([
+        "completion.md",
+      ]);
+    } finally {
+      await rm(root, {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
 });
