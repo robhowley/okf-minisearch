@@ -2,8 +2,12 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "initial-version": "0.1.0",
   "packages": {
-    "packages/okf-minisearch": {},
-    "packages/pi-okf-search": {}
+    "packages/okf-minisearch": {
+      "exclude-paths": ["packages/okf-minisearch/test"]
+    },
+    "packages/pi-okf-search": {
+      "exclude-paths": ["packages/pi-okf-search/test"]
+    }
   },
   "separate-pull-requests": false,
   "release-type": "node"
