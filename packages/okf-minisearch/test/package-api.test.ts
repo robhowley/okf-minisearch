@@ -70,8 +70,10 @@ describe("package API", () => {
     const okf = await api.openOkf(tree.root);
 
     expect(okf.ingest).toBeTypeOf("function");
+    expect(okf.listTypes).toBeTypeOf("function");
     expect(okf.remove).toBeTypeOf("function");
     expect(okf.search).toBeTypeOf("function");
+    expect(okf.listTypes()).toEqual([]);
 
     const result = okf.ingest({
       path: "package-api.md",
@@ -84,6 +86,7 @@ describe("package API", () => {
 
     expect(result.document.id).toBe("package-api");
     expect(result.document.status).toBe("stable");
+    expect(okf.listTypes()).toEqual(["note"]);
     expect(Object.keys(result)).toEqual(["document"]);
     expect(Object.hasOwn(result, "records")).toBe(false);
     expect(Object.hasOwn(result, "diagnostics")).toBe(false);
@@ -266,6 +269,8 @@ describe("package API", () => {
     expectTypeOf<OkfSearch["ingest"]>()
       .returns
       .toEqualTypeOf<OkfIngestResult>();
+    expectTypeOf<OkfSearch["listTypes"]>()
+      .toEqualTypeOf<() => readonly string[]>();
     expectTypeOf<OkfSearch["remove"]>()
       .toEqualTypeOf<(path: string) => boolean>();
     expectTypeOf<OkfSearch["search"]>()

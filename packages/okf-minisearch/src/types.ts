@@ -164,6 +164,8 @@ export interface OkfSearchHit {
 export interface OkfSearch {
   ingest(input: OkfDocumentInput): OkfIngestResult;
 
+  listTypes(): readonly string[];
+
   remove(path: string): boolean;
 
   search(

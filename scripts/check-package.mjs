@@ -239,6 +239,9 @@ type ExactSearchBoost = Assert<
     Readonly<Partial<Record<OkfSearchField, number>>> | undefined
   >
 >;
+type ExactListTypes = Assert<
+  Same<OkfSearch["listTypes"], () => readonly string[]>
+>;
 type ExactRemove = Assert<
   Same<OkfSearch["remove"], (path: string) => boolean>
 >;
@@ -275,6 +278,8 @@ const nestedBoostOption: OkfSearchOptions = { ["relevance"]: { boost: { title: 2
 const searchHit = null as unknown as OkfSearchHit;
 const matchedField: OkfSearchField =
   searchHit.matchedFields[0] ?? "body";
+const listTypes = null as unknown as OkfSearch["listTypes"];
+const types: readonly string[] = listTypes();
 const remove = null as unknown as OkfSearch["remove"];
 const removalResult: boolean = remove("consumer.md");
 // @ts-expect-error MiniSearch's internal field name is not public.
@@ -324,8 +329,10 @@ void [
   nestedBoostOption,
   searchOptions,
   matchedField,
+  types,
   removalResult,
   null as ExactSearchField | null,
+  null as ExactListTypes | null,
   null as ExactRemove | null,
   null as ExactFuzzy | null,
   null as ExactSearchBoost | null,
@@ -358,12 +365,16 @@ assert.deepEqual(validationResult.errors, []);
 
 const root = join(process.cwd(), "fixture");
 const okf = await api.openOkf(root);
+assert.equal(typeof okf.listTypes, "function");
+assert.deepEqual(okf.listTypes(), ["note"]);
 const ingestResult = okf.ingest({
   path: "consumer.md",
-  markdown: "---\\ntype: note\\n---\\npackedremovalneedle",
+  markdown: "---\\ntype: packed\\n---\\npackedremovalneedle",
 });
 assert.deepEqual(Object.keys(ingestResult), ["document"]);
 assert.equal(ingestResult.document.status, "stable");
+assert.deepEqual(okf.listTypes(), ["note", "packed"]);
+assert.equal(Object.isFrozen(okf.listTypes()), true);
 assert.equal(Object.hasOwn(ingestResult, "records"), false);
 assert.equal(Object.hasOwn(ingestResult, "diagnostics"), false);
 
@@ -376,6 +387,7 @@ assert.equal(
 );
 assert.equal(okf.search("packedremovalneedle").length, 1);
 assert.equal(okf.remove("./consumer.md"), true);
+assert.deepEqual(okf.listTypes(), ["note"]);
 assert.deepEqual(okf.search("packedremovalneedle"), []);
 assert.equal(okf.remove("consumer.md"), false);
 assert.equal(okf.remove("missing.md"), false);
