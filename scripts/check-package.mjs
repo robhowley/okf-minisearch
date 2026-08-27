@@ -531,15 +531,16 @@ async function prepareConsumer(
     name: "okf-minisearch-packed-consumer-workspace",
     private: true,
     packageManager: "pnpm@11.22.0",
-    pnpm: {
-      overrides: {
-        "okf-minisearch": `file:./tarballs/${libraryFilename}`,
-      },
-    },
   });
   await writeFile(
     join(temporaryRoot, "pnpm-workspace.yaml"),
-    "packages:\n  - consumer\n",
+    [
+      "packages:",
+      "  - consumer",
+      "overrides:",
+      `  okf-minisearch: file:./tarballs/${libraryFilename}`,
+      "",
+    ].join("\n"),
   );
   await copyFile(
     join(root, "pnpm-lock.yaml"),
