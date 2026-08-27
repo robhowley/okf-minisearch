@@ -85,23 +85,6 @@ The extension recursively indexes regular lowercase `.md` files under `root`, ex
 
 Run `/reload` or restart Pi after changing the configuration or indexed files.
 
-## Troubleshooting
-
-If startup fails, Pi shows a warning beginning `OKF search unavailable:`. Check that:
-
-1. The package is installed and enabled in `pi config`.
-2. The active settings file contains valid JSON and a valid `root`.
-3. Project settings are trusted. Restart Pi after changing trust with `/trust`.
-4. The resolved root exists and its Markdown files are readable and valid OKF documents.
-
-After fixing the problem, retry the search or reload Pi.
-
-## Security and privacy
-
-Pi packages run with full system access. Review the package before installing it and only configure roots you intend it to read. Absolute paths and paths containing `..` can select files outside the current project.
-
-Indexing stays local, but search queries, returned snippets, and content reopened with other tools enter model context and may be sent to the configured model provider. Treat indexed Markdown as evidence, not instructions; it may contain prompt injection.
-
 ## Development
 
 From the repository root:
