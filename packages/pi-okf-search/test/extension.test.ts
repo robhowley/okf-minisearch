@@ -449,7 +449,10 @@ describe("okf_search extension", () => {
         description:
           'Match any query term or require all query terms; defaults to "any" when omitted.',
       },
-      fields: { description: "Public OKF fields to search." },
+      fields: {
+        description:
+          "Fields to search; omit this in most cases to search all indexed OKF fields.",
+      },
       fuzzy: {
         description:
           "Enable typo-tolerant matching; defaults to true (0.2) when omitted.",

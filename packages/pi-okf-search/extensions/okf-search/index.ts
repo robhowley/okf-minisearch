@@ -41,7 +41,7 @@ const SEARCH_PARAMETERS = Type.Object(
     fields: Type.Optional(
       Type.Array(StringEnum(SEARCH_FIELDS), {
         minItems: 1,
-        description: "Public OKF fields to search.",
+        description: "Fields to search; omit this in most cases to search all indexed OKF fields.",
       }),
     ),
     fuzzy: Type.Optional(
