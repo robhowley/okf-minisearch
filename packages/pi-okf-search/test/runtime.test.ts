@@ -163,6 +163,162 @@ describe("createRuntime", () => {
     await expect(runtime.status(ctx)).resolves.toMatchObject({ indexedAt: 12_345 });
   });
 
+  it("refreshes a cached snapshot from current config and swaps after opening", async () => {
+    const refreshedOpening = deferred<OkfSearch>();
+    const initialRoot = "/workspace/initial-knowledge";
+    const refreshedRoot = "/workspace/refreshed-knowledge";
+    let configuredRoot = initialRoot;
+    const initialHandle: OkfSearch = {
+      ...unusedHandle,
+      listTypes: () => ["initial"],
+    };
+    const refreshedHandle: OkfSearch = {
+      ...unusedHandle,
+      listTypes: () => ["refreshed"],
+    };
+    const loadConfig = vi.fn(() => ({ root: configuredRoot }));
+    const openOkf = vi.fn()
+      .mockResolvedValueOnce(initialHandle)
+      .mockReturnValueOnce(refreshedOpening.promise);
+    const now = vi.fn()
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(2_000);
+    const runtime = createRuntime({ loadConfig, openOkf, now });
+
+    await runtime.start(ctx);
+    configuredRoot = refreshedRoot;
+
+    const refreshing = runtime.refresh(ctx);
+    await Promise.resolve();
+    expect(loadConfig).toHaveBeenCalledTimes(2);
+    expect(loadConfig).toHaveBeenLastCalledWith(ctx);
+    expect(openOkf).toHaveBeenLastCalledWith(refreshedRoot);
+    expect(now).toHaveBeenCalledTimes(1);
+
+    await expect(runtime.status(ctx)).resolves.toEqual({
+      root: initialRoot,
+      types: ["initial"],
+      indexedAt: 1_000,
+    });
+
+    refreshedOpening.resolve(refreshedHandle);
+    await expect(refreshing).resolves.toBeUndefined();
+    await expect(runtime.status(ctx)).resolves.toEqual({
+      root: refreshedRoot,
+      types: ["refreshed"],
+      indexedAt: 2_000,
+    });
+    expect(now).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains the prior snapshot after a failed refresh and retries later", async () => {
+    const failure = new Error("refresh opening failed");
+    const initialRoot = "/workspace/initial-knowledge";
+    const failedRoot = "/workspace/failed-knowledge";
+    const retriedRoot = "/workspace/retried-knowledge";
+    let configuredRoot = initialRoot;
+    const initialSearch = vi.fn(() => []);
+    const initialHandle: OkfSearch = {
+      ...unusedHandle,
+      search: initialSearch,
+      listTypes: () => ["initial"],
+    };
+    const retriedHandle: OkfSearch = {
+      ...unusedHandle,
+      listTypes: () => ["retried"],
+    };
+    const loadConfig = vi.fn(() => ({ root: configuredRoot }));
+    const openOkf = vi.fn()
+      .mockResolvedValueOnce(initialHandle)
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValueOnce(retriedHandle);
+    const now = vi.fn()
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(3_000);
+    const runtime = createRuntime({ loadConfig, openOkf, now });
+
+    await runtime.start(ctx);
+    configuredRoot = failedRoot;
+    await expect(runtime.refresh(ctx)).rejects.toBe(failure);
+
+    await expect(runtime.status(ctx)).resolves.toEqual({
+      root: initialRoot,
+      types: ["initial"],
+      indexedAt: 1_000,
+    });
+    await expect(runtime.search(ctx, { query: "needle" })).resolves.toEqual([]);
+    expect(initialSearch).toHaveBeenCalledTimes(1);
+    expect(now).toHaveBeenCalledTimes(1);
+
+    configuredRoot = retriedRoot;
+    await expect(runtime.refresh(ctx)).resolves.toBeUndefined();
+    await expect(runtime.status(ctx)).resolves.toEqual({
+      root: retriedRoot,
+      types: ["retried"],
+      indexedAt: 3_000,
+    });
+    expect(loadConfig).toHaveBeenCalledTimes(3);
+    expect(openOkf).toHaveBeenCalledTimes(3);
+    expect(now).toHaveBeenCalledTimes(2);
+  });
+
+  it("coalesces concurrent refreshes while status and search use the prior snapshot", async () => {
+    const refreshedOpening = deferred<OkfSearch>();
+    const initialRoot = "/workspace/initial-knowledge";
+    const refreshedRoot = "/workspace/refreshed-knowledge";
+    let configuredRoot = initialRoot;
+    const initialSearch = vi.fn(() => []);
+    const refreshedSearch = vi.fn(() => []);
+    const initialHandle: OkfSearch = {
+      ...unusedHandle,
+      search: initialSearch,
+      listTypes: () => ["initial"],
+    };
+    const refreshedHandle: OkfSearch = {
+      ...unusedHandle,
+      search: refreshedSearch,
+      listTypes: () => ["refreshed"],
+    };
+    const loadConfig = vi.fn(() => ({ root: configuredRoot }));
+    const openOkf = vi.fn()
+      .mockResolvedValueOnce(initialHandle)
+      .mockReturnValueOnce(refreshedOpening.promise);
+    const now = vi.fn()
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(2_000);
+    const runtime = createRuntime({ loadConfig, openOkf, now });
+
+    await runtime.start(ctx);
+    configuredRoot = refreshedRoot;
+    const firstRefresh = runtime.refresh(ctx);
+    const secondRefresh = runtime.refresh(ctx);
+    await Promise.resolve();
+
+    expect(loadConfig).toHaveBeenCalledTimes(2);
+    expect(openOkf).toHaveBeenCalledTimes(2);
+    await expect(runtime.status(ctx)).resolves.toEqual({
+      root: initialRoot,
+      types: ["initial"],
+      indexedAt: 1_000,
+    });
+    await expect(runtime.search(ctx, { query: "needle" })).resolves.toEqual([]);
+    expect(initialSearch).toHaveBeenCalledTimes(1);
+    expect(refreshedSearch).not.toHaveBeenCalled();
+    expect(now).toHaveBeenCalledTimes(1);
+
+    refreshedOpening.resolve(refreshedHandle);
+    await expect(Promise.all([firstRefresh, secondRefresh])).resolves.toEqual([
+      undefined,
+      undefined,
+    ]);
+    await expect(runtime.status(ctx)).resolves.toEqual({
+      root: refreshedRoot,
+      types: ["refreshed"],
+      indexedAt: 2_000,
+    });
+    expect(now).toHaveBeenCalledTimes(2);
+  });
+
   it("does not retain a timestamp after a failed build and timestamps a retry", async () => {
     const failure = new Error("opening failed");
     let clock = 1_000;

@@ -1,6 +1,6 @@
 # @robhowley/pi-okf-search
 
-Search a local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown directory from [Pi](https://pi.dev/). The package adds one read-only tool, `okf_search`, which returns ranked snippets with source paths and line ranges. Use `/okf status` to inspect the loaded index.
+Search a local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown directory from [Pi](https://pi.dev/). The package adds one read-only tool, `okf_search`, which returns ranked snippets with source paths and line ranges. The `/okf` command provides utilities for inspecting and refreshing the index.
 
 ## Quick start
 
@@ -31,8 +31,6 @@ Search the knowledge base to find the rollback procedure.
 Run `/okf status` to confirm which directory Pi loaded, which document types it found, and how recently it built the in-memory index.
 
 ![The OKF status command showing the loaded root, document types, and index freshness](docs/okf-status.png)
-
-If the configured root or source files have changed, [reload the index](#indexing-and-reloads).
 
 ## Configuration
 
@@ -65,11 +63,11 @@ The path is absolute and the line range is inclusive.
 
 `No matches.` means the index returned no evidence for that query; it does not prove the information is absent.
 
-## Indexing and reloads
+## Indexing and refreshes
 
-The extension recursively indexes `.md` files under `root`, except files named exactly `index.md` or `log.md`. The index is held in memory, does not modify source files, and is not updated automatically.
+The extension recursively indexes `.md` files under `root`, except files named exactly `index.md` or `log.md`. The index is held in memory and does not modify source files.
 
-Run `/reload` or restart Pi after changing the configuration or indexed files.
+Changes to the `root` setting or its Markdown files do not appear in search results automatically. Run `/okf refresh` to update the index. A successful refresh resets the age shown by `/okf status`; if it fails, Pi keeps using the previous index.
 
 ## Development
 

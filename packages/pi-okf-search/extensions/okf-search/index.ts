@@ -154,20 +154,35 @@ export default function okfSearchExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("okf", {
-    description: "Show OKF snapshot status.",
+    description: "Inspect or refresh the OKF snapshot.",
     getArgumentCompletions(argumentPrefix) {
-      return "status".startsWith(argumentPrefix)
-        ? [{ value: "status", label: "status" }]
-        : null;
+      const commands = ["status", "refresh"] as const;
+      const matches = commands.filter((command) =>
+        command.startsWith(argumentPrefix),
+      );
+      return matches.length === 0
+        ? null
+        : matches.map((command) => ({ value: command, label: command }));
     },
     async handler(args, ctx) {
       const subcommand = args.trim();
 
-      if (subcommand !== "status") {
+      if (subcommand !== "status" && subcommand !== "refresh") {
         ctx.ui.notify(
-          "Usage: /okf status",
+          "Usage: /okf <status|refresh>",
           subcommand === "" ? "info" : "warning",
         );
+        return;
+      }
+
+      if (subcommand === "refresh") {
+        try {
+          await runtime.refresh(ctx);
+          ctx.ui.notify("OKF snapshot refreshed.", "info");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          ctx.ui.notify(`OKF refresh unavailable: ${message}`, "warning");
+        }
         return;
       }
 
