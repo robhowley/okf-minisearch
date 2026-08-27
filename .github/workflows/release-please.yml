@@ -62,36 +62,26 @@ jobs:
 
           released_paths="$(
             jq -ce '
-              def known:
-                . == "packages/okf-minisearch"
-                or . == "packages/pi-okf-search";
-
-              if type != "array" then
-                error("paths_released must be a JSON array")
-              elif length == 0 then
-                error("paths_released must be nonempty when releases exist")
-              elif any(.[]; type != "string") then
-                error("paths_released must contain only strings")
-              elif length != (unique | length) then
-                error("paths_released contains duplicate paths")
-              elif any(.[]; known | not) then
-                error("paths_released contains an unknown path")
-              else
-                .
-              end
+              . as $released_paths
+              | [
+                  "packages/okf-minisearch",
+                  "packages/pi-okf-search"
+                ] as $packages
+              | if
+                  ($released_paths | type) == "array"
+                  and ($released_paths | length) > 0
+                  and ($released_paths | all(.[]; type == "string"))
+                  and ($released_paths | all(.[]; . as $path | $packages | index($path) != null))
+                then
+                  $packages
+                  | map(. as $path | select($released_paths | index($path) != null))
+                else
+                  error("invalid paths_released")
+                end
             ' <<<"$RELEASED_PATHS"
           )"
 
-          for package_path in \
-            packages/okf-minisearch \
-            packages/pi-okf-search
-          do
-            if ! jq -e --arg path "$package_path" \
-              'index($path) != null' <<<"$released_paths" >/dev/null
-            then
-              continue
-            fi
-
+          while IFS= read -r package_path; do
             (
               cd "$GITHUB_WORKSPACE/$package_path"
 
@@ -102,18 +92,10 @@ jobs:
               )"
 
               tarball="$(
-                jq -er '
-                  if
-                    (.filename | type == "string" and length > 0)
-                    and (.name | type == "string" and length > 0)
-                    and (.version | type == "string" and length > 0)
-                  then .filename
-                  else error("invalid pnpm pack result")
-                  end
-                ' <<<"$pack_json"
+                jq -er '.filename | select(type == "string" and length > 0)' <<<"$pack_json"
               )"
 
               test -f "$tarball"
               npm publish "$tarball" --access public
             )
-          done
+          done < <(jq -er '.[]' <<<"$released_paths")
