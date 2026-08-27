@@ -32,8 +32,6 @@ Run `/okf status` to confirm which directory Pi loaded, which document types it 
 
 ![The OKF status command showing the loaded root, document types, and index freshness](docs/okf-status.png)
 
-If the configured root or source files change, run `/okf refresh`. A successful refresh re-reads the effective configuration, rebuilds the snapshot, and resets the displayed `Indexed` age. Restarting Pi or running `/reload` also creates a fresh extension runtime.
-
 ## Configuration
 
 `root` is the only supported setting. It must be a nonblank string.
@@ -65,11 +63,11 @@ The path is absolute and the line range is inclusive.
 
 `No matches.` means the index returned no evidence for that query; it does not prove the information is absent.
 
-## Indexing and reloads
+## Indexing and refreshes
 
-The extension recursively indexes `.md` files under `root`, except files named exactly `index.md` or `log.md`. The index is held in memory, does not modify source files, and is not updated automatically.
+The extension recursively indexes `.md` files under `root`, except files named exactly `index.md` or `log.md`. The index is held in memory and does not modify source files.
 
-Run `/okf refresh` after changing the configuration or indexed files. It re-reads the effective configuration and fully rebuilds the in-memory snapshot without reloading unrelated extensions. On success, the `Indexed` age shown by `/okf status` resets. Restarting Pi or running `/reload` also creates a fresh extension runtime.
+Changes to the `root` setting or its Markdown files do not appear in search results automatically. Run `/okf refresh` to update the index. A successful refresh resets the age shown by `/okf status`; if it fails, Pi keeps using the previous index.
 
 ## Development
 
