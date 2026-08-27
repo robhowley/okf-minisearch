@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v1.1.0...okf-minisearch-v1.2.0) (2026-08-27)
+
+
+### Features
+
+* **okf-minisearch:** list document types ([#30](https://github.com/robhowley/okf-minisearch/issues/30)) ([713d405](https://github.com/robhowley/okf-minisearch/commit/713d405423d43fe8cd39b98aa9c6e84cdffe60a6))
+
 ## [1.1.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v1.0.0...okf-minisearch-v1.1.0) (2026-08-26)
 
 

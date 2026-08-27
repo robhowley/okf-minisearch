@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0](https://github.com/robhowley/okf-minisearch/compare/pi-okf-search-v0.1.0...pi-okf-search-v0.2.0) (2026-08-27)
+
+
+### Features
+
+* **pi-okf-search:** add refresh command ([#34](https://github.com/robhowley/okf-minisearch/issues/34)) ([23330e7](https://github.com/robhowley/okf-minisearch/commit/23330e7e0f5f95ec4a4163e834021d6c881c88eb))
+* **pi-okf-search:** add status command ([#33](https://github.com/robhowley/okf-minisearch/issues/33)) ([0e2ea18](https://github.com/robhowley/okf-minisearch/commit/0e2ea185c9e429e964a0b91f84d3c2b6c8a79959))
+
 ## 0.1.0 (2026-08-27)
 
 
