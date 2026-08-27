@@ -1,7 +1,18 @@
 # okf-minisearch
-OKF-optimized search for LLM wikis, Obsidian vaults, and documentation repositories, built on MiniSearch.
+okf-minisearch is the Node.js library for OKF-optimized search. `@robhowley/pi-okf-search` exposes that library as a Pi tool for one configured local OKF Markdown tree.
 
 [![Package validation](https://github.com/robhowley/okf-minisearch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/robhowley/okf-minisearch/actions/workflows/ci.yml)
+
+## Packages
+
+- [`okf-minisearch`](packages/okf-minisearch/README.md) — the ESM Node.js library and TypeScript API.
+- [`@robhowley/pi-okf-search`](packages/pi-okf-search/README.md) — a Pi resource package with the read-only `okf_search` tool.
+
+Install the Pi package with:
+
+```sh
+pi install npm:@robhowley/pi-okf-search
+```
 
 ## Quick start
 
@@ -49,11 +60,29 @@ OKF Markdown → openOkf() → in-memory MiniSearch index → relevant section
 
 ## Requirements and docs
 
-Node.js 20+, ESM-only, and TypeScript declarations.
+- **Library:** Node.js 20+, ESM-only, and TypeScript declarations.
+- **Pi package:** Node.js `>=22.19.0`, tested with Pi packages `0.84.3`; Pi loads the TypeScript extension source through jiti rather than as a direct Node entry point.
 
 - [Package documentation](packages/okf-minisearch/README.md)
+- [Pi package documentation](packages/pi-okf-search/README.md)
 - [Pinned OKF v0.2 specification](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/ad30107c31c06aec8a7d5636e0d1058118604e6f/SPEC.md)
 - [MiniSearch documentation](https://lucaong.github.io/minisearch/)
+
+## Development
+
+Build the library locally:
+
+```sh
+pnpm --filter okf-minisearch build
+```
+
+Run the Pi extension from its TypeScript source:
+
+```sh
+pi -e ./packages/pi-okf-search/extensions/okf-search/index.ts
+```
+
+The library must be built locally before using the extension. The Pi package has no build step; run its source through Pi rather than directly with Node.
 
 ## License
 
