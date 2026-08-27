@@ -143,13 +143,16 @@ function onlyTool(pi: FakePi): ToolDefinition {
   return pi.tools[0]!;
 }
 
-function makeContext(): TestContext {
+function makeContext(mode: "json" | "tui" = "json"): TestContext {
   const notify = vi.fn();
+  const theme = {
+    fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+  };
   const context = {
     cwd: "/workspace/project",
-    mode: "json" as const,
-    hasUI: false,
-    ui: { notify },
+    mode,
+    hasUI: mode === "tui",
+    ui: { notify, theme },
   };
 
   return {
@@ -308,7 +311,7 @@ describe("okf_search extension", () => {
   it.each([
     {
       types: ["guide", "runbook"],
-      expectedTypes: "guide, runbook",
+      expectedTypes: "guide · runbook",
     },
     { types: [], expectedTypes: "(none)" },
   ])("formats status with loaded root and types", async ({ types, expectedTypes }) => {
@@ -327,10 +330,35 @@ describe("okf_search extension", () => {
     expect(runtime.status).toHaveBeenCalledWith(context);
     expect(notify).toHaveBeenCalledWith(
       [
-        "OKF status",
-        "Root: /workspace/knowledge",
-        `Types: ${expectedTypes}`,
-        "Note: this describes the loaded snapshot and may differ from disk.",
+        "◆ OKF snapshot",
+        "",
+        "  Root      /workspace/knowledge",
+        `  Types     ${expectedTypes}`,
+        "  Snapshot  In memory, may differ from disk",
+      ].join("\n"),
+      "info",
+    );
+  });
+
+  it("uses the active TUI theme for status hierarchy", async () => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext("tui");
+    runtime.status.mockResolvedValueOnce({
+      root: "/Users/roberthowley/Documents/sample-bundle",
+      types: ["Garden Guide", "concept"],
+    });
+
+    await command.handler("status", context);
+
+    expect(notify).toHaveBeenCalledWith(
+      [
+        "<accent>◆ OKF</accent> <text>snapshot</text>",
+        "",
+        "  <muted>Root      </muted><text>/Users/roberthowley/Documents/sample-bundle</text>",
+        "  <muted>Types     </muted><text>Garden Guide · concept</text>",
+        "  <muted>Snapshot  </muted><text>In memory, may differ from disk</text>",
       ].join("\n"),
       "info",
     );

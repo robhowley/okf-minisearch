@@ -155,12 +155,22 @@ export default function okfSearchExtension(pi: ExtensionAPI): void {
 
       try {
         const { root, types } = await runtime.status(ctx);
+        const theme = ctx.mode === "tui" ? ctx.ui.theme : undefined;
+        const paint = (
+          color: "accent" | "text" | "muted",
+          text: string,
+        ): string => theme?.fg(color, text) ?? text;
+        const label = (text: string): string =>
+          paint("muted", text.padEnd(10));
+        const typeList = types.length === 0 ? "(none)" : types.join(" · ");
+
         ctx.ui.notify(
           [
-            "OKF status",
-            `Root: ${root}`,
-            `Types: ${types.length === 0 ? "(none)" : types.join(", ")}`,
-            "Note: this describes the loaded snapshot and may differ from disk.",
+            `${paint("accent", "◆ OKF")} ${paint("text", "snapshot")}`,
+            "",
+            `  ${label("Root")}${paint("text", root)}`,
+            `  ${label("Types")}${paint("text", typeList)}`,
+            `  ${label("Snapshot")}${paint("text", "In memory, may differ from disk")}`,
           ].join("\n"),
           "info",
         );
