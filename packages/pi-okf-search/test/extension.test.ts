@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   ExtensionAPI,
@@ -83,6 +83,8 @@ const TRUST_TIERS = [
   "machine-confirmed",
   "human-reviewed",
 ] as const;
+
+const NOW = 100_000_000;
 
 const PROMPT_SNIPPET =
   "Search the configured local OKF snapshot and return ranked snippets with exact source coordinates.";
@@ -207,6 +209,10 @@ describe("okf_search extension", () => {
     runtimes.length = 0;
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("registers one okf command and search tool after one session_start handler", () => {
     const pi = installExtension();
     const command = onlyCommand(pi);
@@ -319,9 +325,11 @@ describe("okf_search extension", () => {
     const command = onlyCommand(pi);
     const runtime = runtimes[0]!;
     const { context, notify } = makeContext();
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
     runtime.status.mockResolvedValueOnce({
       root: "/workspace/knowledge",
       types,
+      indexedAt: NOW,
     });
 
     await command.handler(" \tstatus\n ", context);
@@ -334,7 +342,7 @@ describe("okf_search extension", () => {
         "",
         "  Root      /workspace/knowledge",
         `  Types     ${expectedTypes}`,
-        "  Snapshot  In memory, may differ from disk",
+        "  Indexed   just now",
       ].join("\n"),
       "info",
     );
@@ -345,9 +353,11 @@ describe("okf_search extension", () => {
     const command = onlyCommand(pi);
     const runtime = runtimes[0]!;
     const { context, notify } = makeContext("tui");
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
     runtime.status.mockResolvedValueOnce({
       root: "/Users/roberthowley/Documents/sample-bundle",
       types: ["Garden Guide", "concept"],
+      indexedAt: NOW,
     });
 
     await command.handler("status", context);
@@ -358,7 +368,106 @@ describe("okf_search extension", () => {
         "",
         "  <muted>Root      </muted><text>/Users/roberthowley/Documents/sample-bundle</text>",
         "  <muted>Types     </muted><text>Garden Guide · concept</text>",
-        "  <muted>Snapshot  </muted><text>In memory, may differ from disk</text>",
+        "  <muted>Indexed   </muted><text>just now</text>",
+      ].join("\n"),
+      "info",
+    );
+  });
+
+  it.each([
+    { age: 0, expected: "just now" },
+    { age: 4_999, expected: "just now" },
+    { age: 5_000, expected: "5s ago" },
+    { age: 59_999, expected: "59s ago" },
+    { age: 60_000, expected: "1m ago" },
+    { age: 3_599_999, expected: "59m ago" },
+    { age: 3_600_000, expected: "1h ago" },
+    { age: 86_399_999, expected: "23h ago" },
+    { age: 86_400_000, expected: "1d ago" },
+    { age: 172_800_000, expected: "2d ago" },
+  ])("formats indexed age at $age ms", async ({ age, expected }) => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext();
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
+    runtime.status.mockResolvedValueOnce({
+      root: "/workspace/knowledge",
+      types: [],
+      indexedAt: NOW - age,
+    });
+
+    await command.handler("status", context);
+
+    expect(notify).toHaveBeenCalledWith(
+      [
+        "◆ OKF snapshot",
+        "",
+        "  Root      /workspace/knowledge",
+        "  Types     (none)",
+        `  Indexed   ${expected}`,
+      ].join("\n"),
+      "info",
+    );
+  });
+
+  it("recalculates indexed age for each status invocation", async () => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext();
+    const now = vi.spyOn(Date, "now")
+      .mockReturnValueOnce(NOW + 4_999)
+      .mockReturnValueOnce(NOW + 5_000);
+    runtime.status.mockResolvedValue({
+      root: "/workspace/knowledge",
+      types: [],
+      indexedAt: NOW,
+    });
+
+    await command.handler("status", context);
+    await command.handler("status", context);
+
+    expect(now).toHaveBeenCalledTimes(2);
+    expect(notify.mock.calls.map(([message]) => message)).toEqual([
+      [
+        "◆ OKF snapshot",
+        "",
+        "  Root      /workspace/knowledge",
+        "  Types     (none)",
+        "  Indexed   just now",
+      ].join("\n"),
+      [
+        "◆ OKF snapshot",
+        "",
+        "  Root      /workspace/knowledge",
+        "  Types     (none)",
+        "  Indexed   5s ago",
+      ].join("\n"),
+    ]);
+  });
+
+  it("clamps a clock before indexing to just now", async () => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext();
+    vi.spyOn(Date, "now").mockReturnValue(NOW - 1);
+    runtime.status.mockResolvedValueOnce({
+      root: "/workspace/knowledge",
+      types: [],
+      indexedAt: NOW,
+    });
+
+    await command.handler("status", context);
+
+    expect(notify).toHaveBeenCalledWith(
+      [
+        "◆ OKF snapshot",
+        "",
+        "  Root      /workspace/knowledge",
+        "  Types     (none)",
+        "  Indexed   just now",
       ].join("\n"),
       "info",
     );

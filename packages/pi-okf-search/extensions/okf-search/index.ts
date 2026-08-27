@@ -103,6 +103,24 @@ function formatHeading(title: string, headingPath: string): string {
     : headingPath;
 }
 
+function formatIndexedAge(indexedAt: number, now: number): string {
+  const age = Math.max(0, now - indexedAt);
+
+  if (age < 5_000) {
+    return "just now";
+  }
+  if (age < 60_000) {
+    return `${Math.floor(age / 1_000)}s ago`;
+  }
+  if (age < 3_600_000) {
+    return `${Math.floor(age / 60_000)}m ago`;
+  }
+  if (age < 86_400_000) {
+    return `${Math.floor(age / 3_600_000)}h ago`;
+  }
+  return `${Math.floor(age / 86_400_000)}d ago`;
+}
+
 function formatResults(hits: readonly RuntimeSearchHit[]): string {
   if (hits.length === 0) {
     return "No matches.";
@@ -154,7 +172,8 @@ export default function okfSearchExtension(pi: ExtensionAPI): void {
       }
 
       try {
-        const { root, types } = await runtime.status(ctx);
+        const invokedAt = Date.now();
+        const { root, types, indexedAt } = await runtime.status(ctx);
         const theme = ctx.mode === "tui" ? ctx.ui.theme : undefined;
         const paint = (
           color: "accent" | "text" | "muted",
@@ -170,7 +189,7 @@ export default function okfSearchExtension(pi: ExtensionAPI): void {
             "",
             `  ${label("Root")}${paint("text", root)}`,
             `  ${label("Types")}${paint("text", typeList)}`,
-            `  ${label("Snapshot")}${paint("text", "In memory, may differ from disk")}`,
+            `  ${label("Indexed")}${paint("text", formatIndexedAge(indexedAt, invokedAt))}`,
           ].join("\n"),
           "info",
         );
