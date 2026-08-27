@@ -483,7 +483,7 @@ async function inspectPiManifest(piTarball, extractionRoot, libraryVersion) {
     test: "vitest run",
   });
   assert.deepEqual(manifest.pi, {
-    extensions: ["./extensions/okf-search/index.ts"],
+    extensions: ["./extensions/okf-search"],
   });
   assert.deepEqual(manifest.dependencies, {
     "okf-minisearch": expectedLibraryRange,
