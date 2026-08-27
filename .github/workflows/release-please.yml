@@ -81,6 +81,8 @@ jobs:
             ' <<<"$RELEASED_PATHS"
           )"
 
+          package_paths="$(jq -er '.[]' <<<"$released_paths")"
+
           while IFS= read -r package_path; do
             (
               cd "$GITHUB_WORKSPACE/$package_path"
@@ -98,4 +100,4 @@ jobs:
               test -f "$tarball"
               npm publish "$tarball" --access public
             )
-          done < <(jq -er '.[]' <<<"$released_paths")
+          done <<<"$package_paths"
