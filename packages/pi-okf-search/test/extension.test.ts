@@ -12,6 +12,7 @@ import {
 
 type MockRuntime = {
   start: ReturnType<typeof vi.fn>;
+  refresh: ReturnType<typeof vi.fn>;
   status: ReturnType<typeof vi.fn>;
   search: ReturnType<typeof vi.fn>;
 };
@@ -21,6 +22,7 @@ const { createRuntimeMock, runtimes } = vi.hoisted(() => {
   const createRuntimeMock = vi.fn(() => {
     const runtime = {
       start: vi.fn(),
+      refresh: vi.fn(),
       status: vi.fn(),
       search: vi.fn(),
     };
@@ -224,7 +226,7 @@ describe("okf_search extension", () => {
       { kind: "registerTool", name: "okf_search" },
     ]);
     expect(command).toMatchObject({
-      description: "Show OKF snapshot status.",
+      description: "Inspect or refresh the OKF snapshot.",
     });
     expect(tool).toMatchObject({
       name: "okf_search",
@@ -283,14 +285,23 @@ describe("okf_search extension", () => {
   );
 
   it.each([
-    { prefix: "", expected: [{ value: "status", label: "status" }] },
+    {
+      prefix: "",
+      expected: [
+        { value: "status", label: "status" },
+        { value: "refresh", label: "refresh" },
+      ],
+    },
     { prefix: "s", expected: [{ value: "status", label: "status" }] },
     { prefix: "sta", expected: [{ value: "status", label: "status" }] },
     { prefix: "status", expected: [{ value: "status", label: "status" }] },
+    { prefix: "r", expected: [{ value: "refresh", label: "refresh" }] },
+    { prefix: "ref", expected: [{ value: "refresh", label: "refresh" }] },
+    { prefix: "refresh", expected: [{ value: "refresh", label: "refresh" }] },
     { prefix: "status ", expected: null },
     { prefix: "status extra", expected: null },
     { prefix: "unknown", expected: null },
-  ])("completes only status for the prefix $prefix", ({ prefix, expected }) => {
+  ])("completes status and refresh for the prefix $prefix", ({ prefix, expected }) => {
     const command = onlyCommand(installExtension());
 
     expect(command.getArgumentCompletions?.(prefix)).toEqual(expected);
@@ -310,9 +321,48 @@ describe("okf_search extension", () => {
     await command.handler(args, context);
 
     expect(runtime.status).not.toHaveBeenCalled();
+    expect(runtime.refresh).not.toHaveBeenCalled();
     expect(notify).toHaveBeenCalledTimes(1);
-    expect(notify).toHaveBeenCalledWith("Usage: /okf status", level);
+    expect(notify).toHaveBeenCalledWith("Usage: /okf <status|refresh>", level);
   });
+
+  it("refreshes the runtime and reports success without rejecting", async () => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext();
+
+    await expect(command.handler(" \trefresh\n ", context)).resolves.toBeUndefined();
+
+    expect(runtime.refresh).toHaveBeenCalledTimes(1);
+    expect(runtime.refresh).toHaveBeenCalledWith(context);
+    expect(runtime.status).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith("OKF snapshot refreshed.", "info");
+  });
+
+  it.each([
+    { failure: new Error("snapshot unavailable"), message: "snapshot unavailable" },
+    { failure: "configuration unavailable", message: "configuration unavailable" },
+  ])(
+    "turns refresh $failure into one warning without rejecting",
+    async ({ failure, message }) => {
+      const pi = installExtension();
+      const command = onlyCommand(pi);
+      const runtime = runtimes[0]!;
+      const { context, notify } = makeContext();
+      runtime.refresh.mockRejectedValueOnce(failure);
+
+      await expect(command.handler("refresh", context)).resolves.toBeUndefined();
+
+      expect(runtime.refresh).toHaveBeenCalledWith(context);
+      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).toHaveBeenCalledWith(
+        `OKF refresh unavailable: ${message}`,
+        "warning",
+      );
+    },
+  );
 
   it.each([
     {

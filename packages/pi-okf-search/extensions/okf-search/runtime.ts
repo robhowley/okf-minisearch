@@ -49,6 +49,7 @@ export function createRuntime(
   dependencies: RuntimeDependencies = {},
 ): {
   start(ctx: RuntimeContext): Promise<void>;
+  refresh(ctx: RuntimeContext): Promise<void>;
   status(ctx: RuntimeContext): Promise<{
     readonly root: string;
     readonly types: readonly string[];
@@ -66,6 +67,33 @@ export function createRuntime(
   let snapshot: Snapshot | undefined;
   let buildPromise: Promise<Snapshot> | undefined;
 
+  function startBuild(ctx: RuntimeContext): Promise<Snapshot> {
+    const opening = Promise.resolve().then(async () => {
+      const { root } = load(ctx);
+      const search = await open(root);
+      return { root, search, indexedAt: now() } satisfies Snapshot;
+    });
+
+    const pending = opening.then(
+      (next) => {
+        snapshot = next;
+        buildPromise = undefined;
+        return next;
+      },
+      (error) => {
+        buildPromise = undefined;
+        throw error;
+      },
+    );
+
+    buildPromise = pending;
+    return pending;
+  }
+
+  function ensureBuild(ctx: RuntimeContext): Promise<Snapshot> {
+    return buildPromise ?? startBuild(ctx);
+  }
+
   async function ensureSnapshot(
     ctx: RuntimeContext,
     signal?: AbortSignal,
@@ -77,29 +105,7 @@ export function createRuntime(
       return snapshot;
     }
 
-    let pending = buildPromise;
-
-    if (!pending) {
-      const opening = Promise.resolve().then(async () => {
-        const { root } = load(ctx);
-        const search = await open(root);
-        return { root, search, indexedAt: now() } satisfies Snapshot;
-      });
-
-      pending = opening.then(
-        (next) => {
-          snapshot = next;
-          buildPromise = undefined;
-          return next;
-        },
-        (error) => {
-          buildPromise = undefined;
-          throw error;
-        },
-      );
-
-      buildPromise = pending;
-    }
+    const pending = ensureBuild(ctx);
 
     let next: Snapshot;
 
@@ -117,6 +123,10 @@ export function createRuntime(
   return {
     async start(ctx): Promise<void> {
       await ensureSnapshot(ctx);
+    },
+
+    async refresh(ctx): Promise<void> {
+      await ensureBuild(ctx);
     },
 
     async status(ctx) {

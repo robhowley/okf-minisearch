@@ -1,6 +1,6 @@
 # @robhowley/pi-okf-search
 
-Search a local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown directory from [Pi](https://pi.dev/). The package adds one read-only tool, `okf_search`, which returns ranked snippets with source paths and line ranges. Use `/okf status` to inspect the loaded index.
+Search a local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown directory from [Pi](https://pi.dev/). The package adds one read-only tool, `okf_search`, which returns ranked snippets with source paths and line ranges. Use `/okf status` to inspect the loaded index and `/okf refresh` to rebuild it.
 
 ## Quick start
 
@@ -32,7 +32,7 @@ Run `/okf status` to confirm which directory Pi loaded, which document types it 
 
 ![The OKF status command showing the loaded root, document types, and index freshness](docs/okf-status.png)
 
-If the configured root or source files have changed, [reload the index](#indexing-and-reloads).
+If the configured root or source files change, run `/okf refresh`. A successful refresh re-reads the effective configuration, rebuilds the snapshot, and resets the displayed `Indexed` age. Restarting Pi or running `/reload` also creates a fresh extension runtime.
 
 ## Configuration
 
@@ -69,7 +69,7 @@ The path is absolute and the line range is inclusive.
 
 The extension recursively indexes `.md` files under `root`, except files named exactly `index.md` or `log.md`. The index is held in memory, does not modify source files, and is not updated automatically.
 
-Run `/reload` or restart Pi after changing the configuration or indexed files.
+Run `/okf refresh` after changing the configuration or indexed files. It re-reads the effective configuration and fully rebuilds the in-memory snapshot without reloading unrelated extensions. On success, the `Indexed` age shown by `/okf status` resets. Restarting Pi or running `/reload` also creates a fresh extension runtime.
 
 ## Development
 
