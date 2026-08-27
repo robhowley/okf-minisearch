@@ -12,6 +12,7 @@ import {
 
 type MockRuntime = {
   start: ReturnType<typeof vi.fn>;
+  status: ReturnType<typeof vi.fn>;
   search: ReturnType<typeof vi.fn>;
 };
 
@@ -20,6 +21,7 @@ const { createRuntimeMock, runtimes } = vi.hoisted(() => {
   const createRuntimeMock = vi.fn(() => {
     const runtime = {
       start: vi.fn(),
+      status: vi.fn(),
       search: vi.fn(),
     };
     runtimes.push(runtime);
@@ -38,14 +40,22 @@ import type { RuntimeSearchHit } from "../extensions/okf-search/runtime.js";
 
 type CapturedHandler = (...args: unknown[]) => unknown;
 
+type CapturedCommand = {
+  description?: string;
+  getArgumentCompletions?: (argumentPrefix: string) => unknown;
+  handler: CapturedHandler;
+};
+
 type Registration =
   | { kind: "on"; event: string }
+  | { kind: "registerCommand"; name: string }
   | { kind: "registerTool"; name: string };
 
 interface FakePi {
   api: ExtensionAPI;
   registrations: Registration[];
   handlers: CapturedHandler[];
+  commands: CapturedCommand[];
   tools: ToolDefinition[];
 }
 
@@ -86,11 +96,16 @@ const PROMPT_GUIDELINES = [
 function makePi(): FakePi {
   const registrations: Registration[] = [];
   const handlers: CapturedHandler[] = [];
+  const commands: CapturedCommand[] = [];
   const tools: ToolDefinition[] = [];
   const fake = {
     on(event: string, handler: CapturedHandler) {
       registrations.push({ kind: "on", event });
       handlers.push(handler);
+    },
+    registerCommand(name: string, command: CapturedCommand) {
+      registrations.push({ kind: "registerCommand", name });
+      commands.push(command);
     },
     registerTool(tool: ToolDefinition) {
       registrations.push({ kind: "registerTool", name: tool.name });
@@ -102,6 +117,7 @@ function makePi(): FakePi {
     api: fake as unknown as ExtensionAPI,
     registrations,
     handlers,
+    commands,
     tools,
   };
 }
@@ -115,6 +131,11 @@ function installExtension(): FakePi {
 function onlyHandler(pi: FakePi): CapturedHandler {
   expect(pi.handlers).toHaveLength(1);
   return pi.handlers[0]!;
+}
+
+function onlyCommand(pi: FakePi): CapturedCommand {
+  expect(pi.commands).toHaveLength(1);
+  return pi.commands[0]!;
 }
 
 function onlyTool(pi: FakePi): ToolDefinition {
@@ -183,14 +204,19 @@ describe("okf_search extension", () => {
     runtimes.length = 0;
   });
 
-  it("registers one search tool after one session_start handler", () => {
+  it("registers one okf command and search tool after one session_start handler", () => {
     const pi = installExtension();
+    const command = onlyCommand(pi);
     const tool = onlyTool(pi);
 
     expect(pi.registrations).toEqual([
       { kind: "on", event: "session_start" },
+      { kind: "registerCommand", name: "okf" },
       { kind: "registerTool", name: "okf_search" },
     ]);
+    expect(command).toMatchObject({
+      description: "Show OKF snapshot status.",
+    });
     expect(tool).toMatchObject({
       name: "okf_search",
       label: "OKF Search",
@@ -246,6 +272,87 @@ describe("okf_search extension", () => {
       );
     },
   );
+
+  it.each([
+    { prefix: "", expected: [{ value: "status", label: "status" }] },
+    { prefix: "s", expected: [{ value: "status", label: "status" }] },
+    { prefix: "sta", expected: [{ value: "status", label: "status" }] },
+    { prefix: "status", expected: [{ value: "status", label: "status" }] },
+    { prefix: "status ", expected: null },
+    { prefix: "status extra", expected: null },
+    { prefix: "unknown", expected: null },
+  ])("completes only status for the prefix $prefix", ({ prefix, expected }) => {
+    const command = onlyCommand(installExtension());
+
+    expect(command.getArgumentCompletions?.(prefix)).toEqual(expected);
+  });
+
+  it.each([
+    { args: "", level: "info" as const },
+    { args: " \t\n ", level: "info" as const },
+    { args: "unknown", level: "warning" as const },
+    { args: "status extra", level: "warning" as const },
+  ])("shows usage for invalid args: $args", async ({ args, level }) => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext();
+
+    await command.handler(args, context);
+
+    expect(runtime.status).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith("Usage: /okf status", level);
+  });
+
+  it.each([
+    {
+      types: ["guide", "runbook"],
+      expectedTypes: "guide, runbook",
+    },
+    { types: [], expectedTypes: "(none)" },
+  ])("formats status with loaded root and types", async ({ types, expectedTypes }) => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext();
+    runtime.status.mockResolvedValueOnce({
+      root: "/workspace/knowledge",
+      types,
+    });
+
+    await command.handler(" \tstatus\n ", context);
+
+    expect(runtime.status).toHaveBeenCalledTimes(1);
+    expect(runtime.status).toHaveBeenCalledWith(context);
+    expect(notify).toHaveBeenCalledWith(
+      [
+        "OKF status",
+        "Root: /workspace/knowledge",
+        `Types: ${expectedTypes}`,
+        "Note: this describes the loaded snapshot and may differ from disk.",
+      ].join("\n"),
+      "info",
+    );
+  });
+
+  it.each([
+    { failure: new Error("snapshot unavailable"), message: "snapshot unavailable" },
+    { failure: "configuration unavailable", message: "configuration unavailable" },
+  ])("turns status $failure into one warning", async ({ failure, message }) => {
+    const pi = installExtension();
+    const command = onlyCommand(pi);
+    const runtime = runtimes[0]!;
+    const { context, notify } = makeContext();
+    runtime.status.mockRejectedValueOnce(failure);
+
+    await expect(command.handler("status", context)).resolves.toBeUndefined();
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith(
+      `OKF status unavailable: ${message}`,
+      "warning",
+    );
+  });
 
   it("isolates runtimes across registrations while reusing each within one registration", async () => {
     const first = installExtension();

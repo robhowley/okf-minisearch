@@ -135,6 +135,42 @@ export default function okfSearchExtension(pi: ExtensionAPI): void {
     }
   });
 
+  pi.registerCommand("okf", {
+    description: "Show OKF snapshot status.",
+    getArgumentCompletions(argumentPrefix) {
+      return "status".startsWith(argumentPrefix)
+        ? [{ value: "status", label: "status" }]
+        : null;
+    },
+    async handler(args, ctx) {
+      const subcommand = args.trim();
+
+      if (subcommand !== "status") {
+        ctx.ui.notify(
+          "Usage: /okf status",
+          subcommand === "" ? "info" : "warning",
+        );
+        return;
+      }
+
+      try {
+        const { root, types } = await runtime.status(ctx);
+        ctx.ui.notify(
+          [
+            "OKF status",
+            `Root: ${root}`,
+            `Types: ${types.length === 0 ? "(none)" : types.join(", ")}`,
+            "Note: this describes the loaded snapshot and may differ from disk.",
+          ].join("\n"),
+          "info",
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        ctx.ui.notify(`OKF status unavailable: ${message}`, "warning");
+      }
+    },
+  });
+
   pi.registerTool({
     name: "okf_search",
     label: "OKF Search",

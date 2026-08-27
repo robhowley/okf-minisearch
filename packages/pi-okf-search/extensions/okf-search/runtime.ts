@@ -47,6 +47,10 @@ export function createRuntime(
   dependencies: RuntimeDependencies = {},
 ): {
   start(ctx: RuntimeContext): Promise<void>;
+  status(ctx: RuntimeContext): Promise<{
+    readonly root: string;
+    readonly types: readonly string[];
+  }>;
   search(
     ctx: RuntimeContext,
     request: RuntimeSearchRequest,
@@ -109,6 +113,14 @@ export function createRuntime(
   return {
     async start(ctx): Promise<void> {
       await ensureSnapshot(ctx);
+    },
+
+    async status(ctx) {
+      const current = await ensureSnapshot(ctx);
+      return {
+        root: current.root,
+        types: current.search.listTypes(),
+      };
     },
 
     async search(ctx, request, signal): Promise<RuntimeSearchHit[]> {

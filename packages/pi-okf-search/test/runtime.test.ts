@@ -96,6 +96,46 @@ describe("createRuntime", () => {
     expect(searches).toHaveLength(1);
   });
 
+  it("returns status from the cached snapshot with ordered types", async () => {
+    const types = ["guide", "runbook"];
+    const listTypes = vi.fn(() => types);
+    const handle: OkfSearch = {
+      ...unusedHandle,
+      listTypes,
+    };
+    const loadConfig = vi.fn(() => ({ root }));
+    const openOkf = vi.fn(async () => handle);
+    const runtime = createRuntime({ loadConfig, openOkf });
+
+    await runtime.start(ctx);
+    await expect(runtime.search(ctx, { query: "needle" })).resolves.toEqual([]);
+    await expect(runtime.status(ctx)).resolves.toEqual({ root, types });
+
+    expect(listTypes).toHaveBeenCalledTimes(1);
+    expect(loadConfig).toHaveBeenCalledTimes(1);
+    expect(openOkf).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries status after a failed snapshot build", async () => {
+    const failure = new Error("opening failed");
+    let attempts = 0;
+    const loadConfig = vi.fn(() => ({ root }));
+    const openOkf = vi.fn(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw failure;
+      }
+      return unusedHandle;
+    });
+    const runtime = createRuntime({ loadConfig, openOkf });
+
+    await expect(runtime.status(ctx)).rejects.toBe(failure);
+    await expect(runtime.status(ctx)).resolves.toEqual({ root, types: [] });
+
+    expect(loadConfig).toHaveBeenCalledTimes(2);
+    expect(openOkf).toHaveBeenCalledTimes(2);
+  });
+
   it("coalesces concurrent start and search calls", async () => {
     const opening = deferred<OkfSearch>();
     const searches: string[] = [];
