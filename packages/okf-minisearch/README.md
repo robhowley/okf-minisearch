@@ -99,6 +99,19 @@ All `where` filters are combined with AND. Values within a filter array are comb
 | `where.stale` | Whether `stale_after` is at or before `asOf`. |
 | `asOf` | Reference time for stale filtering. Defaults to the current time. |
 
+### List types
+
+Use `listTypes()` to get the document types in the current index:
+
+```js
+const types = okf.listTypes();
+const hits = okf.search("rollback", {
+  where: { types },
+});
+```
+
+The returned array is a frozen, sorted snapshot. Values preserve case and include custom types.
+
 ### Search fields
 
 | Public field | Indexed content | Default weight |
@@ -266,7 +279,7 @@ If `ingest` or `remove` throws `ERR_OKF_INDEX_UNUSABLE`, discard the handle and 
 
 ## Public API
 
-The package root exports `openOkf`, `validateOkfDocument`, and `OkfError`. `openOkf(root)` returns an `OkfSearch` handle with `search(query, options?)`, `ingest(input)`, and `remove(path)`. Public TypeScript types can be imported from the package root:
+The package root exports `openOkf`, `validateOkfDocument`, and `OkfError`. `openOkf(root)` returns an `OkfSearch` handle with `search(query, options?)`, `listTypes()`, `ingest(input)`, and `remove(path)`. Public TypeScript types can be imported from the package root:
 
 ```ts
 import type {

@@ -40,6 +40,10 @@ type ExactOkfDocumentStatus = Assert<Same<
   OkfDocument["status"],
   OkfStatus
 >>;
+type ExactOkfListTypes = Assert<Same<
+  OkfSearch["listTypes"],
+  () => readonly string[]
+>>;
 type ExactOkfRemove = Assert<Same<
   OkfSearch["remove"],
   (path: string) => boolean
@@ -90,6 +94,7 @@ void [
   null as unknown as ExactOkfValidationResult,
   null as unknown as ExactOkfIngestResult,
   null as unknown as ExactOkfDocumentStatus,
+  null as unknown as ExactOkfListTypes,
   null as unknown as ExactOkfRemove,
   null as unknown as ExactOkfSearchBoost,
 ];

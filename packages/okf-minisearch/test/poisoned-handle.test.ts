@@ -72,6 +72,7 @@ function expectEveryLaterOperationToRethrow(
   poisonError: OkfError,
 ): void {
   const calls: [string, () => unknown][] = [
+    ["listTypes", () => okf.listTypes()],
     ["search", () => okf.search("presentneedle")],
     ["malformed ingest", () => okf.ingest({
       path: "malformed.md",
@@ -196,6 +197,7 @@ describe("poisoned MiniSearch handle", () => {
       path: "<input>",
       field: "path",
     });
+    expect(okf.listTypes()).toEqual([]);
 
     okf.ingest({
       path: "usable.md",
@@ -207,7 +209,9 @@ describe("poisoned MiniSearch handle", () => {
         path: "usable.md",
       }),
     ]);
+    expect(okf.listTypes()).toEqual(["usable"]);
     expect(okf.remove("usable.md")).toBe(true);
     expect(okf.search("usableneedle")).toEqual([]);
+    expect(okf.listTypes()).toEqual([]);
   });
 });
