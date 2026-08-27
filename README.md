@@ -108,7 +108,7 @@ pnpm install
 pnpm package:check
 ```
 
-`pnpm package:check` performs a frozen install, builds and type-checks both packages, runs their tests, packs them, and checks the packed Node and Pi consumers.
+`pnpm package:check` performs a frozen install, builds the library, type-checks and tests both packages, packs them, and checks the packed Node and Pi consumers.
 
 Build only the library:
 
