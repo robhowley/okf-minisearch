@@ -29,12 +29,13 @@ const SEARCH_PARAMETERS = Type.Object(
       Type.Integer({
         minimum: 1,
         maximum: 10,
-        description: "Maximum number of hits; omit for the runtime default.",
+        description: "Maximum number of hits; defaults to 5 when omitted.",
       }),
     ),
     match: Type.Optional(
       StringEnum(["any", "all"] as const, {
-        description: "Match any query term or require all query terms.",
+        description:
+          'Match any query term or require all query terms; defaults to "any" when omitted.',
       }),
     ),
     fields: Type.Optional(
@@ -45,7 +46,8 @@ const SEARCH_PARAMETERS = Type.Object(
     ),
     fuzzy: Type.Optional(
       Type.Boolean({
-        description: "Enable the runtime's fixed fuzzy matching behavior.",
+        description:
+          "Enable typo-tolerant matching; defaults to true (0.2) when omitted.",
       }),
     ),
     where: Type.Optional(

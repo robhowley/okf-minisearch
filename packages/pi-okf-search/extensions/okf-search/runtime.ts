@@ -117,9 +117,9 @@ export function createRuntime(
 
       const options: OkfSearchOptions = {
         limit: request.limit === undefined ? 5 : request.limit,
-        ...(request.match !== undefined ? { match: request.match } : {}),
+        match: request.match === undefined ? "any" : request.match,
         ...(request.fields !== undefined ? { fields: request.fields } : {}),
-        ...(request.fuzzy !== undefined ? { fuzzy: request.fuzzy } : {}),
+        fuzzy: request.fuzzy === undefined ? true : request.fuzzy,
         ...(request.where !== undefined ? { where: request.where } : {}),
       };
 

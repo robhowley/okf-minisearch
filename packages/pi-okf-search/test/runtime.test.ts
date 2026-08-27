@@ -377,7 +377,7 @@ describe("createRuntime", () => {
     expect(openOkf).toHaveBeenCalledTimes(1);
   });
 
-  it("trims the query and supplies only the default limit", async () => {
+  it("trims the query and supplies Pi search defaults", async () => {
     const calls: Array<{
       query: string;
       options?: OkfSearchOptions;
@@ -400,7 +400,11 @@ describe("createRuntime", () => {
 
     const call = calls[0]!;
     expect(call.query).toBe("needle");
-    expect(call.options).toStrictEqual({ limit: 5 });
+    expect(call.options).toStrictEqual({
+      limit: 5,
+      match: "any",
+      fuzzy: true,
+    });
   });
 
   it("preserves supplied options, including false and an empty where", async () => {

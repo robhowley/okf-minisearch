@@ -443,14 +443,16 @@ describe("okf_search extension", () => {
     expect(properties).toMatchObject({
       query: { description: "Nonblank text to search for." },
       limit: {
-        description: "Maximum number of hits; omit for the runtime default.",
+        description: "Maximum number of hits; defaults to 5 when omitted.",
       },
       match: {
-        description: "Match any query term or require all query terms.",
+        description:
+          'Match any query term or require all query terms; defaults to "any" when omitted.',
       },
       fields: { description: "Public OKF fields to search." },
       fuzzy: {
-        description: "Enable the runtime's fixed fuzzy matching behavior.",
+        description:
+          "Enable typo-tolerant matching; defaults to true (0.2) when omitted.",
       },
     });
     expect(whereProperties).toMatchObject({

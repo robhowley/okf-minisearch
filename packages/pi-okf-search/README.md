@@ -61,7 +61,7 @@ A trusted project `pi-okf-search` section replaces the global section. If the pr
 
 ## Search and results
 
-The model can search all content or narrow a query by field, document type, tag, status, trust tier, or staleness. It can also require all terms, enable fuzzy matching, and request up to 10 results. The default limit is 5.
+The model can search all content or narrow a query by field, document type, tag, status, trust tier, or staleness. It can also require all terms, enable fuzzy matching, and request up to 10 results. When omitted, the Pi tool defaults to 5 results, OR term matching (`match: "any"`), and typo-tolerant matching (`fuzzy: true`, equivalent to a 0.2 fuzzy threshold). Set `match: "all"` or `fuzzy: false` to override these defaults. The final query term receives prefix matching when it has at least three characters, including with the default fuzzy setting.
 
 A result looks like this:
 
