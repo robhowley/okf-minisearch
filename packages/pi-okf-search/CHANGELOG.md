@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/robhowley/okf-minisearch/compare/pi-okf-search-v0.2.0...pi-okf-search-v0.2.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* **pi-okf-search:** require okf-minisearch v2 ([#39](https://github.com/robhowley/okf-minisearch/issues/39)) ([e30c256](https://github.com/robhowley/okf-minisearch/commit/e30c2566c19baf74be29f2c2f95a737fe67f44e5))
+
 ## [0.2.0](https://github.com/robhowley/okf-minisearch/compare/pi-okf-search-v0.1.0...pi-okf-search-v0.2.0) (2026-08-27)
 
 
