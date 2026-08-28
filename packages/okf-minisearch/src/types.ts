@@ -132,6 +132,8 @@ export interface OkfDegradedDocument {
   readonly diagnostics: readonly [OkfDiagnostic, ...OkfDiagnostic[]];
 }
 
+export type OkfConformance = "strict" | "degraded";
+
 export type OkfIngestResult =
   | { readonly conformance: "strict"; readonly document: OkfDocument }
   | ({ readonly conformance: "degraded" } & OkfDegradedDocument);
@@ -155,6 +157,7 @@ export interface OkfSearchOptions {
     statuses?: readonly OkfStatus[];
     trustTiers?: readonly OkfTrustTier[];
     stale?: boolean;
+    conformance?: readonly OkfConformance[];
   };
 
   asOf?: Date;
@@ -170,6 +173,7 @@ export interface OkfSearchHit {
   title: string;
   sectionId: string;
   score: number;
+  conformance: OkfConformance;
   matchedFields: OkfSearchField[];
 
   headingPath: string;

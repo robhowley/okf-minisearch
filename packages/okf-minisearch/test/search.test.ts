@@ -1267,6 +1267,74 @@ describe("search where filters", () => {
     }
   });
 
+  it("validates conformance values at the where boundary", async () => {
+    const term = "conformancevalidation";
+    const okf = await open({
+      "validation.md": concept("type: note", term),
+    });
+    const arrayError = new TypeError(
+      "options.where.conformance must be an array",
+    );
+    const entryError = new TypeError(
+      "options.where.conformance must contain only valid OkfConformance values",
+    );
+    const invalidCases: Array<[unknown, TypeError]> = [
+      ["strict", arrayError],
+      [["STRICT"], entryError],
+      [["unknown"], entryError],
+      [[1], entryError],
+      [new Array(1), entryError],
+    ];
+
+    for (const [conformance, error] of invalidCases) {
+      expect(() => okf.search(term, {
+        where: { conformance } as unknown as OkfSearchOptions["where"],
+      })).toThrowError(error);
+    }
+
+    const frozen = Object.freeze(["strict"] as const);
+    const validValues = [
+      [],
+      ["strict"],
+      ["degraded"],
+      ["strict", "degraded"],
+      ["degraded", "strict"],
+      ["strict", "strict"],
+      frozen,
+    ] as const;
+
+    for (const conformance of validValues) {
+      expect(() => okf.search(term, {
+        where: { conformance },
+      })).not.toThrow();
+    }
+    expect(frozen).toEqual(["strict"]);
+
+    const invalidConformance = ["unknown"] as unknown as readonly (
+      "strict" | "degraded"
+    )[];
+    expect(() => okf.search("", {
+      where: { conformance: invalidConformance },
+    })).toThrowError(entryError);
+    expect(() => okf.search(term, {
+      limit: 0,
+      where: { conformance: invalidConformance },
+    })).toThrowError(entryError);
+
+    expect(() => okf.search(term, {
+      where: {
+        stale: "false" as unknown as boolean,
+        conformance: invalidConformance,
+      },
+    })).toThrowError(new TypeError(
+      "options.where.stale must be a boolean",
+    ));
+
+    expect(() => okf.search(term, boostOptions(null, {
+      where: { conformance: invalidConformance },
+    }))).toThrowError(entryError);
+  });
+
   it("validates where after existing options and before empty results", async () => {
     const okf = await open({
       "validation.md": concept(
@@ -1442,6 +1510,242 @@ describe("search where filters", () => {
       },
     })).toEqual(all);
     expect(where).toEqual(before);
+  });
+
+  it("filters conformance without changing unrestricted hits or lexical search", async () => {
+    const term = "conformancefilterneedle";
+    const okf = await open({
+      "a.md": concept(`
+        type: note
+        title: Shared Conformance Title
+        tags: [shared]
+        status: stable
+        verified:
+          - by: human:alice
+            at: 2026-08-24T10:00:00Z
+        stale_after: 2026-08-24T13:00:00Z
+      `, term),
+      "z.md": concept(`
+        type: note
+        title: Shared Conformance Title
+        description: {broken: true}
+        tags: [shared]
+        status: stable
+        verified:
+          - by: human:alice
+            at: 2026-08-24T10:00:00Z
+        stale_after: 2026-08-24T13:00:00Z
+      `, term),
+    });
+    const unrestricted = okf.search(term);
+    const unrestrictedCases = [
+      okf.search(term, {}),
+      okf.search(term, { where: {} }),
+      okf.search(term, { where: { conformance: [] } }),
+      okf.search(term, {
+        where: { conformance: ["strict", "degraded"] },
+      }),
+      okf.search(term, {
+        where: { conformance: ["degraded", "strict"] },
+      }),
+      okf.search(term, {
+        where: { conformance: ["strict", "strict", "degraded"] },
+      }),
+    ];
+
+    for (const hits of unrestrictedCases) {
+      expect(hits).toEqual(unrestricted);
+    }
+
+    expect(Object.fromEntries(unrestricted.map((hit) => [
+      hit.documentId,
+      hit.conformance,
+    ]))).toEqual({
+      a: "strict",
+      z: "degraded",
+    });
+
+    const strictHits = unrestricted.filter((hit) =>
+      hit.conformance === "strict");
+    const degradedHits = unrestricted.filter((hit) =>
+      hit.conformance === "degraded");
+
+    expect(okf.search(term, {
+      where: { conformance: ["strict"] },
+    })).toEqual(strictHits);
+    expect(okf.search(term, {
+      where: { conformance: ["degraded"] },
+    })).toEqual(degradedHits);
+
+    expect(okf.search("strict")).toEqual([]);
+    expect(okf.search("degraded")).toEqual([]);
+  });
+
+  it("ANDs conformance with every metadata facet", async () => {
+    const query = "conformancefacetneedle";
+    const document = (
+      staleAfter: string,
+      generated = "",
+    ): string => concept(`
+      type: note
+      title: Shared Facet Topic
+      tags: [target]
+      status: stable
+      verified:
+        - by: human:alice
+          at: 2026-08-24T10:00:00Z
+      stale_after: ${staleAfter}
+      ${generated}
+    `, query);
+    const okf = await open({
+      "strict-fresh.md": document("2026-08-24T13:00:00Z"),
+      "strict-nonmatching-fresh.md": concept(`
+        type: recipe
+        title: Shared Facet Topic
+        tags: [other]
+        status: draft
+        verified:
+          - by: process:builder
+            at: 2026-08-24T10:00:00Z
+        stale_after: 2026-08-24T13:00:00Z
+      `, query),
+      "degraded-fresh.md": document(
+        "2026-08-24T13:00:00Z",
+        "generated: malformed",
+      ),
+      "strict-stale.md": document("2026-08-24T11:00:00Z"),
+      "degraded-stale.md": document(
+        "2026-08-24T11:00:00Z",
+        "generated: malformed",
+      ),
+    });
+    const matchingIds = (options: OkfSearchOptions): string[] =>
+      okf.search(query, options)
+        .map((hit) => hit.documentId)
+        .sort();
+    const strictIds = ["strict-fresh", "strict-stale"];
+    const asOf = new Date("2026-08-24T12:00:00Z");
+
+    for (const where of [
+      {
+        types: ["missing", "note"],
+        conformance: ["strict"],
+      },
+      {
+        tagsAny: ["missing", "target"],
+        conformance: ["strict"],
+      },
+      {
+        statuses: ["deprecated", "stable"],
+        conformance: ["strict"],
+      },
+      {
+        trustTiers: ["unverified", "human-reviewed"],
+        conformance: ["strict"],
+      },
+    ] as const) {
+      expect(matchingIds({ where })).toEqual(strictIds);
+    }
+
+    expect(matchingIds({
+      asOf,
+      where: {
+        stale: false,
+        conformance: ["strict"],
+      },
+    })).toEqual(["strict-fresh", "strict-nonmatching-fresh"]);
+    expect(matchingIds({
+      asOf,
+      where: {
+        stale: true,
+        conformance: ["strict"],
+      },
+    })).toEqual(["strict-stale"]);
+  });
+
+  it("filters eligible records before applying the result limit", async () => {
+    const term = "conformancelimitneedle";
+    const okf = await open({
+      "a.md": concept(`
+        type: note
+        title: ${term}
+        description: {broken: true}
+      `, "# First\nordinary section\n# Second\nanother section"),
+      "z.md": concept(`
+        type: note
+        title: Unrelated Topic
+      `, `ordinary section ${term}`),
+    });
+
+    const unrestricted = okf.search(term, { limit: 1 });
+    expect(unrestricted).toEqual([
+      expect.objectContaining({
+        documentId: "a",
+        conformance: "degraded",
+      }),
+    ]);
+    expect(okf.search(term, {
+      limit: 1,
+      where: { conformance: ["strict"] },
+    })).toEqual([
+      expect.objectContaining({
+        documentId: "z",
+        conformance: "strict",
+      }),
+    ]);
+  });
+
+  it("keeps hit conformance labels detached across replacement and removal", async () => {
+    const okf = await open({});
+    const path = "snapshot.md";
+    const degradedMarkdown = concept(`
+      type: note
+      title: Snapshot Topic
+      description: {broken: true}
+    `, "snapshotneedle");
+    const strictMarkdown = concept(`
+      type: note
+      title: Snapshot Topic
+    `, "snapshotneedle");
+
+    expect(okf.ingest({
+      path,
+      markdown: degradedMarkdown,
+    }).conformance).toBe("degraded");
+    const degradedHits = okf.search("snapshotneedle");
+    expect(degradedHits).toEqual([
+      expect.objectContaining({
+        documentId: "snapshot",
+        conformance: "degraded",
+      }),
+    ]);
+    const degradedHit = degradedHits[0]!;
+
+    expect(okf.ingest({
+      path: "./snapshot.md",
+      markdown: strictMarkdown,
+    }).conformance).toBe("strict");
+    const strictHits = okf.search("snapshotneedle");
+    expect(degradedHit.conformance).toBe("degraded");
+    expect(strictHits).toEqual([
+      expect.objectContaining({
+        documentId: "snapshot",
+        conformance: "strict",
+      }),
+    ]);
+    const strictHit = strictHits[0]!;
+
+    expect(okf.ingest({
+      path,
+      markdown: degradedMarkdown,
+    }).conformance).toBe("degraded");
+    const degradedAgain = okf.search("snapshotneedle");
+    expect(strictHit.conformance).toBe("strict");
+    expect(degradedAgain[0]!.conformance).toBe("degraded");
+
+    expect(okf.remove(path)).toBe(true);
+    expect(okf.search("snapshotneedle")).toEqual([]);
+    expect(degradedAgain[0]!.conformance).toBe("degraded");
   });
 });
 
@@ -1638,6 +1942,68 @@ describe("search ordering", () => {
       ]);
       expect(hits[0]!.score).toBe(hits[1]!.score);
     }
+  });
+
+  it("keeps raw score primary over conformance preference", async () => {
+    const term = "strongconformanceneedle";
+    const okf = await open({
+      "a.md": concept(`
+        type: note
+        title: ${term}
+        description: {broken: true}
+      `, "ordinary background"),
+      "z.md": concept(`
+        type: note
+        title: Unrelated Topic
+      `, `ordinary background ${term}`),
+    });
+
+    const hits = okf.search(term);
+
+    expect(hits.map((hit) => hit.documentId)).toEqual([
+      "a",
+      "z",
+    ]);
+    expect(hits[0]!.conformance).toBe("degraded");
+    expect(hits[1]!.conformance).toBe("strict");
+    expect(hits[0]!.matchedFields).toContain("title");
+    expect(hits[0]!.matchedFields).not.toContain("body");
+    expect(hits[1]!.matchedFields).toContain("body");
+    expect(hits[1]!.matchedFields).not.toContain("title");
+    expect(hits[0]!.score).toBeGreaterThan(hits[1]!.score);
+  });
+
+  it("prefers strict records on exact score ties before record IDs", async () => {
+    const query = "exactconformancetie";
+    const sharedMetadata = `
+      type: note
+      title: Shared Tie Topic
+      tags: [shared]
+      status: stable
+      verified:
+        - by: human:alice
+          at: 2026-08-24T10:00:00Z
+      stale_after: 2026-08-24T13:00:00Z
+    `;
+    const okf = await open({
+      "a.md": concept(
+        `${sharedMetadata}
+      generated: malformed`,
+        query,
+      ),
+      "z.md": concept(sharedMetadata, query),
+    });
+
+    const hits = okf.search(query);
+
+    expect(hits.map((hit) => ({
+      documentId: hit.documentId,
+      conformance: hit.conformance,
+    }))).toEqual([
+      { documentId: "z", conformance: "strict" },
+      { documentId: "a", conformance: "degraded" },
+    ]);
+    expect(hits[0]!.score).toBe(hits[1]!.score);
   });
 });
 

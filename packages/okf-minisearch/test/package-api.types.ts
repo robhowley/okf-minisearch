@@ -90,12 +90,14 @@ type ExactOkfSearchOptionKeys = Assert<Same<
 type ExactOkfSearchWhereKeys = Assert<Same<
   keyof NonNullable<OkfSearchOptions["where"]>,
   "types" | "tagsAny" | "statuses" | "trustTiers" | "stale"
+  | "conformance"
 >>;
 type ExactOkfSearchHitKeys = Assert<Same<
   keyof OkfSearchHit,
   | "documentId"
   | "title"
   | "sectionId"
+  | "conformance"
   | "score"
   | "matchedFields"
   | "headingPath"
