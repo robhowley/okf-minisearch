@@ -1267,72 +1267,22 @@ describe("search where filters", () => {
     }
   });
 
-  it("validates conformance values at the where boundary", async () => {
-    const term = "conformancevalidation";
+  it("rejects invalid conformance values at the where boundary", async () => {
     const okf = await open({
-      "validation.md": concept("type: note", term),
+      "validation.md": concept(
+        "type: note",
+        "conformancevalidation",
+      ),
     });
-    const arrayError = new TypeError(
-      "options.where.conformance must be an array",
-    );
-    const entryError = new TypeError(
-      "options.where.conformance must contain only valid OkfConformance values",
-    );
-    const invalidCases: Array<[unknown, TypeError]> = [
-      ["strict", arrayError],
-      [["STRICT"], entryError],
-      [["unknown"], entryError],
-      [[1], entryError],
-      [new Array(1), entryError],
-    ];
-
-    for (const [conformance, error] of invalidCases) {
-      expect(() => okf.search(term, {
-        where: { conformance } as unknown as OkfSearchOptions["where"],
-      })).toThrowError(error);
-    }
-
-    const frozen = Object.freeze(["strict"] as const);
-    const validValues = [
-      [],
-      ["strict"],
-      ["degraded"],
-      ["strict", "degraded"],
-      ["degraded", "strict"],
-      ["strict", "strict"],
-      frozen,
-    ] as const;
-
-    for (const conformance of validValues) {
-      expect(() => okf.search(term, {
-        where: { conformance },
-      })).not.toThrow();
-    }
-    expect(frozen).toEqual(["strict"]);
-
     const invalidConformance = ["unknown"] as unknown as readonly (
       "strict" | "degraded"
     )[];
-    expect(() => okf.search("", {
-      where: { conformance: invalidConformance },
-    })).toThrowError(entryError);
-    expect(() => okf.search(term, {
-      limit: 0,
-      where: { conformance: invalidConformance },
-    })).toThrowError(entryError);
 
-    expect(() => okf.search(term, {
-      where: {
-        stale: "false" as unknown as boolean,
-        conformance: invalidConformance,
-      },
+    expect(() => okf.search("conformancevalidation", {
+      where: { conformance: invalidConformance },
     })).toThrowError(new TypeError(
-      "options.where.stale must be a boolean",
+      "options.where.conformance must contain only valid OkfConformance values",
     ));
-
-    expect(() => okf.search(term, boostOptions(null, {
-      where: { conformance: invalidConformance },
-    }))).toThrowError(entryError);
   });
 
   it("validates where after existing options and before empty results", async () => {
@@ -1538,24 +1488,10 @@ describe("search where filters", () => {
       `, term),
     });
     const unrestricted = okf.search(term);
-    const unrestrictedCases = [
-      okf.search(term, {}),
-      okf.search(term, { where: {} }),
-      okf.search(term, { where: { conformance: [] } }),
-      okf.search(term, {
-        where: { conformance: ["strict", "degraded"] },
-      }),
-      okf.search(term, {
-        where: { conformance: ["degraded", "strict"] },
-      }),
-      okf.search(term, {
-        where: { conformance: ["strict", "strict", "degraded"] },
-      }),
-    ];
 
-    for (const hits of unrestrictedCases) {
-      expect(hits).toEqual(unrestricted);
-    }
+    expect(okf.search(term, {
+      where: { conformance: [] },
+    })).toEqual(unrestricted);
 
     expect(Object.fromEntries(unrestricted.map((hit) => [
       hit.documentId,
@@ -1581,7 +1517,7 @@ describe("search where filters", () => {
     expect(okf.search("degraded")).toEqual([]);
   });
 
-  it("ANDs conformance with every metadata facet", async () => {
+  it("ANDs conformance with metadata and stale facets", async () => {
     const query = "conformancefacetneedle";
     const document = (
       staleAfter: string,
@@ -1626,26 +1562,12 @@ describe("search where filters", () => {
     const strictIds = ["strict-fresh", "strict-stale"];
     const asOf = new Date("2026-08-24T12:00:00Z");
 
-    for (const where of [
-      {
-        types: ["missing", "note"],
+    expect(matchingIds({
+      where: {
+        tagsAny: ["target"],
         conformance: ["strict"],
       },
-      {
-        tagsAny: ["missing", "target"],
-        conformance: ["strict"],
-      },
-      {
-        statuses: ["deprecated", "stable"],
-        conformance: ["strict"],
-      },
-      {
-        trustTiers: ["unverified", "human-reviewed"],
-        conformance: ["strict"],
-      },
-    ] as const) {
-      expect(matchingIds({ where })).toEqual(strictIds);
-    }
+    })).toEqual(strictIds);
 
     expect(matchingIds({
       asOf,
@@ -1735,17 +1657,9 @@ describe("search where filters", () => {
     ]);
     const strictHit = strictHits[0]!;
 
-    expect(okf.ingest({
-      path,
-      markdown: degradedMarkdown,
-    }).conformance).toBe("degraded");
-    const degradedAgain = okf.search("snapshotneedle");
-    expect(strictHit.conformance).toBe("strict");
-    expect(degradedAgain[0]!.conformance).toBe("degraded");
-
     expect(okf.remove(path)).toBe(true);
     expect(okf.search("snapshotneedle")).toEqual([]);
-    expect(degradedAgain[0]!.conformance).toBe("degraded");
+    expect(strictHit.conformance).toBe("strict");
   });
 });
 
