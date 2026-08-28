@@ -40,7 +40,7 @@ importers:
   packages/pi-okf-search:
     dependencies:
       okf-minisearch:
-        specifier: workspace:^
+        specifier: workspace:^2.0.0
         version: link:../okf-minisearch
     devDependencies:
       '@earendil-works/pi-ai':
