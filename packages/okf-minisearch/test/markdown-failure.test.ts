@@ -33,16 +33,6 @@ afterEach(async () => {
   );
 });
 
-function thrownBy(run: () => unknown): unknown {
-  try {
-    run();
-  } catch (error) {
-    return error;
-  }
-
-  throw new Error("Expected operation to throw");
-}
-
 describe("Markdown parser failure", () => {
   it("keeps parse failure fatal but gives unusable type fatal precedence", async () => {
     const tree = await createBundle({});
@@ -66,10 +56,10 @@ describe("Markdown parser failure", () => {
         message: "Cannot parse OKF concept: parse-only.md",
       }],
     });
-    expect(thrownBy(() => okf.ingest(parseOnly))).toMatchObject({
+    expect(() => okf.ingest(parseOnly)).toThrow(expect.objectContaining({
       code: "ERR_OKF_PARSE",
       path: "parse-only.md",
-    });
+    }));
 
     const competingFatal = {
       path: "competing-fatal.md",
@@ -84,11 +74,11 @@ describe("Markdown parser failure", () => {
       "type",
       undefined,
     ]);
-    expect(thrownBy(() => okf.ingest(competingFatal))).toMatchObject({
+    expect(() => okf.ingest(competingFatal)).toThrow(expect.objectContaining({
       code: "ERR_OKF_FIELD",
       path: "competing-fatal.md",
       field: "type",
-    });
+    }));
 
     expect(addAll).not.toHaveBeenCalled();
     expect(add).not.toHaveBeenCalled();

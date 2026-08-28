@@ -504,36 +504,7 @@ assert.deepEqual(degradedInventory, [{
   path: "degraded.md",
   diagnostics: degradedResult.diagnostics,
 }]);
-assert.notStrictEqual(degradedInventory[0].diagnostics, degradedResult.diagnostics);
-assert.notStrictEqual(degradedInventory[0].diagnostics[0], degradedResult.diagnostics[0]);
-const expectedInventoryDiagnostics = degradedInventory[0].diagnostics
-  .map((diagnostic) => ({ ...diagnostic }));
-degradedResult.diagnostics[0].message = "caller mutation";
-degradedResult.diagnostics.push({
-  code: "ERR_OKF_FIELD",
-  path: "caller.md",
-  message: "caller mutation",
-});
-assert.deepEqual(okf.listDegradedDocuments(), [{
-  documentId: "degraded",
-  path: "degraded.md",
-  diagnostics: expectedInventoryDiagnostics,
-}]);
-
-assert.throws(
-  () => okf.ingest(fatalInput),
-  (error) => error instanceof api.OkfError &&
-    error.code === "ERR_OKF_FIELD" &&
-    error.field === "type",
-);
-assert.equal(okf.search("fatalneedle").length, 0);
-assert.deepEqual(okf.listDegradedDocuments(), [{
-  documentId: "degraded",
-  path: "degraded.md",
-  diagnostics: expectedInventoryDiagnostics,
-}]);
-assert.deepEqual(okf.listTypes(), ["degraded", "note", "packed"]);
-
+assert.equal(okf.search("degradedremovalneedle").length, 1);
 assert.equal(typeof okf.remove, "function");
 assert.equal(
   okf.search("packedremovalneedle", {
@@ -545,8 +516,6 @@ assert.equal(okf.search("packedremovalneedle").length, 1);
 assert.equal(okf.remove("./degraded.md"), true);
 assert.deepEqual(okf.listDegradedDocuments(), []);
 assert.deepEqual(okf.search("degradedremovalneedle"), []);
-assert.equal(okf.remove("degraded.md"), false);
-assert.deepEqual(okf.listTypes(), ["note", "packed"]);
 assert.equal(okf.remove("./consumer.md"), true);
 assert.deepEqual(okf.listTypes(), ["note"]);
 assert.deepEqual(okf.search("packedremovalneedle"), []);

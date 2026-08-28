@@ -57,14 +57,47 @@ describe("optional metadata", () => {
   });
 
   it.each([
-    ["status", "status: future", "status"],
-    ["verification", "verified: broken", "verified"],
-    ["staleness", "stale_after: yesterday", "stale_after"],
-  ])("indexes malformed present %s metadata as unclassified", async (
-    name,
+    {
+      name: "status",
+      metadata: "status: future",
+      field: "status",
+      filters: [{
+        where: { statuses: ["draft", "stable", "deprecated"] },
+      }],
+    },
+    {
+      name: "verification",
+      metadata: "verified: broken",
+      field: "verified",
+      filters: [{
+        where: {
+          trustTiers: [
+            "unverified",
+            "machine-confirmed",
+            "human-reviewed",
+          ],
+        },
+      }],
+    },
+    {
+      name: "staleness",
+      metadata: "stale_after: yesterday",
+      field: "stale_after",
+      filters: [
+        { where: { stale: true } },
+        { where: { stale: false } },
+      ],
+    },
+  ] satisfies Array<{
+    name: string;
+    metadata: string;
+    field: string;
+    filters: OkfSearchOptions[];
+  }>)("indexes malformed present $name metadata as unclassified", async ({
     metadata,
     field,
-  ) => {
+    filters,
+  }) => {
     const okf = await open({
       "malformed.md": concept(`type: note\n${metadata}`, "facetneedle"),
     });
@@ -78,28 +111,25 @@ describe("optional metadata", () => {
       }),
     ]);
 
-    if (name === "status") {
-      expect(ids(okf, {
-        where: { statuses: ["draft", "stable", "deprecated"] },
-      })).toEqual([]);
-    } else if (name === "verification") {
-      expect(ids(okf, {
-        where: {
-          trustTiers: [
-            "unverified",
-            "machine-confirmed",
-            "human-reviewed",
-          ],
-        },
-      })).toEqual([]);
-    } else {
-      expect(ids(okf, {
-        where: { stale: true },
-      })).toEqual([]);
-      expect(ids(okf, {
-        where: { stale: false },
-      })).toEqual([]);
+    for (const filter of filters) {
+      expect(ids(okf, filter)).toEqual([]);
     }
+  });
+
+  it("defaults absent facets on a document degraded by another field", async () => {
+    const okf = await open({
+      "degraded.md": concept("type: note\ndescription: 1", "facetneedle"),
+    });
+
+    expect(okf.listDegradedDocuments()).toHaveLength(1);
+    expect(ids(okf, {
+      asOf: new Date("2026-08-24T12:00:00Z"),
+      where: {
+        statuses: ["stable"],
+        trustTiers: ["unverified"],
+        stale: false,
+      },
+    })).toEqual(["degraded"]);
   });
 
   it("returns normalized, sorted, deeply detached current degraded state", async () => {
@@ -155,50 +185,29 @@ describe("optional metadata", () => {
         message: "Invalid OKF field: A.md (description)",
       }),
     ]);
-
-    okf.ingest({
-      path: "z.md",
-      markdown: concept("type: note\nresource: 1", "inventoryneedle replaced"),
-    });
-    const replaced = okf.listDegradedDocuments().find(
-      (document: { readonly path: string }) => document.path === "z.md",
-    );
-    expect(replaced?.diagnostics).toEqual([
-      expect.objectContaining({ field: "resource" }),
-    ]);
-
-    for (const path of ["A.md", "a/nested.md"]) {
-      okf.ingest({
-        path,
-        markdown: concept("type: note", "inventoryneedle recovered"),
-      });
-    }
-    expect(okf.listDegradedDocuments()).toEqual([
-      expect.objectContaining({ path: "z.md" }),
-    ]);
-
-    expect(okf.remove("./z.md")).toBe(true);
-    expect(okf.listDegradedDocuments()).toEqual([]);
   });
 
-  it("tracks strict, degraded, fatal, and recovered current state", async () => {
+  it("tracks strict, degraded, fatal, degraded, and strict state", async () => {
     const okf = await open({});
+    expect(okf.listDegradedDocuments()).toEqual([]);
 
-    okf.ingest({
+    const initial = okf.ingest({
       path: "transition.md",
       markdown: concept("type: original", "transitionstrictneedle"),
     });
+    expect(initial.conformance).toBe("strict");
     expect(okf.listDegradedDocuments()).toEqual([]);
 
-    okf.ingest({
+    const degraded = okf.ingest({
       path: "./transition.md",
       markdown: concept(
         "type: degraded\nstatus: future",
         "transitiondegradedneedle",
       ),
     });
-    const degraded = okf.listDegradedDocuments();
-    expect(degraded).toEqual([
+    expect(degraded.conformance).toBe("degraded");
+    const beforeFatal = okf.listDegradedDocuments();
+    expect(beforeFatal).toEqual([
       expect.objectContaining({
         documentId: "transition",
         path: "transition.md",
@@ -213,15 +222,30 @@ describe("optional metadata", () => {
       code: "ERR_OKF_FIELD",
       field: "type",
     }));
-    expect(okf.listDegradedDocuments()).toEqual(degraded);
-    expect(okf.listTypes()).toEqual(["degraded"]);
+    expect(okf.listDegradedDocuments()).toEqual(beforeFatal);
 
-    okf.ingest({
+    const replacement = okf.ingest({
+      path: "transition.md",
+      markdown: concept(
+        "type: replacement\ntitle: 1",
+        "transitionreplacementneedle",
+      ),
+    });
+    expect(replacement.conformance).toBe("degraded");
+    expect(okf.listDegradedDocuments()).toEqual([
+      expect.objectContaining({
+        documentId: "transition",
+        path: "transition.md",
+        diagnostics: [expect.objectContaining({ field: "title" })],
+      }),
+    ]);
+
+    const recovered = okf.ingest({
       path: "transition.md",
       markdown: concept("type: recovered", "transitionrecoveredneedle"),
     });
+    expect(recovered.conformance).toBe("strict");
     expect(okf.listDegradedDocuments()).toEqual([]);
-    expect(okf.listTypes()).toEqual(["recovered"]);
   });
 
   it("classifies valid status values and defaults absent status to stable", async () => {

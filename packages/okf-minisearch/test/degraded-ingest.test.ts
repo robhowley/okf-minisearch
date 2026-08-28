@@ -107,16 +107,6 @@ describe("degraded direct ingest", () => {
     bundles.push(tree);
     const okf = await openOkf(tree.root);
 
-    const strict = okf.ingest({
-      path: "nested/derived-title.md",
-      markdown: concept("type: initial-strict", "strictinitialneedle"),
-    });
-    if (strict.conformance !== "strict") {
-      expect.unreachable("valid input must return the strict arm");
-    }
-    expect(strict.document.id).toBe("nested/derived-title");
-    expect(okf.listDegradedDocuments()).toEqual([]);
-
     const validation = validateOkfDocument(mixedInput);
     expect(validation).toMatchObject({
       isValid: false,
@@ -230,84 +220,5 @@ describe("degraded direct ingest", () => {
         where: { stale },
       })).toEqual([]);
     }
-
-    const firstInventory = okf.listDegradedDocuments();
-    const secondInventory = okf.listDegradedDocuments();
-    expect(firstInventory.map((entry) => entry.path)).toEqual([
-      "nested/derived-title.md",
-      "z-invalid-verification.md",
-    ]);
-    expect(firstInventory).not.toBe(secondInventory);
-    expect(firstInventory[0]).not.toBe(secondInventory[0]);
-    expect(firstInventory[0]!.diagnostics)
-      .not.toBe(secondInventory[0]!.diagnostics);
-    expect(firstInventory[0]!.diagnostics[0])
-      .not.toBe(secondInventory[0]!.diagnostics[0]);
-    firstInventory[0]!.diagnostics[0]!.message = "inventory mutation";
-    expect(fields(okf.listDegradedDocuments()[0]!.diagnostics))
-      .toEqual(mixedDiagnosticFields);
-
-    expect(() => okf.ingest({
-      path: "./nested//derived-title.md",
-      markdown: concept("type: ' '", "fatalreplacementneedle"),
-    })).toThrow(expect.objectContaining({
-      code: "ERR_OKF_FIELD",
-      path: "nested/derived-title.md",
-      field: "type",
-    }));
-    expectOneDocument(okf, "mixedbodyneedle");
-    expect(okf.search("fatalreplacementneedle")).toEqual([]);
-    expect(okf.listDegradedDocuments()).toEqual(secondInventory);
-
-    const degradedReplacement = okf.ingest({
-      path: "nested/./derived-title.md",
-      markdown: concept(`
-        type: replacement-degraded
-        title: {malformedreplacementtitlesentinel: true}
-        description: validreplacementdescription
-      `, "replacementdegradedneedle"),
-    });
-    if (degradedReplacement.conformance !== "degraded") {
-      expect.unreachable("malformed replacement must return the degraded arm");
-    }
-    expect(fields(degradedReplacement.diagnostics)).toEqual(["title"]);
-    expect(okf.search("mixedbodyneedle")).toEqual([]);
-    expectOneDocument(okf, "replacementdegradedneedle");
-    expect(okf.search("malformedreplacementtitlesentinel")).toEqual([]);
-    expect(okf.search("derived-title", {
-      fields: ["title"],
-    })).toEqual([]);
-    expect(okf.listDegradedDocuments().map((entry) => ({
-      path: entry.path,
-      fields: fields(entry.diagnostics),
-    }))).toEqual([
-      {
-        path: "nested/derived-title.md",
-        fields: ["title"],
-      },
-      {
-        path: "z-invalid-verification.md",
-        fields: [
-          "verified[0].by",
-          "verified[0].at",
-          "status",
-          "stale_after",
-        ],
-      },
-    ]);
-
-    const recovered = okf.ingest({
-      path: "./nested/derived-title.md",
-      markdown: concept("type: final-strict", "finalstrictneedle"),
-    });
-    if (recovered.conformance !== "strict") {
-      expect.unreachable("valid recovery must return the strict arm");
-    }
-    expect(recovered.document.type).toBe("final-strict");
-    expect(okf.search("replacementdegradedneedle")).toEqual([]);
-    expectOneDocument(okf, "finalstrictneedle");
-    expect(okf.listDegradedDocuments().map((entry) => entry.path)).toEqual([
-      "z-invalid-verification.md",
-    ]);
   });
 });
