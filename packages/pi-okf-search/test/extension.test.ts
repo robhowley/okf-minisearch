@@ -85,6 +85,7 @@ const TRUST_TIERS = [
   "machine-confirmed",
   "human-reviewed",
 ] as const;
+const CONFORMANCES = ["strict", "degraded"] as const;
 
 const NOW = 100_000_000;
 
@@ -645,6 +646,7 @@ describe("okf_search extension", () => {
           statuses: ["stable"],
           trustTiers: ["human-reviewed"],
           stale: false,
+          conformance: [...CONFORMANCES],
         },
       },
     },
@@ -698,6 +700,10 @@ describe("okf_search extension", () => {
       name: `trust tier ${trustTier}`,
       args: { query: "needle", where: { trustTiers: [trustTier] } },
     })),
+    {
+      name: "conformance strict and degraded",
+      args: { query: "needle", where: { conformance: [...CONFORMANCES] } },
+    },
     ...([false, true] as const).map((stale) => ({
       name: `stale ${stale}`,
       args: { query: "needle", where: { stale } },
@@ -735,6 +741,10 @@ describe("okf_search extension", () => {
     {
       name: "unknown trust tier",
       args: { query: "needle", where: { trustTiers: ["trusted"] } },
+    },
+    {
+      name: "unknown conformance",
+      args: { query: "needle", where: { conformance: ["unknown"] } },
     },
     {
       name: "unknown top-level key",
@@ -792,6 +802,7 @@ describe("okf_search extension", () => {
       statuses: { description: "Allowed OKF statuses." },
       trustTiers: { description: "Allowed OKF trust tiers." },
       stale: { description: "Filter by runtime-classified staleness." },
+      conformance: { description: "Allowed OKF conformance values." },
     });
 
     expect(properties.match).toMatchObject({
@@ -809,6 +820,10 @@ describe("okf_search extension", () => {
     expect(schema(whereProperties.trustTiers).items).toEqual({
       type: "string",
       enum: [...TRUST_TIERS],
+    });
+    expect(schema(whereProperties.conformance).items).toEqual({
+      type: "string",
+      enum: [...CONFORMANCES],
     });
     expect(JSON.stringify(parameters)).not.toContain('"default"');
   });
@@ -831,7 +846,7 @@ describe("okf_search extension", () => {
       match: "all",
       fields: ["heading", "body"],
       fuzzy: true,
-      where: { types: ["runbook"] },
+      where: { types: ["runbook"], conformance: [...CONFORMANCES] },
     };
     const paramsBefore = structuredClone(params);
     const signal = new AbortController().signal;

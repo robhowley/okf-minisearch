@@ -84,6 +84,12 @@ const SEARCH_PARAMETERS = Type.Object(
               description: "Filter by runtime-classified staleness.",
             }),
           ),
+          conformance: Type.Optional(
+            Type.Array(
+              StringEnum(["strict", "degraded"] as const),
+              { description: "Allowed OKF conformance values." },
+            ),
+          ),
         },
         { additionalProperties: false },
       ),
