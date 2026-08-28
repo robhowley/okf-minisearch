@@ -44,25 +44,33 @@ describe("ingest", () => {
       `, "oldaliasword"),
     });
 
+    expect(Object.keys(added)).toEqual(["conformance", "document"]);
+    expect(Object.hasOwn(added, "records")).toBe(false);
+    expect(Object.hasOwn(added, "diagnostics")).toBe(false);
+    expect(Object.hasOwn(added, "documentId")).toBe(false);
+    expect(Object.hasOwn(added, "path")).toBe(false);
+    if (added.conformance !== "strict") {
+      expect.unreachable("valid input must return the strict arm");
+    }
     expect(added.document).toMatchObject({
       id: "a/b/c",
       status: "stable",
     });
-    expect(Object.keys(added)).toEqual(["document"]);
-    expect(Object.hasOwn(added, "records")).toBe(false);
-    expect(Object.hasOwn(added, "diagnostics")).toBe(false);
 
     const replacement = okf.ingest({
       path: "a/./b//c.md",
       markdown: concept("type: changed", "newaliasword"),
     });
 
+    expect(Object.keys(replacement)).toEqual(["conformance", "document"]);
+    if (replacement.conformance !== "strict") {
+      expect.unreachable("valid replacement must return the strict arm");
+    }
     expect(replacement.document).toMatchObject({
       id: "a/b/c",
       type: "changed",
       status: "stable",
     });
-    expect(Object.keys(replacement)).toEqual(["document"]);
     expect(okf.search("oldaliasword")).toEqual([]);
     expect(okf.search("newaliasword")).toEqual([
       expect.objectContaining({
@@ -82,6 +90,9 @@ describe("ingest", () => {
       `, "metadataaliasneedle"),
     });
 
+    if (added.conformance !== "strict") {
+      expect.unreachable("valid input must return the strict arm");
+    }
     added.document.tags[0] = "caller-injected-tag";
 
     expect(okf.search("metadataaliasneedle")).toEqual([
@@ -239,42 +250,6 @@ describe("ingest", () => {
     expect(okf.search("Replacementtitleword")).toEqual([]);
   });
 
-  it("rejects team source authors before replacing a document", async () => {
-    const okf = await emptySearch();
-    okf.ingest({
-      path: "strict.md",
-      markdown: concept(`
-        type: original
-        sources:
-          - resource: x
-            author: producer/version
-      `, "oldstrictneedle"),
-    });
-
-    expect(() => okf.ingest({
-      path: "./strict.md",
-      markdown: concept(`
-        type: replacement
-        sources:
-          - resource: x
-            author: team:ga4-docs
-      `, "newstrictneedle"),
-    })).toThrow(expect.objectContaining({
-      code: "ERR_OKF_FIELD",
-      path: "strict.md",
-      field: "sources[0].author",
-      message: "Invalid OKF field: strict.md (sources[0].author)",
-    }));
-
-    expect(okf.search("oldstrictneedle")).toEqual([
-      expect.objectContaining({
-        documentId: "strict",
-        path: "strict.md",
-      }),
-    ]);
-    expect(okf.search("newstrictneedle")).toEqual([]);
-  });
-
   it("does not apply ingest identity rules to metadata or body links", async () => {
     const okf = await emptySearch();
     const result = okf.ingest({
@@ -287,6 +262,9 @@ describe("ingest", () => {
       `, "link [target](../body.md) metadatapathneedle"),
     });
 
+    if (result.conformance !== "strict") {
+      expect.unreachable("valid input must return the strict arm");
+    }
     expect(result.document.resource).toBe("../target");
     expect(result.document.sources).toEqual([
       expect.objectContaining({ resource: "../source" }),
@@ -298,57 +276,4 @@ describe("ingest", () => {
     ]);
   });
 
-  it.each([
-    ["status", "status: future", "status"],
-    ["trust", "verified: broken", "verified"],
-    ["staleness", "stale_after: yesterday", "stale_after"],
-  ])("preserves records and filter metadata after invalid %s replacement", async (
-    _name,
-    malformed,
-    field,
-  ) => {
-    const okf = await emptySearch();
-    okf.ingest({
-      path: "facets.md",
-      markdown: concept(`
-        type: original
-        tags: [kept]
-        status: stable
-        verified:
-          by: human:reviewer
-          at: 2026-08-24T10:00:00Z
-        stale_after: 2030-01-01T00:00:00Z
-      `, "preservedfacetword"),
-    });
-
-    expect(() => okf.ingest({
-      path: "./facets.md",
-      markdown: concept(`
-        type: replacement
-        tags: [changed]
-        ${malformed}
-      `, "rejectedfacetword"),
-    })).toThrow(expect.objectContaining({
-      code: "ERR_OKF_FIELD",
-      path: "facets.md",
-      field,
-    }));
-
-    expect(okf.search("preservedfacetword", {
-      asOf: new Date("2029-01-01T00:00:00Z"),
-      where: {
-        types: ["original"],
-        tagsAny: ["kept"],
-        statuses: ["stable"],
-        trustTiers: ["human-reviewed"],
-        stale: false,
-      },
-    })).toEqual([
-      expect.objectContaining({
-        documentId: "facets",
-        path: "facets.md",
-      }),
-    ]);
-    expect(okf.search("rejectedfacetword")).toEqual([]);
-  });
 });

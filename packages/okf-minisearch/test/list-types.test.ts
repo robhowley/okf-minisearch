@@ -89,44 +89,60 @@ describe("listTypes", () => {
     ]);
   });
 
-  it("tracks ingest, same-type replacement, different-type replacement, and removal", async () => {
+  it("counts degraded types across sharing, replacement, and removal", async () => {
     const okf = await emptySearch();
+    const empty = okf.listTypes();
 
-    expect(okf.listTypes()).toEqual([]);
+    expect(empty).toEqual([]);
+    expect(okf.listTypes()).toBe(empty);
 
     okf.ingest({
       path: "first.md",
-      markdown: concept("type: shared", "firstword"),
+      markdown: concept(
+        'type: "Custom/Shared"\nstatus: future',
+        "firstword",
+      ),
     });
-    expect(okf.listTypes()).toEqual(["shared"]);
+    const shared = okf.listTypes();
+    expect(shared).toEqual(["Custom/Shared"]);
+    expect(okf.listTypes()).toBe(shared);
 
     okf.ingest({
       path: "second.md",
-      markdown: concept("type: shared", "secondword"),
+      markdown: concept('type: "Custom/Shared"', "secondword"),
     });
-    expect(okf.listTypes()).toEqual(["shared"]);
+    expect(okf.listTypes()).toBe(shared);
 
     okf.ingest({
       path: "./first.md",
-      markdown: concept("type: shared", "same-replacement-word"),
+      markdown: concept(
+        'type: "Custom/Shared"\nresource: 1',
+        "same-replacement-word",
+      ),
     });
-    expect(okf.listTypes()).toEqual(["shared"]);
+    expect(okf.listTypes()).toBe(shared);
 
     okf.ingest({
       path: "first.md",
-      markdown: concept("type: unique", "different-replacement-word"),
+      markdown: concept(
+        'type: "custom/Unique"\ntitle: 1',
+        "different-replacement-word",
+      ),
     });
-    expect(okf.listTypes()).toEqual([
-      "shared",
-      "unique",
+    const replaced = okf.listTypes();
+    expect(replaced).toEqual([
+      "Custom/Shared",
+      "custom/Unique",
     ]);
+    expect(replaced).not.toBe(shared);
+    expect(okf.listTypes()).toBe(replaced);
 
     expect(okf.remove("./second.md")).toBe(true);
-    expect(okf.listTypes()).toEqual(["unique"]);
+    expect(okf.listTypes()).toEqual(["custom/Unique"]);
 
     expect(okf.remove("second.md")).toBe(false);
     expect(okf.remove("missing.md")).toBe(false);
-    expect(okf.listTypes()).toEqual(["unique"]);
+    expect(okf.listTypes()).toEqual(["custom/Unique"]);
 
     expect(okf.remove("first.md")).toBe(true);
     expect(okf.listTypes()).toEqual([]);
@@ -165,6 +181,7 @@ describe("listTypes", () => {
 
     expect(empty).toEqual([]);
     expect(Object.isFrozen(empty)).toBe(true);
+    expect(okf.listTypes()).toBe(empty);
     expect(() => (empty as string[]).push("caller-mutation")).toThrow(
       TypeError,
     );
@@ -178,6 +195,7 @@ describe("listTypes", () => {
 
     expect(prior).toEqual(["before"]);
     expect(Object.isFrozen(prior)).toBe(true);
+    expect(okf.listTypes()).toBe(prior);
 
     okf.ingest({
       path: "after.md",
@@ -190,6 +208,7 @@ describe("listTypes", () => {
       "before",
     ]);
     expect(Object.isFrozen(okf.listTypes())).toBe(true);
+    expect(okf.listTypes()).toBe(okf.listTypes());
 
     expect(okf.remove("after.md")).toBe(true);
     expect(prior).toEqual(["before"]);

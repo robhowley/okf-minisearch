@@ -60,6 +60,35 @@ describe("remove", () => {
     expect(okf.remove("absent.md")).toBe(false);
   });
 
+  it("removes degraded records, type, and inventory in one transition", async () => {
+    const okf = await emptySearch();
+    const result = okf.ingest({
+      path: "./nested//degraded.md",
+      markdown: concept(
+        "type: degraded/custom\nstatus: future",
+        "# Section\ndegradedsectionneedle\n\n## Child\ndegradedchildneedle",
+      ),
+    });
+
+    expect(result.conformance).toBe("degraded");
+    expect(okf.search("degradedsectionneedle")).toHaveLength(1);
+    expect(okf.search("degradedchildneedle")).toHaveLength(1);
+    expect(okf.listTypes()).toEqual(["degraded/custom"]);
+    expect(okf.listDegradedDocuments()).toEqual([
+      expect.objectContaining({
+        documentId: "nested/degraded",
+        path: "nested/degraded.md",
+      }),
+    ]);
+
+    expect(okf.remove("nested/degraded.md")).toBe(true);
+    expect(okf.search("degradedsectionneedle")).toEqual([]);
+    expect(okf.search("degradedchildneedle")).toEqual([]);
+    expect(okf.listTypes()).toEqual([]);
+    expect(okf.listDegradedDocuments()).toEqual([]);
+    expect(okf.remove("./nested//degraded.md")).toBe(false);
+  });
+
   it("uses one identity for aliases while keeping case and backslashes significant", async () => {
     const okf = await emptySearch();
 

@@ -4,18 +4,11 @@ import {
   it,
 } from "vitest";
 
-import {
-  openOkf,
-  validateOkfDocument,
-} from "../src/index.js";
+import { validateOkfDocument } from "../src/index.js";
 import type {
-  OkfDiagnostic,
   OkfDiagnosticCode,
 } from "../src/index.js";
-import {
-  concept,
-  createBundle,
-} from "./support/bundle.js";
+import { concept } from "./support/bundle.js";
 
 function validate(frontmatter: string, body = "body") {
   return validateOkfDocument({
@@ -32,6 +25,7 @@ describe("validateOkfDocument", () => {
   it("accepts a type-only document through the package root", () => {
     expect(validate("type: unfamiliar")).toEqual({
       isValid: true,
+      isIndexable: true,
       errors: [],
     });
     expect(validateOkfDocument).toBeTypeOf("function");
@@ -52,6 +46,7 @@ describe("validateOkfDocument", () => {
     const result = validateOkfDocument(input);
     expect(result).toEqual({
       isValid: false,
+      isIndexable: false,
       errors: [
         expect.objectContaining({
           code,
@@ -70,6 +65,18 @@ describe("validateOkfDocument", () => {
     }
   });
 
+  it("never produces a valid non-indexable result", () => {
+    const outcomes = [
+      validate("type: note"),
+      validate("type: note\nstatus: future"),
+      validate("title: missing-type"),
+    ];
+
+    expect(outcomes.some((result) =>
+      result.isValid && !result.isIndexable,
+    )).toBe(false);
+  });
+
   it.each([
     [undefined, true],
     ["draft", true],
@@ -86,7 +93,13 @@ describe("validateOkfDocument", () => {
     const statusYaml = status === undefined
       ? ""
       : `\nstatus: ${JSON.stringify(status)}`;
-    expect(validate(`type: note${statusYaml}`).errors).toHaveLength(accepted ? 0 : 1);
+    const result = validate(`type: note${statusYaml}`);
+
+    expect(result).toMatchObject({
+      isValid: accepted,
+      isIndexable: true,
+    });
+    expect(result.errors).toHaveLength(accepted ? 0 : 1);
     if (!accepted) expect(fields(`type: note${statusYaml}`)).toEqual(["status"]);
   });
 
@@ -117,8 +130,14 @@ describe("validateOkfDocument", () => {
     ["executor receipt member", "type: note\nexecutor:\n  resource: x\n  receipt: [ok, 1]", ["executor.receipt[1]"]],
     ["attester aggregate", "type: note\nattester: nope", ["attester"]],
     ["attester child", "type: note\nattester: {}", ["attester.resource"]],
-  ])("validates %s without dropping bad members", (_name, yaml, expected) => {
-    expect(fields(yaml)).toEqual(expected);
+  ])("degrades malformed %s metadata without making it fatal", (_name, yaml, expected) => {
+    const result = validate(yaml);
+
+    expect(result).toMatchObject({
+      isValid: false,
+      isIndexable: true,
+    });
+    expect(result.errors.map((item) => item.field)).toEqual(expected);
   });
 
   it("accepts every official field, empty ordinary strings/lists, and reversed windows", () => {
@@ -164,6 +183,7 @@ describe("validateOkfDocument", () => {
       extension: accepted
     `, "[broken](../missing.md)")).toEqual({
       isValid: true,
+      isIndexable: true,
       errors: [],
     });
   });
@@ -180,12 +200,13 @@ describe("validateOkfDocument", () => {
         future_key: 2
     `, "[missing](../../missing.md)")).toEqual({
       isValid: true,
+      isIndexable: true,
       errors: [],
     });
   });
 
   it("orders independent diagnostics by fixed field, index, and child order", () => {
-    const errors = validate(`
+    const result = validate(`
       attester: {}
       status: future
       sources:
@@ -198,8 +219,13 @@ describe("validateOkfDocument", () => {
         - {}
         - nope
       executor: {}
-    `).errors;
-    expect(errors.map((item) => item.field)).toEqual([
+    `);
+
+    expect(result).toMatchObject({
+      isValid: false,
+      isIndexable: false,
+    });
+    expect(result.errors.map((item) => item.field)).toEqual([
       "type",
       "tags[1]",
       "sources[0].resource",
@@ -217,16 +243,19 @@ describe("validateOkfDocument", () => {
   it("returns fresh results and detached diagnostic objects and arrays", () => {
     const first = validate("type: note\nstatus: future");
     const second = validate("type: note\nstatus: future");
-    const errors = first.errors as OkfDiagnostic[];
-
     expect(first).not.toBe(second);
     expect(first.errors).not.toBe(second.errors);
 
-    errors[0]!.message = "changed";
-    errors.push({ code: "ERR_OKF_FIELD", path: "x", message: "x" });
+    first.errors[0]!.message = "changed";
+    Array.prototype.push.call(first.errors, {
+      code: "ERR_OKF_FIELD",
+      path: "x",
+      message: "x",
+    });
 
     expect(second).toEqual({
       isValid: false,
+      isIndexable: true,
       errors: [
         expect.objectContaining({
           code: "ERR_OKF_FIELD",
@@ -265,6 +294,7 @@ describe("validateOkfDocument", () => {
           author: team:ga4-docs
     `)).toEqual({
       isValid: false,
+      isIndexable: true,
       errors: [{
         code: "ERR_OKF_FIELD",
         path: "concept.md",
@@ -286,45 +316,27 @@ describe("validateOkfDocument", () => {
           author: ${author}
     `)).toEqual({
       isValid: true,
+      isIndexable: true,
       errors: [],
     });
   });
 
   it("requires runtime only for the exact Attested Computation type", () => {
-    expect(fields("type: Attested Computation")).toEqual(["runtime"]);
+    expect(validate("type: Attested Computation")).toMatchObject({
+      isValid: false,
+      isIndexable: true,
+      errors: [expect.objectContaining({ field: "runtime" })],
+    });
     expect(validate("type: Attested Computation\nruntime: node")).toEqual({
       isValid: true,
+      isIndexable: true,
       errors: [],
     });
     expect(validate("type: attested computation")).toEqual({
       isValid: true,
+      isIndexable: true,
       errors: [],
     });
-  });
-
-  it("keeps validator and ingest on the same first diagnostic", async () => {
-    const input = {
-      path: "parity.md",
-      markdown: concept("type: note\ntags: [ok, 1]\nstatus: future"),
-    };
-    const [first] = validateOkfDocument(input).errors;
-    const expected = {
-      code: first!.code,
-      path: first!.path,
-      field: first!.field,
-      message: first!.message,
-    };
-    const validation = validateOkfDocument(input);
-    const errors = validation.errors as OkfDiagnostic[];
-    errors[0]!.message = "changed";
-    errors.length = 0;
-    const tree = await createBundle({});
-    try {
-      const okf = await openOkf(tree.root);
-      expect(() => okf.ingest(input)).toThrow(expect.objectContaining(expected));
-    } finally {
-      await tree.cleanup();
-    }
   });
 
   it("exports the exact diagnostic code union", () => {

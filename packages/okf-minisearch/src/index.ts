@@ -9,6 +9,7 @@ export type {
   OkfAttester,
   OkfDiagnostic,
   OkfDiagnosticCode,
+  OkfDegradedDocument,
   OkfDocument,
   OkfDocumentInput,
   OkfExecutor,

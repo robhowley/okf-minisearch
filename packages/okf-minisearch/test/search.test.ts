@@ -1745,6 +1745,9 @@ describe("search identity and metadata", () => {
       `, "newtopicneedle"),
     });
 
+    if (replacement.conformance !== "strict") {
+      expect.unreachable("valid replacement must return the strict arm");
+    }
     expect(replacement.document.id).toBe("identity/guide");
     expect(okf.search("oldtopicneedle")).toEqual([]);
     expect(okf.search("newtopicneedle")).toEqual([

@@ -72,6 +72,7 @@ function expectEveryLaterOperationToRethrow(
   poisonError: OkfError,
 ): void {
   const calls: [string, () => unknown][] = [
+    ["listDegradedDocuments", () => okf.listDegradedDocuments()],
     ["listTypes", () => okf.listTypes()],
     ["search", () => okf.search("presentneedle")],
     ["malformed ingest", () => okf.ingest({
@@ -92,7 +93,7 @@ function expectEveryLaterOperationToRethrow(
 }
 
 describe("poisoned MiniSearch handle", () => {
-  it("poisons after an ingest mutation fails", async () => {
+  it("poisons after a new ingest add fails", async () => {
     const okf = await openedSearch({
       "present.md": concept("type: present", "presentneedle"),
     });
@@ -177,6 +178,80 @@ describe("poisoned MiniSearch handle", () => {
     expect(discardSpy).toHaveBeenCalledTimes(1);
     expect(addSpy).not.toHaveBeenCalled();
     expect(searchSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps prior metadata until a replacement add fails, then poisons", async () => {
+    const okf = await openedSearch({
+      [failedPath]: concept(
+        "type: old/type\nstatus: future",
+        "olddegradedneedle",
+      ),
+      "present.md": concept("type: present", "presentneedle"),
+    });
+    const rawError = new Error("injected MiniSearch replacement add failure");
+    const originalAdd = MiniSearch.prototype.add;
+    const discardSpy = vi.spyOn(MiniSearch.prototype, "discard");
+    const addSpy = vi.spyOn(MiniSearch.prototype, "add")
+      .mockImplementation(function (this: MiniSearch, document) {
+        expect(okf.listTypes()).toEqual(["old/type", "present"]);
+        expect(okf.listDegradedDocuments()).toEqual([
+          expect.objectContaining({
+            documentId: "nested/guide",
+            path: failedPath,
+            diagnostics: [expect.objectContaining({ field: "status" })],
+          }),
+        ]);
+        originalAdd.call(this, document);
+        throw rawError;
+      });
+
+    const failure = thrownBy(() => okf.ingest({
+      path: "./nested//guide.md",
+      markdown: concept("type: replacement/type", "replacementneedle"),
+    }));
+
+    expect(discardSpy).toHaveBeenCalled();
+    expect(addSpy).toHaveBeenCalledTimes(1);
+    expectPoisonError(failure, rawError);
+    expectEveryLaterOperationToRethrow(okf, failure);
+  });
+
+  it("poisons when backend ownership diverges before removal", async () => {
+    const originalAdd = MiniSearch.prototype.add;
+    const originalDiscard = MiniSearch.prototype.discard;
+    let backend: MiniSearch | undefined;
+    const guideRecordIds: unknown[] = [];
+    const addSpy = vi.spyOn(MiniSearch.prototype, "add")
+      .mockImplementation(function (this: MiniSearch, document) {
+        backend = this;
+        const record = document as {
+          id: unknown;
+          documentId: string;
+        };
+        if (record.documentId === "nested/guide") {
+          guideRecordIds.push(record.id);
+        }
+        originalAdd.call(this, document);
+      });
+    const okf = await openedSearch({
+      [failedPath]: concept("type: guide", "guideneedle"),
+      "present.md": concept("type: present", "presentneedle"),
+    });
+    addSpy.mockRestore();
+
+    expect(backend).toBeDefined();
+    expect(guideRecordIds.length).toBeGreaterThan(0);
+    originalDiscard.call(backend!, guideRecordIds[0]);
+
+    const failure = thrownBy(() => okf.remove(failedPath));
+    const cause = (failure as Error & { cause?: unknown }).cause;
+
+    expect(cause).toBeInstanceOf(Error);
+    expect(cause).toMatchObject({
+      message: "OKF index ownership is inconsistent for nested/guide",
+    });
+    expectPoisonError(failure, cause as Error);
+    expectEveryLaterOperationToRethrow(okf, failure);
   });
 
   it("does not poison the handle after parse or field failures", async () => {

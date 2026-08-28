@@ -20,10 +20,14 @@ import {
 import { search } from "./search.js";
 
 import type {
+  OkfDegradedDocument,
+  OkfDiagnostic,
   OkfIngestResult,
   OkfSearch,
 } from "./types.js";
 import type {
+  NonEmptyDiagnostics,
+  NonEmptyRecordIds,
   OkfIndexRecord,
   OkfPreparedDocument,
 } from "./internal-types.js";
@@ -33,60 +37,50 @@ interface ConceptFile {
   relativePath: string;
 }
 
-interface IndexedDocumentState {
-  readonly recordIds: readonly string[];
-  readonly type: string;
-}
+type IndexedDocumentState =
+  | {
+      readonly path: string;
+      readonly type: string;
+      readonly recordIds: NonEmptyRecordIds;
+      readonly conformance: "strict";
+    }
+  | {
+      readonly path: string;
+      readonly type: string;
+      readonly recordIds: NonEmptyRecordIds;
+      readonly conformance: "degraded";
+      readonly diagnostics: NonEmptyDiagnostics;
+    };
 
 export async function openOkf(
   root: string,
 ): Promise<OkfSearch> {
   const bundleRoot = resolve(root);
-  const files = await findConceptFiles(
-    bundleRoot,
-    bundleRoot,
-  );
+  const files = await findConceptFiles(bundleRoot, bundleRoot);
   const prepared: OkfPreparedDocument[] = [];
 
   for (const file of files) {
-    prepared.push(
-      prepareDocument({
-        path: file.relativePath,
-        markdown: await readConcept(file),
-      }),
-    );
+    prepared.push(prepareDocument({
+      path: file.relativePath,
+      markdown: await readConcept(file),
+    }));
   }
 
   const index = createIndex();
-  const records = prepared.flatMap(
-    (result) => [...result.records],
-  );
+  addRecords(index, prepared.flatMap(
+    (result) => [...result.projection.records],
+  ));
 
-  addRecords(index, records);
-
-  const recordIds = new Map<string, IndexedDocumentState>();
+  const documents = new Map<string, IndexedDocumentState>();
   const typeCounts = new Map<string, number>();
-  for (const result of prepared) {
-    recordIds.set(result.document.id, {
-      recordIds: result.records.map((record) => record.id),
-      type: result.document.type,
-    });
-    updateTypeCount(typeCounts, result.document.type, 1);
-  }
   let typeSnapshot = createTypeSnapshot(typeCounts);
-
   let unusableError: OkfError | undefined;
 
   const assertUsable = (): void => {
-    if (unusableError) {
-      throw unusableError;
-    }
+    if (unusableError) throw unusableError;
   };
 
-  const poison = (
-    path: string,
-    cause: unknown,
-  ): never => {
+  const poison = (path: string, cause: unknown): never => {
     const error = new OkfError(
       "ERR_OKF_INDEX_UNUSABLE",
       path,
@@ -96,58 +90,89 @@ export async function openOkf(
     throw error;
   };
 
+  const commitDocumentState = (
+    documentId: string,
+    next: IndexedDocumentState | undefined,
+  ): void => {
+    const previous = documents.get(documentId);
+    let typesChanged = false;
+
+    if (previous && (!next || previous.type !== next.type)) {
+      typesChanged = updateTypeCount(typeCounts, previous.type, -1);
+    }
+    if (next && (!previous || previous.type !== next.type)) {
+      typesChanged = updateTypeCount(typeCounts, next.type, 1) || typesChanged;
+    }
+
+    if (next) documents.set(documentId, next);
+    else documents.delete(documentId);
+
+    if (typesChanged) typeSnapshot = createTypeSnapshot(typeCounts);
+  };
+
+  for (const result of prepared) {
+    commitDocumentState(
+      result.projection.documentId,
+      indexedState(result),
+    );
+  }
+
   return {
     ingest(input): OkfIngestResult {
       assertUsable();
       const result = prepareDocument(input);
-      const indexedRecords = cloneRecords(result.records);
-      const path = result.records[0]?.path ?? `${result.document.id}.md`;
-      const previous = recordIds.get(
-        result.document.id,
-      );
+      const { projection } = result;
+      const previous = documents.get(projection.documentId);
 
-      if (previous?.recordIds.length) {
+      if (previous) {
+        try {
+          assertOwnedRecordIds(index, projection.documentId, previous.recordIds);
+        } catch (cause) {
+          poison(projection.path, cause);
+        }
+
         try {
           index.discardAll(previous.recordIds);
         } catch (cause) {
-          poison(path, cause);
+          poison(projection.path, cause);
         }
       }
 
       try {
-        index.addAll(indexedRecords);
+        index.addAll(cloneRecords(projection.records));
       } catch (cause) {
-        poison(path, cause);
+        poison(projection.path, cause);
       }
 
-      recordIds.set(result.document.id, {
-        recordIds: result.records.map((record) => record.id),
-        type: result.document.type,
-      });
-      let typesChanged = false;
-      if (!previous) {
-        typesChanged = updateTypeCount(
-          typeCounts,
-          result.document.type,
-          1,
-        );
-      } else if (previous.type !== result.document.type) {
-        typesChanged = updateTypeCount(
-          typeCounts,
-          previous.type,
-          -1,
-        );
-        typesChanged = updateTypeCount(
-          typeCounts,
-          result.document.type,
-          1,
-        ) || typesChanged;
-      }
-      if (typesChanged) {
-        typeSnapshot = createTypeSnapshot(typeCounts);
+      commitDocumentState(projection.documentId, indexedState(result));
+
+      if (result.conformance === "strict") {
+        return {
+          conformance: "strict",
+          document: result.document,
+        };
       }
 
-      return { document: result.document };
+      return {
+        conformance: "degraded",
+        documentId: projection.documentId,
+        path: projection.path,
+        diagnostics: copyNonEmptyDiagnostics(result.diagnostics),
+      };
+    },
+
+    listDegradedDocuments(): readonly OkfDegradedDocument[] {
+      assertUsable();
+      return [...documents.entries()]
+        .filter((entry): entry is [string, Extract<IndexedDocumentState, {
+          readonly conformance: "degraded";
+        }>] => entry[1].conformance === "degraded")
+        .sort((left, right) => comparePaths(left[1].path, right[1].path))
+        .map(([documentId, state]) => ({
+          documentId,
+          path: state.path,
+          diagnostics: copyNonEmptyDiagnostics(state.diagnostics),
+        }));
     },
 
     listTypes() {
@@ -158,22 +183,21 @@ export async function openOkf(
     remove(path) {
       assertUsable();
       const identity = normalizeDocumentIdentity(path);
-      const state = recordIds.get(identity.documentId);
+      const state = documents.get(identity.documentId);
+      if (!state) return false;
 
-      if (state === undefined) {
-        return false;
+      try {
+        assertOwnedRecordIds(index, identity.documentId, state.recordIds);
+      } catch (cause) {
+        poison(identity.path, cause);
       }
 
-      assertOwnedRecordIds(index, identity.documentId, state.recordIds);
       try {
         index.discardAll(state.recordIds);
       } catch (cause) {
         poison(identity.path, cause);
       }
-      recordIds.delete(identity.documentId);
-      if (updateTypeCount(typeCounts, state.type, -1)) {
-        typeSnapshot = createTypeSnapshot(typeCounts);
-      }
+      commitDocumentState(identity.documentId, undefined);
       return true;
     },
 
@@ -184,6 +208,47 @@ export async function openOkf(
   };
 }
 
+function indexedState(
+  prepared: OkfPreparedDocument,
+): IndexedDocumentState {
+  const { projection } = prepared;
+  const recordIds = nonEmptyRecordIds(
+    projection.records.map((record) => record.id),
+  );
+
+  if (prepared.conformance === "strict") {
+    return {
+      path: projection.path,
+      type: projection.type,
+      recordIds,
+      conformance: "strict",
+    };
+  }
+
+  return {
+    path: projection.path,
+    type: projection.type,
+    recordIds,
+    conformance: "degraded",
+    diagnostics: copyNonEmptyDiagnostics(prepared.diagnostics),
+  };
+}
+
+function nonEmptyRecordIds(ids: string[]): NonEmptyRecordIds {
+  const first = ids[0];
+  if (!first) throw new Error("OKF projection requires at least one record ID");
+  return [first, ...ids.slice(1)];
+}
+
+function copyNonEmptyDiagnostics(
+  diagnostics: NonEmptyDiagnostics,
+): NonEmptyDiagnostics {
+  return [
+    { ...diagnostics[0] },
+    ...diagnostics.slice(1).map((item) => ({ ...item })),
+  ];
+}
+
 function updateTypeCount(
   typeCounts: Map<string, number>,
   type: string,
@@ -192,11 +257,8 @@ function updateTypeCount(
   const current = typeCounts.get(type) ?? 0;
   const next = current + delta;
 
-  if (next === 0) {
-    typeCounts.delete(type);
-  } else {
-    typeCounts.set(type, next);
-  }
+  if (next === 0) typeCounts.delete(type);
+  else typeCounts.set(type, next);
 
   return current === 0 || next === 0;
 }
@@ -204,24 +266,19 @@ function updateTypeCount(
 function createTypeSnapshot(
   typeCounts: ReadonlyMap<string, number>,
 ): readonly string[] {
-  return Object.freeze(
-    [...typeCounts.keys()].sort(comparePaths),
-  );
+  return Object.freeze([...typeCounts.keys()].sort(comparePaths));
 }
 
 function assertOwnedRecordIds(
   index: MiniSearch<OkfIndexRecord>,
   documentId: string,
-  ids: readonly string[],
+  ids: NonEmptyRecordIds,
 ): void {
   if (
-    ids.length === 0 ||
     new Set(ids).size !== ids.length ||
     ids.some((id) => !index.has(id))
   ) {
-    throw new Error(
-      `OKF index ownership is inconsistent for ${documentId}`,
-    );
+    throw new Error(`OKF index ownership is inconsistent for ${documentId}`);
   }
 }
 
@@ -241,8 +298,7 @@ function cloneRecords(
   }));
 }
 
-function createIndex():
-  MiniSearch<OkfIndexRecord> {
+function createIndex(): MiniSearch<OkfIndexRecord> {
   return new MiniSearch<OkfIndexRecord>({
     fields: [
       "resource",
@@ -254,7 +310,6 @@ function createIndex():
       "sourceText",
       "text",
     ],
-
     storeFields: [
       "documentId",
       "title",
@@ -274,34 +329,19 @@ function createIndex():
   });
 }
 
-async function readConcept(
-  file: ConceptFile,
-): Promise<string> {
+async function readConcept(file: ConceptFile): Promise<string> {
   let contents: Uint8Array;
 
   try {
-    contents = await readFile(
-      file.absolutePath,
-    );
+    contents = await readFile(file.absolutePath);
   } catch (cause) {
-    throw new OkfError(
-      "ERR_OKF_READ",
-      file.relativePath,
-      { cause },
-    );
+    throw new OkfError("ERR_OKF_READ", file.relativePath, { cause });
   }
 
   try {
-    return new TextDecoder(
-      "utf-8",
-      { fatal: true },
-    ).decode(contents);
+    return new TextDecoder("utf-8", { fatal: true }).decode(contents);
   } catch (cause) {
-    throw new OkfError(
-      "ERR_OKF_PARSE",
-      file.relativePath,
-      { cause },
-    );
+    throw new OkfError("ERR_OKF_PARSE", file.relativePath, { cause });
   }
 }
 
@@ -312,10 +352,7 @@ async function findConceptFiles(
   let entries;
 
   try {
-    entries = await readdir(
-      directory,
-      { withFileTypes: true },
-    );
+    entries = await readdir(directory, { withFileTypes: true });
   } catch (cause) {
     throw new OkfError(
       "ERR_OKF_READ",
@@ -328,64 +365,32 @@ async function findConceptFiles(
 
   for (const entry of entries.sort((left, right) =>
     comparePaths(left.name, right.name))) {
-    const absolutePath = join(
-      directory,
-      entry.name,
-    );
+    const absolutePath = join(directory, entry.name);
 
     if (entry.isDirectory()) {
-      files.push(
-        ...await findConceptFiles(
-          root,
-          absolutePath,
-        ),
-      );
-    } else if (
-      entry.isFile() &&
-      isConceptFile(entry.name)
-    ) {
+      files.push(...await findConceptFiles(root, absolutePath));
+    } else if (entry.isFile() && isConceptFile(entry.name)) {
       files.push({
         absolutePath,
-        relativePath: relativePath(
-          root,
-          absolutePath,
-        ),
+        relativePath: relativePath(root, absolutePath),
       });
     }
   }
 
   return files.sort((left, right) =>
-    comparePaths(
-      left.relativePath,
-      right.relativePath,
-    ));
+    comparePaths(left.relativePath, right.relativePath));
 }
 
-function comparePaths(
-  left: string,
-  right: string,
-): number {
-  return left < right
-    ? -1
-    : left > right
-      ? 1
-      : 0;
+function comparePaths(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function relativePath(
-  root: string,
-  path: string,
-): string {
-  const value = relative(root, path)
-    .split(sep)
-    .join("/");
-
+function relativePath(root: string, path: string): string {
+  const value = relative(root, path).split(sep).join("/");
   return value || ".";
 }
 
-function isConceptFile(
-  filename: string,
-): boolean {
+function isConceptFile(filename: string): boolean {
   return filename.endsWith(".md") &&
     filename !== "index.md" &&
     filename !== "log.md";

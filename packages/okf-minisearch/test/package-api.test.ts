@@ -12,6 +12,7 @@ import type {
   OkfAttester,
   OkfDiagnostic,
   OkfDiagnosticCode,
+  OkfDegradedDocument,
   OkfDocument,
   OkfDocumentInput,
   OkfErrorCode,
@@ -64,12 +65,14 @@ describe("package API", () => {
       markdown: concept("type: note"),
     })).toEqual({
       isValid: true,
+      isIndexable: true,
       errors: [],
     });
 
     const okf = await api.openOkf(tree.root);
 
     expect(okf.ingest).toBeTypeOf("function");
+    expect(okf.listDegradedDocuments).toBeTypeOf("function");
     expect(okf.listTypes).toBeTypeOf("function");
     expect(okf.remove).toBeTypeOf("function");
     expect(okf.search).toBeTypeOf("function");
@@ -84,10 +87,13 @@ describe("package API", () => {
     });
     const hits = okf.search("packageboundaryneedle");
 
+    if (result.conformance !== "strict") {
+      expect.unreachable("valid input must return the strict arm");
+    }
     expect(result.document.id).toBe("package-api");
     expect(result.document.status).toBe("stable");
     expect(okf.listTypes()).toEqual(["note"]);
-    expect(Object.keys(result)).toEqual(["document"]);
+    expect(Object.keys(result)).toEqual(["conformance", "document"]);
     expect(Object.hasOwn(result, "records")).toBe(false);
     expect(Object.hasOwn(result, "diagnostics")).toBe(false);
     expect(hits).toEqual([
@@ -96,8 +102,76 @@ describe("package API", () => {
         path: "package-api.md",
       }),
     ]);
-    expectTypeOf(result).toEqualTypeOf<OkfIngestResult>();
+    expectTypeOf(result).toMatchTypeOf<OkfIngestResult>();
     expectTypeOf(hits).toEqualTypeOf<OkfSearchHit[]>();
+
+    const degradedInput = {
+      path: "degraded-package-api.md",
+      markdown: concept(
+        "type: degraded-note\ntitle: 1",
+        "packageboundarydegradedneedle",
+      ),
+    };
+    const degradedValidation = api.validateOkfDocument(degradedInput);
+    expect(degradedValidation).toMatchObject({
+      isValid: false,
+      isIndexable: true,
+      errors: [expect.objectContaining({ field: "title" })],
+    });
+    const degraded = okf.ingest(degradedInput);
+    expect(Object.keys(degraded)).toEqual([
+      "conformance",
+      "documentId",
+      "path",
+      "diagnostics",
+    ]);
+    expect(Object.hasOwn(degraded, "document")).toBe(false);
+    if (degraded.conformance !== "degraded") {
+      expect.unreachable("malformed optional metadata must return the degraded arm");
+    }
+    expect(degraded).toMatchObject({
+      documentId: "degraded-package-api",
+      path: "degraded-package-api.md",
+    });
+    const inventory = okf.listDegradedDocuments();
+    expect(inventory).toEqual([
+      expect.objectContaining({
+        documentId: "degraded-package-api",
+        path: "degraded-package-api.md",
+        diagnostics: degraded.diagnostics,
+      }),
+    ]);
+    expect(inventory[0]!.diagnostics).not.toBe(degraded.diagnostics);
+    expect(inventory[0]!.diagnostics[0]).not.toBe(degraded.diagnostics[0]);
+    degraded.diagnostics[0]!.message = "caller mutation";
+    Array.prototype.push.call(degraded.diagnostics, {
+      code: "ERR_OKF_FIELD",
+      path: "caller.md",
+      message: "caller mutation",
+    });
+    expect(okf.listDegradedDocuments()).toEqual(inventory);
+
+    const fatalInput = {
+      path: "fatal-package-api.md",
+      markdown: concept("type: ' '", "packageboundaryfatalneedle"),
+    };
+    expect(api.validateOkfDocument(fatalInput)).toMatchObject({
+      isValid: false,
+      isIndexable: false,
+      errors: [expect.objectContaining({
+        code: "ERR_OKF_FIELD",
+        field: "type",
+      })],
+    });
+    expect(() => okf.ingest(fatalInput)).toThrow(expect.objectContaining({
+      code: "ERR_OKF_FIELD",
+      field: "type",
+    }));
+    expect(okf.search("packageboundaryfatalneedle")).toEqual([]);
+
+    expect(okf.remove("./degraded-package-api.md")).toBe(true);
+    expect(okf.listDegradedDocuments()).toEqual([]);
+    expect(okf.remove("degraded-package-api.md")).toBe(false);
   });
 
   it("exports OkfError with its supported error code", () => {
@@ -176,8 +250,9 @@ describe("package API", () => {
     };
     const validationResult: OkfValidationResult = {
       isValid: false,
+      isIndexable: true,
       errors: [diagnostic],
-    };
+    } as OkfValidationResult;
 
     expectTypeOf(isoDateTime).toEqualTypeOf<IsoDateTime>();
     expectTypeOf<OkfStatus>().toEqualTypeOf<
@@ -195,9 +270,21 @@ describe("package API", () => {
     expectTypeOf(attester).toEqualTypeOf<OkfAttester>();
     expectTypeOf(document).toEqualTypeOf<OkfDocument>();
     expectTypeOf<OkfDocument["status"]>().toEqualTypeOf<OkfStatus>();
-    expectTypeOf<OkfIngestResult>().toEqualTypeOf<{
-      document: OkfDocument;
+    expectTypeOf<OkfDegradedDocument>().toEqualTypeOf<{
+      readonly documentId: string;
+      readonly path: string;
+      readonly diagnostics: readonly [
+        OkfDiagnostic,
+        ...OkfDiagnostic[],
+      ];
     }>();
+    expectTypeOf<OkfIngestResult>().toEqualTypeOf<
+      | {
+          readonly conformance: "strict";
+          readonly document: OkfDocument;
+        }
+      | ({ readonly conformance: "degraded" } & OkfDegradedDocument)
+    >();
     expectTypeOf<OkfErrorCode>().toEqualTypeOf<
       | "ERR_OKF_READ"
       | "ERR_OKF_PARSE"
@@ -209,10 +296,6 @@ describe("package API", () => {
     >();
     expectTypeOf(diagnostic).toEqualTypeOf<OkfDiagnostic>();
     expectTypeOf(validationResult).toEqualTypeOf<OkfValidationResult>();
-    expectTypeOf<OkfValidationResult>().toEqualTypeOf<{
-      readonly isValid: boolean;
-      readonly errors: readonly OkfDiagnostic[];
-    }>();
   });
 
   it("exports the exact search controls contract", () => {
@@ -269,6 +352,8 @@ describe("package API", () => {
     expectTypeOf<OkfSearch["ingest"]>()
       .returns
       .toEqualTypeOf<OkfIngestResult>();
+    expectTypeOf<OkfSearch["listDegradedDocuments"]>()
+      .toEqualTypeOf<() => readonly OkfDegradedDocument[]>();
     expectTypeOf<OkfSearch["listTypes"]>()
       .toEqualTypeOf<() => readonly string[]>();
     expectTypeOf<OkfSearch["remove"]>()

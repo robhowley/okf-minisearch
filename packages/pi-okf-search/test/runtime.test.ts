@@ -28,6 +28,7 @@ const unusedHandle: OkfSearch = {
   ingest: () => {
     throw new Error("ingest should not be called");
   },
+  listDegradedDocuments: () => [],
   listTypes: () => [],
   remove: () => false,
   search: () => [],
