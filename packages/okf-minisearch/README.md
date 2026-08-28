@@ -48,6 +48,8 @@ for (const hit of hits) {
 
 `openOkf(root)` recursively reads regular `.md` files. Files named exactly `index.md` or `log.md` are reserved and are not indexed.
 
+See [Accepted OKF documents](#accepted-okf-documents).
+
 ## Search
 
 Pass options to control query matching, searchable fields, metadata filters, and result limits:
@@ -64,6 +66,7 @@ const hits = okf.search("rollback snapshot", {
     tagsAny: ["database", "storage"],
     statuses: ["stable"],
     trustTiers: ["human-reviewed"],
+    conformance: ["strict"],
     stale: false,
   },
   asOf: new Date("2026-08-24T12:00:00Z"),
@@ -96,6 +99,7 @@ All `where` filters are combined with AND. Values within a filter array are comb
 | `where.tagsAny` | Documents containing at least one listed tag. |
 | `where.statuses` | `draft`, `stable`, or `deprecated`. |
 | `where.trustTiers` | `unverified`, `machine-confirmed`, or `human-reviewed`. |
+| `where.conformance` | Documents that are `strict` or `degraded`. |
 | `where.stale` | Whether `stale_after` is at or before `asOf`. |
 | `asOf` | Reference time for stale filtering. Defaults to the current time. |
 
@@ -110,7 +114,7 @@ const hits = okf.search("rollback", {
 });
 ```
 
-The returned array is a frozen, sorted snapshot. Values preserve case and include custom types.
+The returned array is a frozen, sorted snapshot. Values preserve case and include custom types from both strict and degraded documents.
 
 ### Search fields
 
@@ -129,7 +133,7 @@ The returned array is a frozen, sorted snapshot. Values preserve case and includ
 
 ### Results
 
-Search returns at most one hit per document: its highest-ranked matching section or chunk. Hits are ordered by descending score, with deterministic section-ID ordering for exact score ties.
+Search returns at most one hit per document: its highest-ranked matching section or chunk. Hits are ordered by descending score. Exact score ties put strict documents before degraded documents, then use deterministic section-ID ordering.
 
 ```ts
 interface OkfSearchHit {
@@ -137,6 +141,7 @@ interface OkfSearchHit {
   title: string;
   sectionId: string;
   score: number;
+  conformance: OkfConformance;
   matchedFields: OkfSearchField[];
   headingPath: string;
   path: string;
@@ -152,11 +157,10 @@ Details worth knowing:
 - `title` is the frontmatter title. If omitted, it is derived from the final filename segment: hyphens and underscores become spaces, and the first character is capitalized (`nested/derived-title.md` → `Derived title`).
 - `sectionId` identifies the indexed section or chunk and may change when headings or chunk boundaries change.
 - `score` is meaningful only within one search; changing boosts can change document ordering and the section chosen to represent each document.
+- `conformance` reports whether the indexed document is `strict` or `degraded`.
 - `matchedFields` contains unique public field names in first-match order.
 
-### Migrating `matchedFields`
-
-Earlier versions used MiniSearch field names in `matchedFields`. Replace `headingPath` with `heading`, `sourceText` with `sources`, and `text` with `body`. The separate `headingPath` result property is unchanged.
+Degraded documents are searched by default and do not receive a general score penalty. A stronger degraded match ranks above a weaker strict match; strict wins only when scores are exactly equal. Trust tiers and conformance change which documents are included only when used as filters.
 
 ## Validate a document
 
@@ -170,18 +174,22 @@ const result = validateOkfDocument({
   markdown,
 });
 
-if (!result.isValid) {
-  console.error(result.errors);
+if (!result.isIndexable) {
+  console.error("Document cannot be indexed", result.errors);
+} else if (!result.isValid) {
+  console.warn("Document will be indexed as degraded", result.errors);
 }
 ```
 
-Expected path, frontmatter, YAML, Markdown, and known-field failures return a result with diagnostics instead of throwing. Each diagnostic has `code`, normalized or redacted `path`, optional `field`, and `message`.
+Use `isIndexable` to decide whether `openOkf` or `ingest` can accept the document. A valid document is strict (`isValid: true`, `isIndexable: true`). A degraded document remains searchable (`isValid: false`, `isIndexable: true`). A document with a path, parsing, Markdown, or `type` problem that prevents indexing returns `isValid: false` and `isIndexable: false`.
+
+Expected failures return diagnostics instead of throwing. Each diagnostic has `code`, normalized or redacted `path`, optional `field`, and `message`.
 
 `validateOkfDocument` validates one in-memory concept document against the OKF v0.2 specification. It does not validate the surrounding bundle, resolve referenced content, execute computations, or verify attestation claims.
 
 ## Add or replace a document
 
-Use `ingest` when a caller already has Markdown or needs to update the in-memory index:
+Use `ingest` to add or replace one document in the current in-memory index:
 
 ```js
 const result = okf.ingest({
@@ -197,17 +205,41 @@ Restart the worker and inspect its health check.
 `,
 });
 
-console.log(result.document.id); // guides/recovery
-console.log(result.document.status); // "stable" when status is omitted
+if (result.conformance === "strict") {
+  console.log(result.document.id); // guides/recovery
+  console.log(result.document.status); // "stable" when status is omitted
+} else {
+  console.warn(result.path, result.diagnostics);
+}
 ```
 
-`ingest` returns `{ document }`, where `document` is the normalized public representation.
+The result reports the document’s conformance:
 
-`path` must be a bundle-relative POSIX `.md` path. `.` and repeated internal `/` segments are normalized. Absolute paths, parent traversal (`..`), Windows drive or UNC paths, paths ending in `/` or `/.`, and files named exactly `index.md` or `log.md` are rejected.
+- A strict result contains `{ conformance: "strict", document }`.
+- A degraded result contains `{ conformance: "degraded", documentId, path, diagnostics }` and deliberately has no `document` property.
 
-Ingesting the normalized path again replaces that concept’s indexed records. Malformed replacement input leaves the existing records searchable.
+`path` identifies the document within the knowledge directory:
 
-`ingest` does not write the file, watch the filesystem, or persist the index. Call it whenever your application accepts an updated document.
+- Use a relative `.md` path with `/` between directories.
+- `.` and repeated `/` segments are normalized.
+- Absolute paths, parent traversal (`..`), Windows drive or UNC paths, and paths ending in `/` or `/.` are rejected.
+- Files named exactly `index.md` or `log.md` are reserved.
+
+Ingesting another path with the same normalized identity replaces the existing document, whether the new input is strict or degraded. Input that cannot be indexed throws before replacement, leaving the existing records searchable.
+
+`ingest` changes only the current in-memory index. It does not write files, watch the filesystem, or persist the index.
+
+## Find documents that need repair
+
+Use `listDegradedDocuments()` after opening or updating an index:
+
+```js
+for (const item of okf.listDegradedDocuments()) {
+  console.warn(item.path, item.diagnostics);
+}
+```
+
+The returned list describes the current degraded documents, ordered by path. Each item contains its normalized `documentId`, path, and diagnostics. Replacing a document with strict input or removing it clears that item.
 
 ## Remove a document
 
@@ -234,23 +266,28 @@ Removal affects only the current in-memory index. It does not modify the source 
 
 ## Accepted OKF documents
 
-`okf-minisearch` provides in-memory search over [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/ad30107c31c06aec8a7d5636e0d1058118604e6f/SPEC.md) bundles.
+`openOkf` and `ingest` accept documents that:
 
-The package applies these defaults:
+- use a relative `.md` path;
+- contain parseable YAML frontmatter and Markdown; and
+- declare `type`, the only required frontmatter field, as a nonblank string.
 
-- A missing title is derived from the filename.
-- A missing input `status` means `stable`.
-- A missing `verified` field means `unverified`.
-- Any valid `human:<id>` verification means `human-reviewed`.
-- Other valid verification actors mean `machine-confirmed`.
-- A missing `stale_after` means the concept is not stale.
-- Unknown frontmatter fields are retained in `document.extensions`.
+The specification does not limit `type` to predefined values, so custom types are valid.
 
-Official fields are validated against their OKF v0.2 definitions. Unknown concept types and extension keys remain accepted. Validation does not inspect the surrounding bundle or resolve links or resource paths.
+A document that follows every recognized [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/ad30107c31c06aec8a7d5636e0d1058118604e6f/SPEC.md) field rule is `strict`. Problems in other recognized fields make it `degraded` instead of rejecting it: valid values are kept, invalid values are left out of search and filters, and diagnostics explain what needs repair. Both are searched by default; degraded documents receive no general score penalty, and strict ranks first only on exact score ties.
+
+When fields are omitted:
+
+- the title comes from the filename;
+- `status` defaults to `stable`;
+- verification defaults to `unverified`; and
+- the document is not stale.
+
+A valid `human:<id>` verification means `human-reviewed`; other valid actors mean `machine-confirmed`. Defaults do not replace malformed values. Unknown frontmatter fields are accepted and retained in a strict document’s `extensions`.
 
 ## Errors
 
-`openOkf`, `ingest`, and `remove` throw `OkfError` for invalid documents or paths. `openOkf` also uses it for filesystem errors. `validateOkfDocument` returns document errors as diagnostics instead of throwing.
+`openOkf` and `ingest` throw `OkfError` when a document cannot be indexed because of its path, parsing, Markdown, or `type`. Problems in other recognized fields are accepted as degraded instead. `openOkf` also uses `OkfError` for filesystem and UTF-8 errors, while `remove` uses it for invalid paths. `validateOkfDocument` returns document errors as diagnostics instead of throwing.
 
 ```js
 import { OkfError, openOkf } from "okf-minisearch";
@@ -270,19 +307,21 @@ try {
 | --- | --- |
 | `ERR_OKF_READ` | A selected directory or concept could not be read. |
 | `ERR_OKF_PARSE` | Frontmatter, YAML, UTF-8, or Markdown could not be parsed. |
-| `ERR_OKF_FIELD` | A caller-supplied path or known field is invalid. |
+| `ERR_OKF_FIELD` | A caller-supplied path or known field is invalid. Path and `type` errors prevent indexing; other field errors can mark a document degraded. |
 | `ERR_OKF_INDEX_UNUSABLE` | MiniSearch failed during an `ingest` or `remove` mutation, so the handle can no longer be used safely. |
 
 If `ingest` or `remove` throws `ERR_OKF_INDEX_UNUSABLE`, discard the handle and rebuild it with `openOkf(root)`.
 
-`search` rejects invalid dates, limits, and fuzzy settings with `TypeError`.
+`search` rejects invalid options with `TypeError`.
 
 ## Public API
 
-The package root exports `openOkf`, `validateOkfDocument`, and `OkfError`. `openOkf(root)` returns an `OkfSearch` handle with `search(query, options?)`, `listTypes()`, `ingest(input)`, and `remove(path)`. Public TypeScript types can be imported from the package root:
+The package root exports `openOkf`, `validateOkfDocument`, and `OkfError`. `openOkf(root)` returns an `OkfSearch` handle with `search(query, options?)`, `listTypes()`, `listDegradedDocuments()`, `ingest(input)`, and `remove(path)`. Public TypeScript types can be imported from the package root:
 
 ```ts
 import type {
+  OkfConformance,
+  OkfDegradedDocument,
   OkfDiagnostic,
   OkfDiagnosticCode,
   OkfDocumentInput,
