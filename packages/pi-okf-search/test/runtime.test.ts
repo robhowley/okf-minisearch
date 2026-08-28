@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 
 import { OkfError } from "okf-minisearch";
 import type {
+  OkfDegradedDocument,
   OkfSearch,
   OkfSearchHit,
   OkfSearchOptions,
@@ -23,6 +24,20 @@ const ctx = {
   isProjectTrusted: () => true,
 };
 const root = "/workspace/knowledge";
+
+function degradedDocument(path: string): OkfDegradedDocument {
+  return {
+    documentId: path,
+    path,
+    diagnostics: [
+      {
+        code: "ERR_OKF_PARSE",
+        path,
+        message: "invalid document",
+      },
+    ],
+  };
+}
 
 const unusedHandle: OkfSearch = {
   ingest: () => {
@@ -97,12 +112,18 @@ describe("createRuntime", () => {
     expect(searches).toHaveLength(1);
   });
 
-  it("returns status from the cached snapshot with ordered types", async () => {
+  it("returns status from the cached snapshot with ordered types and degraded count", async () => {
     const types = ["guide", "runbook"];
+    const degradedDocuments = [
+      degradedDocument("guide.md"),
+      degradedDocument("runbook.md"),
+    ];
     const listTypes = vi.fn(() => types);
+    const listDegradedDocuments = vi.fn(() => degradedDocuments);
     const handle: OkfSearch = {
       ...unusedHandle,
       listTypes,
+      listDegradedDocuments,
     };
     const loadConfig = vi.fn(() => ({ root }));
     const openOkf = vi.fn(async () => handle);
@@ -117,10 +138,12 @@ describe("createRuntime", () => {
     await expect(runtime.status(ctx)).resolves.toEqual({
       root,
       types,
+      degradedDocumentCount: 2,
       indexedAt: 12_345,
     });
 
     expect(listTypes).toHaveBeenCalledTimes(1);
+    expect(listDegradedDocuments).toHaveBeenCalledTimes(1);
     expect(loadConfig).toHaveBeenCalledTimes(1);
     expect(openOkf).toHaveBeenCalledTimes(1);
   });
@@ -134,11 +157,13 @@ describe("createRuntime", () => {
     await expect(runtime.status(ctx)).resolves.toEqual({
       root,
       types: [],
+      degradedDocumentCount: 0,
       indexedAt: 12_345,
     });
     await expect(runtime.status(ctx)).resolves.toEqual({
       root,
       types: [],
+      degradedDocumentCount: 0,
       indexedAt: 12_345,
     });
 
@@ -172,10 +197,15 @@ describe("createRuntime", () => {
     const initialHandle: OkfSearch = {
       ...unusedHandle,
       listTypes: () => ["initial"],
+      listDegradedDocuments: () => [degradedDocument("initial.md")],
     };
     const refreshedHandle: OkfSearch = {
       ...unusedHandle,
       listTypes: () => ["refreshed"],
+      listDegradedDocuments: () => [
+        degradedDocument("refreshed-one.md"),
+        degradedDocument("refreshed-two.md"),
+      ],
     };
     const loadConfig = vi.fn(() => ({ root: configuredRoot }));
     const openOkf = vi.fn()
@@ -199,6 +229,7 @@ describe("createRuntime", () => {
     await expect(runtime.status(ctx)).resolves.toEqual({
       root: initialRoot,
       types: ["initial"],
+      degradedDocumentCount: 1,
       indexedAt: 1_000,
     });
 
@@ -207,6 +238,7 @@ describe("createRuntime", () => {
     await expect(runtime.status(ctx)).resolves.toEqual({
       root: refreshedRoot,
       types: ["refreshed"],
+      degradedDocumentCount: 2,
       indexedAt: 2_000,
     });
     expect(now).toHaveBeenCalledTimes(2);
@@ -223,10 +255,12 @@ describe("createRuntime", () => {
       ...unusedHandle,
       search: initialSearch,
       listTypes: () => ["initial"],
+      listDegradedDocuments: () => [degradedDocument("initial.md")],
     };
     const retriedHandle: OkfSearch = {
       ...unusedHandle,
       listTypes: () => ["retried"],
+      listDegradedDocuments: () => [],
     };
     const loadConfig = vi.fn(() => ({ root: configuredRoot }));
     const openOkf = vi.fn()
@@ -245,6 +279,7 @@ describe("createRuntime", () => {
     await expect(runtime.status(ctx)).resolves.toEqual({
       root: initialRoot,
       types: ["initial"],
+      degradedDocumentCount: 1,
       indexedAt: 1_000,
     });
     await expect(runtime.search(ctx, { query: "needle" })).resolves.toEqual([]);
@@ -256,6 +291,7 @@ describe("createRuntime", () => {
     await expect(runtime.status(ctx)).resolves.toEqual({
       root: retriedRoot,
       types: ["retried"],
+      degradedDocumentCount: 0,
       indexedAt: 3_000,
     });
     expect(loadConfig).toHaveBeenCalledTimes(3);
@@ -300,6 +336,7 @@ describe("createRuntime", () => {
     await expect(runtime.status(ctx)).resolves.toEqual({
       root: initialRoot,
       types: ["initial"],
+      degradedDocumentCount: 0,
       indexedAt: 1_000,
     });
     await expect(runtime.search(ctx, { query: "needle" })).resolves.toEqual([]);
@@ -315,6 +352,7 @@ describe("createRuntime", () => {
     await expect(runtime.status(ctx)).resolves.toEqual({
       root: refreshedRoot,
       types: ["refreshed"],
+      degradedDocumentCount: 0,
       indexedAt: 2_000,
     });
     expect(now).toHaveBeenCalledTimes(2);
@@ -342,6 +380,7 @@ describe("createRuntime", () => {
     await expect(runtime.status(ctx)).resolves.toEqual({
       root,
       types: [],
+      degradedDocumentCount: 0,
       indexedAt: 2_000,
     });
     expect(now).toHaveBeenCalledTimes(1);
@@ -364,8 +403,8 @@ describe("createRuntime", () => {
 
     opening.resolve(unusedHandle);
     await expect(Promise.all([first, second])).resolves.toEqual([
-      { root, types: [], indexedAt: 12_345 },
-      { root, types: [], indexedAt: 12_345 },
+      { root, types: [], degradedDocumentCount: 0, indexedAt: 12_345 },
+      { root, types: [], degradedDocumentCount: 0, indexedAt: 12_345 },
     ]);
     expect(now).toHaveBeenCalledTimes(1);
     expect(loadConfig).toHaveBeenCalledTimes(1);
@@ -388,6 +427,7 @@ describe("createRuntime", () => {
     await expect(runtime.status(ctx)).resolves.toEqual({
       root,
       types: [],
+      degradedDocumentCount: 0,
       indexedAt: 12_345,
     });
 

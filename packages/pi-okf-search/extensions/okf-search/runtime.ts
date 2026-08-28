@@ -53,6 +53,7 @@ export function createRuntime(
   status(ctx: RuntimeContext): Promise<{
     readonly root: string;
     readonly types: readonly string[];
+    readonly degradedDocumentCount: number;
     readonly indexedAt: number;
   }>;
   search(
@@ -134,6 +135,7 @@ export function createRuntime(
       return {
         root: current.root,
         types: current.search.listTypes(),
+        degradedDocumentCount: current.search.listDegradedDocuments().length,
         indexedAt: current.indexedAt,
       };
     },
