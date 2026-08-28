@@ -1,44 +1,14 @@
 # okf-minisearch
 
-Search local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown from Pi or Node.js. The Node.js library builds an in-memory MiniSearch index; the Pi package exposes that library through one read-only `okf_search` tool.
+`okf-minisearch` is a Node.js library for searching local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown. It builds an in-memory MiniSearch index; the companion `@robhowley/pi-okf-search` package exposes the same search through one read-only `okf_search` tool.
 
 [![Package validation](https://github.com/robhowley/okf-minisearch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/robhowley/okf-minisearch/actions/workflows/ci.yml)
 
 ## Choose an entry point
 
-- **Pi users:** [`@robhowley/pi-okf-search`](packages/pi-okf-search/README.md) searches one configured local OKF tree from a Pi session.
 - **Node.js users:** [`okf-minisearch`](packages/okf-minisearch/README.md) is the ESM library and TypeScript API.
+- **Pi users:** [`@robhowley/pi-okf-search`](packages/pi-okf-search/README.md) searches one configured local OKF tree from a Pi session.
 - **Contributors:** see [Development](#development) for workspace setup and checks.
-
-## Use from Pi
-
-Once `@robhowley/pi-okf-search` is available on npm, install it globally:
-
-```sh
-pi install npm:@robhowley/pi-okf-search
-```
-
-Merge a root into `~/.pi/agent/settings.json` (use an absolute path for the clearest first setup):
-
-```json
-{
-  "pi-okf-search": {
-    "root": "/absolute/path/to/knowledge"
-  }
-}
-```
-
-Start Pi and ask it to search:
-
-```sh
-pi
-```
-
-```text
-Use okf_search to find the rollback procedure.
-```
-
-The model can call `okf_search`, inspect ranked snippets, and reopen a result's exact line range with Pi's `read` tool. See the [Pi package guide](packages/pi-okf-search/README.md) for global and project-local installation, settings precedence and trust, every search control, output interpretation, troubleshooting, and security limits.
 
 ## Use from Node.js
 
@@ -87,6 +57,32 @@ console.log({
 ```text
 OKF Markdown → openOkf() → in-memory MiniSearch index → relevant section
 ```
+
+## Use from Pi
+
+Once `@robhowley/pi-okf-search` is available on npm, install it globally:
+
+```sh
+pi install npm:@robhowley/pi-okf-search
+```
+
+Merge a root into `~/.pi/agent/settings.json` (use an absolute path for the clearest first setup):
+
+```json
+{
+  "pi-okf-search": {
+    "root": "/absolute/path/to/knowledge"
+  }
+}
+```
+
+Start Pi with a search prompt:
+
+```sh
+pi "Search the knowledge base to find the rollback procedure."
+```
+
+The model can call `okf_search`, inspect ranked snippets, and reopen a result's exact line range with Pi's `read` tool. See the [Pi package guide](packages/pi-okf-search/README.md) for global and project-local installation, settings precedence and trust, every search control, output interpretation, troubleshooting, and security limits.
 
 ## Requirements and documentation
 
