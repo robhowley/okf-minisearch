@@ -252,11 +252,23 @@ type ExactRemove = Assert<
   Same<OkfSearch["remove"], (path: string) => boolean>
 >;
 type ExactValidationResult = Assert<
-  Same<OkfValidationResult, {
-    readonly isValid: boolean;
-    readonly isIndexable: boolean;
-    readonly errors: readonly OkfDiagnostic[];
-  }>
+  Same<OkfValidationResult,
+    | {
+        readonly isValid: true;
+        readonly isIndexable: true;
+        readonly errors: readonly [];
+      }
+    | {
+        readonly isValid: false;
+        readonly isIndexable: true;
+        readonly errors: readonly [OkfDiagnostic, ...OkfDiagnostic[]];
+      }
+    | {
+        readonly isValid: false;
+        readonly isIndexable: false;
+        readonly errors: readonly [OkfDiagnostic, ...OkfDiagnostic[]];
+      }
+  >
 >;
 type ExactDegradedDocument = Assert<
   Same<OkfDegradedDocument, {

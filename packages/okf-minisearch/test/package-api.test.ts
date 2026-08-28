@@ -252,7 +252,7 @@ describe("package API", () => {
       isValid: false,
       isIndexable: true,
       errors: [diagnostic],
-    };
+    } as OkfValidationResult;
 
     expectTypeOf(isoDateTime).toEqualTypeOf<IsoDateTime>();
     expectTypeOf<OkfStatus>().toEqualTypeOf<
@@ -296,11 +296,6 @@ describe("package API", () => {
     >();
     expectTypeOf(diagnostic).toEqualTypeOf<OkfDiagnostic>();
     expectTypeOf(validationResult).toEqualTypeOf<OkfValidationResult>();
-    expectTypeOf<OkfValidationResult>().toEqualTypeOf<{
-      readonly isValid: boolean;
-      readonly isIndexable: boolean;
-      readonly errors: readonly OkfDiagnostic[];
-    }>();
   });
 
   it("exports the exact search controls contract", () => {

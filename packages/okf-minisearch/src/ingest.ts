@@ -83,12 +83,27 @@ export function validateOkfDocument(
   input: OkfDocumentInput,
 ): OkfValidationResult {
   const analysis = analyzeDocument(input);
-  const errors = copyDiagnostics(analysis.diagnostics);
+
+  if (analysis.kind === "fatal") {
+    return {
+      isValid: false,
+      isIndexable: false,
+      errors: nonEmptyDiagnostics(copyDiagnostics(analysis.diagnostics)),
+    };
+  }
+
+  if (analysis.conformance === "strict") {
+    return {
+      isValid: true,
+      isIndexable: true,
+      errors: [],
+    };
+  }
 
   return {
-    isValid: analysis.kind === "accepted" && analysis.conformance === "strict",
-    isIndexable: analysis.kind === "accepted",
-    errors,
+    isValid: false,
+    isIndexable: true,
+    errors: nonEmptyDiagnostics(copyDiagnostics(analysis.diagnostics)),
   };
 }
 

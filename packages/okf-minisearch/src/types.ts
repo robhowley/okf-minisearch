@@ -109,11 +109,22 @@ export interface OkfDiagnostic {
   message: string;
 }
 
-export interface OkfValidationResult {
-  readonly isValid: boolean;
-  readonly isIndexable: boolean;
-  readonly errors: readonly OkfDiagnostic[];
-}
+export type OkfValidationResult =
+  | {
+      readonly isValid: true;
+      readonly isIndexable: true;
+      readonly errors: readonly [];
+    }
+  | {
+      readonly isValid: false;
+      readonly isIndexable: true;
+      readonly errors: readonly [OkfDiagnostic, ...OkfDiagnostic[]];
+    }
+  | {
+      readonly isValid: false;
+      readonly isIndexable: false;
+      readonly errors: readonly [OkfDiagnostic, ...OkfDiagnostic[]];
+    };
 
 export interface OkfDegradedDocument {
   readonly documentId: string;

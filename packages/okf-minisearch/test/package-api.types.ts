@@ -31,11 +31,21 @@ type Same<T, U> =
 type Assert<T extends true> = T;
 type ExactOkfValidationResult = Assert<Same<
   OkfValidationResult,
-  {
-    readonly isValid: boolean;
-    readonly isIndexable: boolean;
-    readonly errors: readonly OkfDiagnostic[];
-  }
+  | {
+      readonly isValid: true;
+      readonly isIndexable: true;
+      readonly errors: readonly [];
+    }
+  | {
+      readonly isValid: false;
+      readonly isIndexable: true;
+      readonly errors: readonly [OkfDiagnostic, ...OkfDiagnostic[]];
+    }
+  | {
+      readonly isValid: false;
+      readonly isIndexable: false;
+      readonly errors: readonly [OkfDiagnostic, ...OkfDiagnostic[]];
+    }
 >>;
 type ExactOkfDegradedDocument = Assert<Same<
   OkfDegradedDocument,
@@ -131,6 +141,12 @@ const diagnostic: OkfDiagnostic = {
   path: "concept.md",
   field: "status",
   message: "diagnostic",
+};
+// @ts-expect-error Strict validation cannot contain diagnostics.
+const strictWithErrors: OkfValidationResult = {
+  isValid: true,
+  isIndexable: true,
+  errors: [diagnostic],
 };
 const degradedDocument: OkfDegradedDocument = {
   documentId: "concept",
