@@ -312,6 +312,7 @@ function createIndex(): MiniSearch<OkfIndexRecord> {
     ],
     storeFields: [
       "documentId",
+      "conformance",
       "title",
       "path",
       "type",

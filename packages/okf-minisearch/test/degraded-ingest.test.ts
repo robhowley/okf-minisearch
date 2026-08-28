@@ -91,6 +91,7 @@ function expectOneDocument(
     expect.objectContaining({
       documentId: "nested/derived-title",
       path: "nested/derived-title.md",
+      conformance: "degraded",
     }),
   ]);
 }
@@ -134,6 +135,25 @@ describe("degraded direct ingest", () => {
     expect(degraded.diagnostics).not.toBe(validation.errors);
     expect(degraded.diagnostics[0]).not.toBe(validation.errors[0]);
 
+    const mixedHits = okf.search("mixedbodyneedle");
+    expect(mixedHits).toEqual([
+      expect.objectContaining({
+        documentId: "nested/derived-title",
+        conformance: "degraded",
+      }),
+    ]);
+    expect(Object.hasOwn(mixedHits[0]!, "diagnostics")).toBe(false);
+    expect(okf.search("mixedbodyneedle", {
+      where: { conformance: ["degraded"] },
+    })).toEqual([
+      expect.objectContaining({
+        documentId: "nested/derived-title",
+        conformance: "degraded",
+      }),
+    ]);
+    expect(okf.search("mixedbodyneedle", {
+      where: { conformance: ["strict"] },
+    })).toEqual([]);
     expectOneDocument(okf, "validdescriptionsalvage", {
       fields: ["description"],
     });
@@ -149,8 +169,22 @@ describe("degraded direct ingest", () => {
       expectOneDocument(okf, source, { fields: ["sources"] });
     }
     expectOneDocument(okf, "mixedbodyneedle", {
-      where: { trustTiers: ["human-reviewed"] },
+      where: {
+        conformance: ["degraded"],
+        types: ["mixed-type"],
+        trustTiers: [
+          "unverified",
+          "machine-confirmed",
+          "human-reviewed",
+        ],
+      },
     });
+    expect(okf.search("mixedbodyneedle", {
+      where: {
+        conformance: ["degraded"],
+        statuses: ["draft", "stable", "deprecated"],
+      },
+    })).toEqual([]);
 
     for (const malformed of [
       "malformedtitlesentinel",
@@ -176,7 +210,10 @@ describe("degraded direct ingest", () => {
     for (const stale of [false, true]) {
       expect(okf.search("mixedbodyneedle", {
         asOf: new Date("2026-08-24T12:00:00Z"),
-        where: { stale },
+        where: {
+          conformance: ["degraded"],
+          stale,
+        },
       })).toEqual([]);
     }
 
@@ -199,9 +236,31 @@ describe("degraded direct ingest", () => {
       "status",
       "stale_after",
     ]);
-    expect(okf.search("invalidonlyneedle")).toHaveLength(1);
+    const invalidOnlyHits = okf.search("invalidonlyneedle");
+    expect(invalidOnlyHits).toEqual([
+      expect.objectContaining({
+        documentId: "z-invalid-verification",
+        conformance: "degraded",
+      }),
+    ]);
+    expect(Object.hasOwn(invalidOnlyHits[0]!, "diagnostics")).toBe(false);
     expect(okf.search("invalidonlyneedle", {
       where: {
+        conformance: ["degraded"],
+        types: ["invalid-facets"],
+      },
+    })).toEqual([
+      expect.objectContaining({
+        documentId: "z-invalid-verification",
+        conformance: "degraded",
+      }),
+    ]);
+    expect(okf.search("invalidonlyneedle", {
+      where: { conformance: ["strict"] },
+    })).toEqual([]);
+    expect(okf.search("invalidonlyneedle", {
+      where: {
+        conformance: ["degraded"],
         trustTiers: [
           "unverified",
           "machine-confirmed",
@@ -211,13 +270,17 @@ describe("degraded direct ingest", () => {
     })).toEqual([]);
     expect(okf.search("invalidonlyneedle", {
       where: {
+        conformance: ["degraded"],
         statuses: ["draft", "stable", "deprecated"],
       },
     })).toEqual([]);
     for (const stale of [false, true]) {
       expect(okf.search("invalidonlyneedle", {
         asOf: new Date("2026-08-24T12:00:00Z"),
-        where: { stale },
+        where: {
+          conformance: ["degraded"],
+          stale,
+        },
       })).toEqual([]);
     }
   });

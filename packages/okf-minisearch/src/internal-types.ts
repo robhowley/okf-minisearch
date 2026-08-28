@@ -6,8 +6,6 @@ import type {
   OkfTrustTier,
 } from "./types.js";
 
-export type OkfConformance = "strict" | "degraded";
-
 export type NonEmptyDiagnostics = readonly [
   OkfDiagnostic,
   ...OkfDiagnostic[],

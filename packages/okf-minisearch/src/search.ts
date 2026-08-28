@@ -9,6 +9,7 @@ import {
 } from "./vocabulary.js";
 
 import type {
+  OkfConformance,
   OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
@@ -92,6 +93,7 @@ const FILTER_NAMES = [
   "statuses",
   "trustTiers",
   "stale",
+  "conformance",
 ] as const;
 
 type FilterName = typeof FILTER_NAMES[number];
@@ -100,6 +102,7 @@ type IndexedHit = SearchResult &
   Pick<
     OkfIndexRecord,
     | "documentId"
+    | "conformance"
     | "title"
     | "path"
     | "type"
@@ -206,6 +209,10 @@ export function search(
       return byScore;
     }
 
+    if (left.conformance !== right.conformance) {
+      return left.conformance === "strict" ? -1 : 1;
+    }
+
     const leftId = String(left.id);
     const rightId = String(right.id);
 
@@ -234,6 +241,7 @@ export function search(
       title: hit.title,
       sectionId: String(hit.id),
       score: hit.score,
+      conformance: hit.conformance,
 
       matchedFields: translateMatchedFields(
         hit.match,
@@ -507,6 +515,16 @@ function validateWhere(
     validated.stale = where.stale;
   }
 
+  if (Object.hasOwn(where, "conformance")) {
+    validated.conformance = validateFilterArray(
+      where.conformance,
+      "conformance",
+      (entry): entry is OkfConformance =>
+        entry === "strict" || entry === "degraded",
+      "options.where.conformance must contain only valid OkfConformance values",
+    );
+  }
+
   return validated;
 }
 
@@ -626,6 +644,13 @@ function matchesFilters(
     ) {
       return false;
     }
+  }
+
+  if (
+    where.conformance?.length &&
+    !where.conformance.includes(hit.conformance)
+  ) {
+    return false;
   }
 
   return true;
