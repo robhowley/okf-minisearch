@@ -111,12 +111,19 @@ export interface OkfDiagnostic {
 
 export interface OkfValidationResult {
   readonly isValid: boolean;
+  readonly isIndexable: boolean;
   readonly errors: readonly OkfDiagnostic[];
 }
 
-export interface OkfIngestResult {
-  document: OkfDocument;
+export interface OkfDegradedDocument {
+  readonly documentId: string;
+  readonly path: string;
+  readonly diagnostics: readonly [OkfDiagnostic, ...OkfDiagnostic[]];
 }
+
+export type OkfIngestResult =
+  | { readonly conformance: "strict"; readonly document: OkfDocument }
+  | ({ readonly conformance: "degraded" } & OkfDegradedDocument);
 
 export type OkfSearchField =
   | "resource"
@@ -163,6 +170,8 @@ export interface OkfSearchHit {
 
 export interface OkfSearch {
   ingest(input: OkfDocumentInput): OkfIngestResult;
+
+  listDegradedDocuments(): readonly OkfDegradedDocument[];
 
   listTypes(): readonly string[];
 

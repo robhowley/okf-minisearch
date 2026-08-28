@@ -193,6 +193,7 @@ import type {
   OkfAttester,
   OkfDiagnostic,
   OkfDiagnosticCode,
+  OkfDegradedDocument,
   OkfDocument,
   OkfDocumentInput,
   OkfErrorCode,
@@ -213,6 +214,8 @@ import type {
 } from "okf-minisearch";
 // @ts-expect-error OkfIndexRecord is internal and not part of the package root API.
 import type { OkfIndexRecord } from "okf-minisearch";
+// @ts-expect-error OkfConformance is private until Phase 2.
+import type { OkfConformance } from "okf-minisearch";
 
 type ExpectedOkfSearchField =
   | "resource"
@@ -239,6 +242,9 @@ type ExactSearchBoost = Assert<
     Readonly<Partial<Record<OkfSearchField, number>>> | undefined
   >
 >;
+type ExactListDegradedDocuments = Assert<
+  Same<OkfSearch["listDegradedDocuments"], () => readonly OkfDegradedDocument[]>
+>;
 type ExactListTypes = Assert<
   Same<OkfSearch["listTypes"], () => readonly string[]>
 >;
@@ -248,11 +254,49 @@ type ExactRemove = Assert<
 type ExactValidationResult = Assert<
   Same<OkfValidationResult, {
     readonly isValid: boolean;
+    readonly isIndexable: boolean;
     readonly errors: readonly OkfDiagnostic[];
   }>
 >;
+type ExactDegradedDocument = Assert<
+  Same<OkfDegradedDocument, {
+    readonly documentId: string;
+    readonly path: string;
+    readonly diagnostics: readonly [OkfDiagnostic, ...OkfDiagnostic[]];
+  }>
+>;
 type ExactIngestResult = Assert<
-  Same<OkfIngestResult, { document: OkfDocument }>
+  Same<OkfIngestResult,
+    | {
+        readonly conformance: "strict";
+        readonly document: OkfDocument;
+      }
+    | ({ readonly conformance: "degraded" } & OkfDegradedDocument)
+  >
+>;
+type ExactSearchOptionKeys = Assert<
+  Same<keyof OkfSearchOptions,
+    "limit" | "where" | "asOf" | "match" | "fields" | "boost" | "fuzzy"
+  >
+>;
+type ExactSearchWhereKeys = Assert<
+  Same<keyof NonNullable<OkfSearchOptions["where"]>,
+    "types" | "tagsAny" | "statuses" | "trustTiers" | "stale"
+  >
+>;
+type ExactSearchHitKeys = Assert<
+  Same<keyof OkfSearchHit,
+    | "documentId"
+    | "title"
+    | "sectionId"
+    | "score"
+    | "matchedFields"
+    | "headingPath"
+    | "path"
+    | "startLine"
+    | "endLine"
+    | "snippet"
+  >
 >;
 type ExactDocumentStatus = Assert<
   Same<OkfDocument["status"], OkfStatus>
@@ -278,6 +322,8 @@ const nestedBoostOption: OkfSearchOptions = { ["relevance"]: { boost: { title: 2
 const searchHit = null as unknown as OkfSearchHit;
 const matchedField: OkfSearchField =
   searchHit.matchedFields[0] ?? "body";
+const listDegradedDocuments = null as unknown as OkfSearch["listDegradedDocuments"];
+const degradedDocuments: readonly OkfDegradedDocument[] = listDegradedDocuments();
 const listTypes = null as unknown as OkfSearch["listTypes"];
 const types: readonly string[] = listTypes();
 const remove = null as unknown as OkfSearch["remove"];
@@ -289,6 +335,7 @@ const validator: (
 ) => OkfValidationResult = validateOkfDocument;
 const validationResult: OkfValidationResult = {
   isValid: true,
+  isIndexable: true,
   errors: [],
 };
 const diagnosticCode: OkfDiagnosticCode = "ERR_OKF_FIELD";
@@ -298,6 +345,21 @@ const diagnostic: OkfDiagnostic = {
   field: "type",
   message: "Invalid OKF field: consumer.md (type)",
 };
+const degradedDocument: OkfDegradedDocument = {
+  documentId: "consumer",
+  path: "consumer.md",
+  diagnostics: [diagnostic],
+};
+declare const ingestResult: OkfIngestResult;
+if (ingestResult.conformance === "strict") {
+  const strictDocument: OkfDocument = ingestResult.document;
+  void strictDocument;
+} else {
+  const degradedResult: OkfDegradedDocument = ingestResult;
+  // @ts-expect-error Degraded ingest does not expose a document.
+  ingestResult.document;
+  void degradedResult;
+}
 // @ts-expect-error Diagnostics do not expose severity.
 diagnostic.severity = "error";
 
@@ -307,6 +369,9 @@ void [
   validator,
   validationResult,
   diagnostic,
+  degradedDocument,
+  degradedDocuments,
+  null as unknown as OkfConformance,
   null as IsoDateTime | null,
   null as OkfAttester | null,
   null as OkfDiagnostic | null,
@@ -317,6 +382,7 @@ void [
   null as OkfGeneration | null,
   null as OkfIndexRecord | null,
   null as OkfIngestResult | null,
+  null as OkfDegradedDocument | null,
   null as OkfParameter | null,
   null as OkfSearch | null,
   null as OkfSearchHit | null,
@@ -331,13 +397,19 @@ void [
   matchedField,
   types,
   removalResult,
+  listDegradedDocuments,
   null as ExactSearchField | null,
+  null as ExactListDegradedDocuments | null,
   null as ExactListTypes | null,
   null as ExactRemove | null,
   null as ExactFuzzy | null,
   null as ExactSearchBoost | null,
   null as ExactValidationResult | null,
+  null as ExactDegradedDocument | null,
   null as ExactIngestResult | null,
+  null as ExactSearchOptionKeys | null,
+  null as ExactSearchWhereKeys | null,
+  null as ExactSearchHitKeys | null,
   null as ExactDocumentStatus | null,
   null as OkfSource | null,
   null as OkfStatus | null,
@@ -359,24 +431,108 @@ const validationResult = api.validateOkfDocument({
   path: "consumer.md",
   markdown: "---\\ntype: note\\n---\\nbody",
 });
-assert.deepEqual(validationResult, { isValid: true, errors: [] });
+assert.deepEqual(validationResult, {
+  isValid: true,
+  isIndexable: true,
+  errors: [],
+});
 assert.equal(validationResult.isValid, true);
+assert.equal(validationResult.isIndexable, true);
 assert.deepEqual(validationResult.errors, []);
+
+const fatalInput = {
+  path: "fatal.md",
+  markdown: "---\\ntype: ' ' \\n---\\nfatalneedle",
+};
+const fatalValidation = api.validateOkfDocument(fatalInput);
+assert.deepEqual(fatalValidation, {
+  isValid: false,
+  isIndexable: false,
+  errors: [{
+    code: "ERR_OKF_FIELD",
+    path: "fatal.md",
+    field: "type",
+    message: "Invalid OKF field: fatal.md (type)",
+  }],
+});
 
 const root = join(process.cwd(), "fixture");
 const okf = await api.openOkf(root);
+assert.equal(typeof okf.listDegradedDocuments, "function");
 assert.equal(typeof okf.listTypes, "function");
 assert.deepEqual(okf.listTypes(), ["note"]);
 const ingestResult = okf.ingest({
   path: "consumer.md",
   markdown: "---\\ntype: packed\\n---\\npackedremovalneedle",
 });
-assert.deepEqual(Object.keys(ingestResult), ["document"]);
+assert.deepEqual(Object.keys(ingestResult), ["conformance", "document"]);
+assert.equal(ingestResult.conformance, "strict");
 assert.equal(ingestResult.document.status, "stable");
 assert.deepEqual(okf.listTypes(), ["note", "packed"]);
 assert.equal(Object.isFrozen(okf.listTypes()), true);
 assert.equal(Object.hasOwn(ingestResult, "records"), false);
 assert.equal(Object.hasOwn(ingestResult, "diagnostics"), false);
+
+const degradedInput = {
+  path: "degraded.md",
+  markdown: "---\\ntype: degraded\\ntitle: 1\\n---\\ndegradedremovalneedle",
+};
+const degradedValidation = api.validateOkfDocument(degradedInput);
+assert.equal(degradedValidation.isValid, false);
+assert.equal(degradedValidation.isIndexable, true);
+assert.deepEqual(degradedValidation.errors, [{
+  code: "ERR_OKF_FIELD",
+  path: "degraded.md",
+  field: "title",
+  message: "Invalid OKF field: degraded.md (title)",
+}]);
+const degradedResult = okf.ingest(degradedInput);
+assert.deepEqual(Object.keys(degradedResult), [
+  "conformance",
+  "documentId",
+  "path",
+  "diagnostics",
+]);
+assert.equal(degradedResult.conformance, "degraded");
+assert.equal(degradedResult.documentId, "degraded");
+assert.equal(degradedResult.path, "degraded.md");
+assert.equal(Object.hasOwn(degradedResult, "document"), false);
+assert.deepEqual(degradedResult.diagnostics, degradedValidation.errors);
+const degradedInventory = okf.listDegradedDocuments();
+assert.deepEqual(degradedInventory, [{
+  documentId: "degraded",
+  path: "degraded.md",
+  diagnostics: degradedResult.diagnostics,
+}]);
+assert.notStrictEqual(degradedInventory[0].diagnostics, degradedResult.diagnostics);
+assert.notStrictEqual(degradedInventory[0].diagnostics[0], degradedResult.diagnostics[0]);
+const expectedInventoryDiagnostics = degradedInventory[0].diagnostics
+  .map((diagnostic) => ({ ...diagnostic }));
+degradedResult.diagnostics[0].message = "caller mutation";
+degradedResult.diagnostics.push({
+  code: "ERR_OKF_FIELD",
+  path: "caller.md",
+  message: "caller mutation",
+});
+assert.deepEqual(okf.listDegradedDocuments(), [{
+  documentId: "degraded",
+  path: "degraded.md",
+  diagnostics: expectedInventoryDiagnostics,
+}]);
+
+assert.throws(
+  () => okf.ingest(fatalInput),
+  (error) => error instanceof api.OkfError &&
+    error.code === "ERR_OKF_FIELD" &&
+    error.field === "type",
+);
+assert.equal(okf.search("fatalneedle").length, 0);
+assert.deepEqual(okf.listDegradedDocuments(), [{
+  documentId: "degraded",
+  path: "degraded.md",
+  diagnostics: expectedInventoryDiagnostics,
+}]);
+assert.deepEqual(okf.listTypes(), ["degraded", "note", "packed"]);
 
 assert.equal(typeof okf.remove, "function");
 assert.equal(
@@ -386,6 +542,11 @@ assert.equal(
   1,
 );
 assert.equal(okf.search("packedremovalneedle").length, 1);
+assert.equal(okf.remove("./degraded.md"), true);
+assert.deepEqual(okf.listDegradedDocuments(), []);
+assert.deepEqual(okf.search("degradedremovalneedle"), []);
+assert.equal(okf.remove("degraded.md"), false);
+assert.deepEqual(okf.listTypes(), ["note", "packed"]);
 assert.equal(okf.remove("./consumer.md"), true);
 assert.deepEqual(okf.listTypes(), ["note"]);
 assert.deepEqual(okf.search("packedremovalneedle"), []);

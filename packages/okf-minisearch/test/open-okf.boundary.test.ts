@@ -14,12 +14,16 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest";
+
+import MiniSearch from "minisearch";
 
 import {
   OkfError,
   openOkf,
 } from "../src/index.js";
+import type { OkfSearch } from "../src/index.js";
 import {
   concept,
   createBundle,
@@ -32,6 +36,7 @@ const supportsPermissionFailures =
   process.getuid?.() !== 0;
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(
     bundles.splice(0).map((bundle) =>
       bundle.cleanup()),
@@ -111,7 +116,7 @@ describe("openOkf concept boundary", () => {
     ]);
   });
 
-  it("rejects a team source author before returning a partial handle", async () => {
+  it("opens mixed strict and degraded startup documents", async () => {
     const tree = await bundle({
       "a-valid.md": concept("type: note", "openvalidneedle"),
       "z-team.md": concept(`
@@ -119,15 +124,61 @@ describe("openOkf concept boundary", () => {
         sources:
           - resource: x
             author: team:ga4-docs
-      `, "openrejectedneedle"),
+      `, "opendegradedneedle"),
     });
+
+    const okf = await openOkf(tree.root);
+
+    expect(okf.search("openvalidneedle")).toHaveLength(1);
+    expect(okf.search("opendegradedneedle")).toHaveLength(1);
+    expect(okf.listDegradedDocuments()).toEqual([
+      {
+        documentId: "z-team",
+        path: "z-team.md",
+        diagnostics: [expect.objectContaining({
+          code: "ERR_OKF_FIELD",
+          field: "sources[0].author",
+        })],
+      },
+    ]);
+  });
+
+  it("prepares every startup document before mutating MiniSearch", async () => {
+    const tree = await bundle({
+      "a-valid.md": concept("type: note", "openvalidneedle"),
+      "z-fatal.md": concept("type: '   '", "openfatalneedle"),
+    });
+    const addAllSpy = vi.spyOn(MiniSearch.prototype, "addAll");
 
     await expect(openOkf(tree.root)).rejects.toMatchObject({
       code: "ERR_OKF_FIELD",
-      path: "z-team.md",
-      field: "sources[0].author",
-      message: "Invalid OKF field: z-team.md (sources[0].author)",
+      path: "z-fatal.md",
+      field: "type",
     });
+    expect(addAllSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not expose a handle when startup indexing fails", async () => {
+    const tree = await bundle({
+      "valid.md": concept("type: note", "startupaddneedle"),
+    });
+    const rawError = new Error("injected startup add failure");
+    const addAllSpy = vi.spyOn(MiniSearch.prototype, "addAll")
+      .mockImplementation(() => {
+        throw rawError;
+      });
+    let handle: OkfSearch | undefined;
+    let failure: unknown;
+
+    try {
+      handle = await openOkf(tree.root);
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(addAllSpy).toHaveBeenCalledTimes(1);
+    expect(failure).toBe(rawError);
+    expect(handle).toBeUndefined();
   });
 
   it("keeps a POSIX backslash filename distinct from a nested path", async () => {
@@ -256,13 +307,14 @@ describe("OkfError", () => {
     }
   });
 
-  it("wraps invalid UTF-8 as a parse error with a cause", async () => {
+  it("wraps invalid UTF-8 without mutating MiniSearch", async () => {
     const bytes = new Uint8Array([
       0x2d, 0x2d, 0x2d, 0x0a,
       0x74, 0x79, 0x70, 0x65, 0x3a, 0x20,
       0xff,
     ]);
     const tree = await bundle({ "bad.md": bytes });
+    const addAllSpy = vi.spyOn(MiniSearch.prototype, "addAll");
 
     try {
       await openOkf(tree.root);
@@ -274,15 +326,18 @@ describe("OkfError", () => {
       });
       expect(Object.hasOwn(error as object, "cause")).toBe(true);
     }
+    expect(addAllSpy).not.toHaveBeenCalled();
   });
 
-  it("wraps root traversal failures with bundle-relative context", async () => {
+  it("wraps root traversal failures without mutating MiniSearch", async () => {
     const missing = join(
       tmpdir(),
       `missing-okf-${crypto.randomUUID()}`,
     );
+    const addAllSpy = vi.spyOn(MiniSearch.prototype, "addAll");
 
     await expectReadError(openOkf(missing), missing, ".");
+    expect(addAllSpy).not.toHaveBeenCalled();
   });
 
   it.skipIf(!supportsPermissionFailures)(

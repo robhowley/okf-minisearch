@@ -19,8 +19,11 @@ import type {
   OkfVerification,
 } from "./types.js";
 import type {
-  OkfIndexRecord,
+  NonEmptyDiagnostics,
+  OkfIndexProjection,
   OkfPreparedDocument,
+  ProjectedFacets,
+  StalenessProjection,
 } from "./internal-types.js";
 
 const MAX_SECTION_WORDS = 800;
@@ -47,27 +50,44 @@ interface Chunk {
   endLine: number;
 }
 
-interface ParsedDocument {
-  document: OkfDocument;
-  bodyStartLine: number;
-  status: OkfStatus;
-  trustTier: OkfTrustTier;
-  staleAfterEpoch?: number;
-  stalenessClassified: boolean;
+interface ProjectedFields {
+  readonly type?: string;
+  readonly title: string;
+  readonly description?: string;
+  readonly resource?: string;
+  readonly tags: string[];
+  readonly sources: OkfSource[];
+  readonly sourceText: string;
+  readonly usageWindow?: OkfTimeWindow;
+  readonly generated?: NonNullable<OkfDocument["generated"]>;
+  readonly verified: OkfVerification[];
+  readonly trustTier?: OkfTrustTier;
+  readonly status?: OkfStatus;
+  readonly staleness: StalenessProjection;
+  readonly runtime?: string;
+  readonly parameters?: NonNullable<OkfDocument["parameters"]>;
+  readonly computation?: string;
+  readonly executor?: NonNullable<OkfDocument["executor"]>;
+  readonly attester?: NonNullable<OkfDocument["attester"]>;
 }
 
-interface DocumentAnalysis {
-  diagnostics: OkfDiagnostic[];
-  prepared?: OkfPreparedDocument;
-}
+type DocumentAnalysis =
+  | {
+      readonly kind: "fatal";
+      readonly diagnostics: NonEmptyDiagnostics;
+      readonly fatalDiagnostic: OkfDiagnostic;
+    }
+  | ({ readonly kind: "accepted" } & OkfPreparedDocument);
 
 export function validateOkfDocument(
   input: OkfDocumentInput,
 ): OkfValidationResult {
-  const { diagnostics: errors } = analyzeDocument(input);
+  const analysis = analyzeDocument(input);
+  const errors = copyDiagnostics(analysis.diagnostics);
 
   return {
-    isValid: errors.length === 0,
+    isValid: analysis.kind === "accepted" && analysis.conformance === "strict",
+    isIndexable: analysis.kind === "accepted",
     errors,
   };
 }
@@ -76,31 +96,27 @@ export function prepareDocument(
   input: OkfDocumentInput,
 ): OkfPreparedDocument {
   const analysis = analyzeDocument(input);
-  const diagnostic = analysis.diagnostics[0];
 
-  if (diagnostic) {
+  if (analysis.kind === "fatal") {
+    const diagnostic = analysis.fatalDiagnostic;
     throw new OkfError(diagnostic.code, diagnostic.path, {
       ...(diagnostic.field ? { field: diagnostic.field } : {}),
     });
   }
 
-  if (!analysis.prepared) {
-    throw new Error("OKF analysis completed without a result");
-  }
-
-  return analysis.prepared;
+  return analysis;
 }
 
 function analyzeDocument(input: OkfDocumentInput): DocumentAnalysis {
   let path: string;
-  let id: string;
+  let documentId: string;
 
   try {
     const identity = normalizeDocumentIdentity(input.path);
     path = identity.path;
-    id = identity.documentId;
+    documentId = identity.documentId;
   } catch (error) {
-    return expectedFailure(error);
+    return expectedFatal(error);
   }
 
   let frontmatter: ReturnType<typeof splitFrontmatter>;
@@ -108,7 +124,7 @@ function analyzeDocument(input: OkfDocumentInput): DocumentAnalysis {
   try {
     frontmatter = splitFrontmatter(input.markdown, path);
   } catch (error) {
-    return expectedFailure(error);
+    return expectedFatal(error);
   }
 
   let parsed: unknown;
@@ -116,37 +132,111 @@ function analyzeDocument(input: OkfDocumentInput): DocumentAnalysis {
   try {
     parsed = parse(frontmatter.yaml);
   } catch {
-    return { diagnostics: [diagnostic("ERR_OKF_PARSE", path)] };
+    return fatalAnalysis([diagnostic("ERR_OKF_PARSE", path)]);
   }
 
   if (!isRecord(parsed)) {
-    return { diagnostics: [diagnostic("ERR_OKF_PARSE", path)] };
+    return fatalAnalysis([diagnostic("ERR_OKF_PARSE", path)]);
   }
 
-  const diagnostics = validateFields(parsed, path);
-  const title = typeof parsed.title === "string"
-    ? parsed.title
-    : titleFromId(id);
+  const diagnostics: OkfDiagnostic[] = [];
+  const fields = projectFields(parsed, documentId, path, diagnostics);
+  const typeDiagnostic = diagnostics.find((item) => item.field === "type");
   let conceptSections: Section[] | undefined;
+  let markdownDiagnostic: OkfDiagnostic | undefined;
 
   try {
-    conceptSections = sections(frontmatter.body, title, frontmatter.bodyStartLine);
+    conceptSections = sections(
+      frontmatter.body,
+      fields.title,
+      frontmatter.bodyStartLine,
+    );
   } catch {
-    diagnostics.push(diagnostic("ERR_OKF_PARSE", path));
+    markdownDiagnostic = diagnostic("ERR_OKF_PARSE", path);
+    diagnostics.push(markdownDiagnostic);
   }
 
-  if (diagnostics.length || !conceptSections) {
-    return { diagnostics };
+  if (typeDiagnostic || markdownDiagnostic || !fields.type || !conceptSections) {
+    return fatalAnalysis(
+      diagnostics,
+      typeDiagnostic ?? markdownDiagnostic,
+    );
   }
 
-  const parsedDocument = buildDocument(parsed, id, frontmatter);
+  const acceptedType = fields.type;
+
+  if (diagnostics.length === 0) {
+    if (
+      fields.status === undefined ||
+      fields.trustTier === undefined ||
+      !fields.staleness.classified
+    ) {
+      throw new Error("Strict OKF analysis requires classified facets");
+    }
+    const facets: Extract<ProjectedFacets, { readonly conformance: "strict" }> = {
+      conformance: "strict",
+      status: fields.status,
+      trustTier: fields.trustTier,
+      staleness: fields.staleness,
+    };
+    const document = buildStrictDocument(
+      parsed,
+      documentId,
+      acceptedType,
+      frontmatter,
+      fields,
+      facets,
+    );
+    const projection = buildProjection(
+      {
+        documentId,
+        path,
+        type: acceptedType,
+      },
+      fields,
+      facets,
+      conceptSections,
+      frontmatter.body,
+      frontmatter.bodyStartLine,
+    );
+
+    return {
+      kind: "accepted",
+      conformance: "strict",
+      diagnostics: [],
+      document,
+      projection,
+    };
+  }
+
+  const facets: Extract<ProjectedFacets, { readonly conformance: "degraded" }> = {
+    conformance: "degraded",
+    ...(fields.status === undefined ? {} : { status: fields.status }),
+    ...(fields.trustTier === undefined ? {} : { trustTier: fields.trustTier }),
+    staleness: fields.staleness,
+  };
+  const projection = buildProjection(
+    {
+      documentId,
+      path,
+      type: acceptedType,
+    },
+    fields,
+    facets,
+    conceptSections,
+    frontmatter.body,
+    frontmatter.bodyStartLine,
+  );
+
   return {
-    diagnostics,
-    prepared: prepareParsedDocument(parsedDocument, path, conceptSections),
+    kind: "accepted",
+    conformance: "degraded",
+    diagnostics: nonEmptyDiagnostics(diagnostics),
+    projection,
   };
 }
 
-function expectedFailure(error: unknown): DocumentAnalysis {
+function expectedFatal(error: unknown): DocumentAnalysis {
   if (
     !(error instanceof OkfError) ||
     error.code === "ERR_OKF_READ" ||
@@ -155,13 +245,26 @@ function expectedFailure(error: unknown): DocumentAnalysis {
     throw error;
   }
 
+  return fatalAnalysis([{
+    code: error.code,
+    path: error.path,
+    ...(error.field ? { field: error.field } : {}),
+    message: error.message,
+  }]);
+}
+
+function fatalAnalysis(
+  diagnostics: OkfDiagnostic[],
+  fatalDiagnostic = diagnostics[0],
+): Extract<DocumentAnalysis, { readonly kind: "fatal" }> {
+  if (!fatalDiagnostic) {
+    throw new Error("Fatal OKF analysis requires a diagnostic");
+  }
+
   return {
-    diagnostics: [{
-      code: error.code,
-      path: error.path,
-      ...(error.field ? { field: error.field } : {}),
-      message: error.message,
-    }],
+    kind: "fatal",
+    diagnostics: nonEmptyDiagnostics(diagnostics),
+    fatalDiagnostic,
   };
 }
 
@@ -179,67 +282,151 @@ function diagnostic(
   };
 }
 
-function validateFields(
-  data: Record<string, unknown>,
-  path: string,
+function copyDiagnostics(
+  diagnostics: readonly OkfDiagnostic[],
 ): OkfDiagnostic[] {
-  const result: OkfDiagnostic[] = [];
-  const invalid = (field: string) => {
-    result.push(diagnostic("ERR_OKF_FIELD", path, field));
-  };
-  const present = (key: string) => Object.hasOwn(data, key);
-
-  if (typeof data.type !== "string" || !data.type.trim()) invalid("type");
-  for (const key of ["title", "description", "resource"] as const) {
-    if (present(key) && typeof data[key] !== "string") invalid(key);
-  }
-
-  validateStringArray(data, "tags", invalid);
-  validateSources(data, invalid);
-  if (present("usage_window")) validateTimeWindow(data.usage_window, "usage_window", invalid);
-  validateGenerated(data, invalid);
-  validateVerified(data, invalid);
-
-  if (present("status") && !isOkfStatus(data.status)) {
-    invalid("status");
-  }
-  if (present("stale_after") && !validTimestamp(data.stale_after)) invalid("stale_after");
-  if (present("runtime") && typeof data.runtime !== "string") invalid("runtime");
-  else if (data.type === "Attested Computation" && !present("runtime")) invalid("runtime");
-
-  validateParameters(data, invalid);
-  if (present("computation") && typeof data.computation !== "string") invalid("computation");
-  validateExecutor(data, invalid);
-  validateAttester(data, invalid);
-
-  return result;
+  return diagnostics.map((item) => ({ ...item }));
 }
 
-function validateStringArray(
+function nonEmptyDiagnostics(
+  diagnostics: OkfDiagnostic[],
+): NonEmptyDiagnostics {
+  const first = diagnostics[0];
+  if (!first) {
+    throw new Error("Expected at least one OKF diagnostic");
+  }
+  return [first, ...diagnostics.slice(1)];
+}
+
+function projectFields(
+  data: Record<string, unknown>,
+  documentId: string,
+  path: string,
+  diagnostics: OkfDiagnostic[],
+): ProjectedFields {
+  const invalid = (field: string): void => {
+    diagnostics.push(diagnostic("ERR_OKF_FIELD", path, field));
+  };
+  const present = (key: string): boolean => Object.hasOwn(data, key);
+
+  const type = typeof data.type === "string" && data.type.trim()
+    ? data.type
+    : undefined;
+  if (!type) invalid("type");
+
+  const title = !present("title")
+    ? titleFromId(documentId)
+    : typeof data.title === "string"
+      ? data.title
+      : (invalid("title"), "");
+  const description = stringField(data, "description", invalid);
+  const resource = stringField(data, "resource", invalid);
+  const tags = stringArray(data, "tags", invalid);
+  const sourceProjection = projectSources(data, invalid);
+  const usageWindow = optionalTimeWindow(data, "usage_window", invalid);
+  const generated = projectGenerated(data, invalid);
+  const verification = projectVerification(data, invalid);
+
+  const status = !present("status")
+    ? "stable"
+    : isOkfStatus(data.status)
+      ? data.status
+      : (invalid("status"), undefined);
+
+  let staleness: StalenessProjection;
+  if (!present("stale_after")) {
+    staleness = { classified: true };
+  } else {
+    const staleAfterEpoch = typeof data.stale_after === "string"
+      ? parseTimestamp(data.stale_after)
+      : undefined;
+    if (staleAfterEpoch === undefined) {
+      invalid("stale_after");
+      staleness = { classified: false };
+    } else {
+      staleness = {
+        classified: true,
+        staleAfter: data.stale_after as string,
+        staleAfterEpoch,
+      };
+    }
+  }
+
+  const runtime = stringField(data, "runtime", invalid);
+  if (type === "Attested Computation" && !present("runtime")) {
+    invalid("runtime");
+  }
+
+  const parameters = projectParameters(data, invalid);
+  const computation = stringField(data, "computation", invalid);
+  const executor = projectExecutor(data, invalid);
+  const attester = projectAttester(data, invalid);
+
+  return {
+    ...(type === undefined ? {} : { type }),
+    title,
+    ...(description === undefined ? {} : { description }),
+    ...(resource === undefined ? {} : { resource }),
+    tags,
+    sources: sourceProjection.sources,
+    sourceText: sourceProjection.text,
+    ...(usageWindow === undefined ? {} : { usageWindow }),
+    ...(generated === undefined ? {} : { generated }),
+    verified: verification.events,
+    ...(verification.tier === undefined ? {} : { trustTier: verification.tier }),
+    ...(status === undefined ? {} : { status }),
+    staleness,
+    ...(runtime === undefined ? {} : { runtime }),
+    ...(parameters === undefined ? {} : { parameters }),
+    ...(computation === undefined ? {} : { computation }),
+    ...(executor === undefined ? {} : { executor }),
+    ...(attester === undefined ? {} : { attester }),
+  };
+}
+
+function stringField(
   data: Record<string, unknown>,
   key: string,
   invalid: (field: string) => void,
-): void {
-  if (!Object.hasOwn(data, key)) return;
+): string | undefined {
+  if (!Object.hasOwn(data, key)) return undefined;
+  if (typeof data[key] === "string") return data[key] as string;
+  invalid(key);
+  return undefined;
+}
+
+function stringArray(
+  data: Record<string, unknown>,
+  key: string,
+  invalid: (field: string) => void,
+): string[] {
+  if (!Object.hasOwn(data, key)) return [];
   const value = data[key];
   if (!Array.isArray(value)) {
     invalid(key);
-    return;
+    return [];
   }
+
+  const result: string[] = [];
   value.forEach((item, index) => {
-    if (typeof item !== "string") invalid(`${key}[${index}]`);
+    if (typeof item === "string") result.push(item);
+    else invalid(`${key}[${index}]`);
   });
+  return result;
 }
 
-function validateSources(
+function projectSources(
   data: Record<string, unknown>,
   invalid: (field: string) => void,
-): void {
-  if (!Object.hasOwn(data, "sources")) return;
+): { sources: OkfSource[]; text: string } {
+  if (!Object.hasOwn(data, "sources")) return { sources: [], text: "" };
   if (!Array.isArray(data.sources)) {
     invalid("sources");
-    return;
+    return { sources: [], text: "" };
   }
+
+  const sources: OkfSource[] = [];
+  const lexical: string[] = [];
 
   data.sources.forEach((value, index) => {
     const base = `sources[${index}]`;
@@ -247,48 +434,155 @@ function validateSources(
       invalid(base);
       return;
     }
-    if (typeof value.resource !== "string") invalid(`${base}.resource`);
-    for (const key of ["id", "title"] as const) {
-      if (Object.hasOwn(value, key) && typeof value[key] !== "string") invalid(`${base}.${key}`);
+
+    const resource = sourceString(value, "resource", `${base}.resource`, invalid);
+    const id = optionalSourceString(value, "id", `${base}.id`, invalid);
+    const title = optionalSourceString(value, "title", `${base}.title`, invalid);
+    const author = optionalActor(value, "author", `${base}.author`, invalid);
+    lexical.push(...[id, title, author, resource].filter(
+      (item): item is string => item !== undefined,
+    ));
+
+    let valid = resource !== undefined;
+    let usageCount: number | undefined;
+    if (Object.hasOwn(value, "usage_count")) {
+      if (typeof value.usage_count === "number") usageCount = value.usage_count;
+      else {
+        invalid(`${base}.usage_count`);
+        valid = false;
+      }
     }
-    if (Object.hasOwn(value, "author") && (typeof value.author !== "string" || !validActor(value.author))) invalid(`${base}.author`);
-    if (Object.hasOwn(value, "usage_count") && typeof value.usage_count !== "number") invalid(`${base}.usage_count`);
-    if (Object.hasOwn(value, "last_modified") && !validTimestamp(value.last_modified)) invalid(`${base}.last_modified`);
-    if (Object.hasOwn(value, "usage_window")) validateTimeWindow(value.usage_window, `${base}.usage_window`, invalid);
+
+    let lastModified: string | undefined;
+    if (Object.hasOwn(value, "last_modified")) {
+      if (validTimestamp(value.last_modified)) lastModified = value.last_modified;
+      else {
+        invalid(`${base}.last_modified`);
+        valid = false;
+      }
+    }
+
+    const window = optionalNestedTimeWindow(value, "usage_window", `${base}.usage_window`, invalid);
+    if (Object.hasOwn(value, "usage_window") && window === undefined) valid = false;
+
+    if (valid && resource !== undefined) {
+      sources.push({
+        resource,
+        ...(id === undefined ? {} : { id }),
+        ...(title === undefined ? {} : { title }),
+        ...(author === undefined ? {} : { author }),
+        ...(usageCount === undefined ? {} : { usageCount }),
+        ...(lastModified === undefined ? {} : { lastModified }),
+        ...(window === undefined ? {} : { usageWindow: window }),
+      });
+    }
   });
+
+  return { sources, text: lexical.filter(Boolean).join(" ") };
 }
 
-function validateTimeWindow(
+function sourceString(
+  data: Record<string, unknown>,
+  key: string,
+  field: string,
+  invalid: (field: string) => void,
+): string | undefined {
+  if (typeof data[key] !== "string") {
+    invalid(field);
+    return undefined;
+  }
+  return data[key] as string;
+}
+
+function optionalSourceString(
+  data: Record<string, unknown>,
+  key: string,
+  field: string,
+  invalid: (field: string) => void,
+): string | undefined {
+  if (!Object.hasOwn(data, key)) return undefined;
+  return sourceString(data, key, field, invalid);
+}
+
+function optionalActor(
+  data: Record<string, unknown>,
+  key: string,
+  field: string,
+  invalid: (field: string) => void,
+): string | undefined {
+  if (!Object.hasOwn(data, key)) return undefined;
+  if (typeof data[key] !== "string" || !validActor(data[key] as string)) {
+    invalid(field);
+    return undefined;
+  }
+  return data[key] as string;
+}
+
+function optionalTimeWindow(
+  data: Record<string, unknown>,
+  key: string,
+  invalid: (field: string) => void,
+): OkfTimeWindow | undefined {
+  if (!Object.hasOwn(data, key)) return undefined;
+  return projectTimeWindow(data[key], key, invalid);
+}
+
+function optionalNestedTimeWindow(
+  data: Record<string, unknown>,
+  key: string,
+  field: string,
+  invalid: (field: string) => void,
+): OkfTimeWindow | undefined {
+  if (!Object.hasOwn(data, key)) return undefined;
+  return projectTimeWindow(data[key], field, invalid);
+}
+
+function projectTimeWindow(
   value: unknown,
   base: string,
   invalid: (field: string) => void,
-): void {
+): OkfTimeWindow | undefined {
   if (!isRecord(value)) {
     invalid(base);
-    return;
+    return undefined;
   }
-  if (!validTimestamp(value.from)) invalid(`${base}.from`);
-  if (!validTimestamp(value.to)) invalid(`${base}.to`);
+  const from = validTimestamp(value.from) ? value.from : undefined;
+  const to = validTimestamp(value.to) ? value.to : undefined;
+  if (from === undefined) invalid(`${base}.from`);
+  if (to === undefined) invalid(`${base}.to`);
+  return from !== undefined && to !== undefined ? { from, to } : undefined;
 }
 
-function validateGenerated(
+function projectGenerated(
   data: Record<string, unknown>,
   invalid: (field: string) => void,
-): void {
-  if (!Object.hasOwn(data, "generated")) return;
+): NonNullable<OkfDocument["generated"]> | undefined {
+  if (!Object.hasOwn(data, "generated")) return undefined;
   if (!isRecord(data.generated)) {
     invalid("generated");
-    return;
+    return undefined;
   }
-  if (typeof data.generated.by !== "string" || !validActor(data.generated.by)) invalid("generated.by");
-  if (Object.hasOwn(data.generated, "at") && !validTimestamp(data.generated.at)) invalid("generated.at");
+  const by = typeof data.generated.by === "string" && validActor(data.generated.by)
+    ? data.generated.by
+    : undefined;
+  if (by === undefined) invalid("generated.by");
+  let at: string | undefined;
+  if (Object.hasOwn(data.generated, "at")) {
+    if (validTimestamp(data.generated.at)) at = data.generated.at;
+    else invalid("generated.at");
+  }
+  return by === undefined || (Object.hasOwn(data.generated, "at") && at === undefined)
+    ? undefined
+    : { by, ...(at === undefined ? {} : { at }) };
 }
 
-function validateVerified(
+function projectVerification(
   data: Record<string, unknown>,
   invalid: (field: string) => void,
-): void {
-  if (!Object.hasOwn(data, "verified")) return;
+): { events: OkfVerification[]; tier?: OkfTrustTier } {
+  if (!Object.hasOwn(data, "verified")) {
+    return { events: [], tier: "unverified" };
+  }
   const values = Array.isArray(data.verified)
     ? data.verified
     : isRecord(data.verified)
@@ -296,151 +590,295 @@ function validateVerified(
       : undefined;
   if (!values) {
     invalid("verified");
-    return;
+    return { events: [] };
   }
+
+  const events: OkfVerification[] = [];
   values.forEach((value, index) => {
     const base = `verified[${index}]`;
     if (!isRecord(value)) {
       invalid(base);
       return;
     }
-    if (typeof value.by !== "string" || !validActor(value.by)) invalid(`${base}.by`);
-    if (!validTimestamp(value.at)) invalid(`${base}.at`);
+    const by = typeof value.by === "string" && validActor(value.by)
+      ? value.by
+      : undefined;
+    const at = validTimestamp(value.at) ? value.at : undefined;
+    if (by === undefined) invalid(`${base}.by`);
+    if (at === undefined) invalid(`${base}.at`);
+    if (by !== undefined && at !== undefined) events.push({ by, at });
   });
+
+  if (events.some((event) => event.by.startsWith("human:"))) {
+    return { events, tier: "human-reviewed" };
+  }
+  if (events.length > 0) return { events, tier: "machine-confirmed" };
+  return values.length === 0
+    ? { events, tier: "unverified" }
+    : { events };
 }
 
-function validateParameters(
+function projectParameters(
   data: Record<string, unknown>,
   invalid: (field: string) => void,
-): void {
-  if (!Object.hasOwn(data, "parameters")) return;
+): NonNullable<OkfDocument["parameters"]> | undefined {
+  if (!Object.hasOwn(data, "parameters")) return undefined;
   if (!Array.isArray(data.parameters)) {
     invalid("parameters");
-    return;
+    return undefined;
   }
+  const parameters: NonNullable<OkfDocument["parameters"]> = [];
   data.parameters.forEach((value, index) => {
     const base = `parameters[${index}]`;
     if (!isRecord(value)) {
       invalid(base);
       return;
     }
-    if (typeof value.name !== "string") invalid(`${base}.name`);
-    if (typeof value.type !== "string") invalid(`${base}.type`);
-    if (typeof value.required !== "boolean") invalid(`${base}.required`);
+    const name = typeof value.name === "string" ? value.name : undefined;
+    const type = typeof value.type === "string" ? value.type : undefined;
+    const required = typeof value.required === "boolean" ? value.required : undefined;
+    if (name === undefined) invalid(`${base}.name`);
+    if (type === undefined) invalid(`${base}.type`);
+    if (required === undefined) invalid(`${base}.required`);
+    if (name !== undefined && type !== undefined && required !== undefined) {
+      parameters.push({ name, type, required });
+    }
   });
+  return parameters;
 }
 
-function validateExecutor(
+function projectExecutor(
   data: Record<string, unknown>,
   invalid: (field: string) => void,
-): void {
-  if (!Object.hasOwn(data, "executor")) return;
+): NonNullable<OkfDocument["executor"]> | undefined {
+  if (!Object.hasOwn(data, "executor")) return undefined;
   if (!isRecord(data.executor)) {
     invalid("executor");
-    return;
+    return undefined;
   }
-  if (typeof data.executor.resource !== "string") invalid("executor.resource");
+  const resource = typeof data.executor.resource === "string"
+    ? data.executor.resource
+    : undefined;
+  if (resource === undefined) invalid("executor.resource");
+  let receipt: string[] | undefined;
   if (!Array.isArray(data.executor.receipt)) {
     invalid("executor.receipt");
   } else {
+    const validReceipt: string[] = [];
     data.executor.receipt.forEach((value, index) => {
-      if (typeof value !== "string") invalid(`executor.receipt[${index}]`);
+      if (typeof value === "string") validReceipt.push(value);
+      else invalid(`executor.receipt[${index}]`);
     });
+    receipt = validReceipt.length === data.executor.receipt.length
+      ? validReceipt
+      : undefined;
   }
+  return resource !== undefined && receipt !== undefined
+    ? { resource, receipt }
+    : undefined;
 }
 
-function validateAttester(
+function projectAttester(
   data: Record<string, unknown>,
   invalid: (field: string) => void,
-): void {
-  if (!Object.hasOwn(data, "attester")) return;
+): NonNullable<OkfDocument["attester"]> | undefined {
+  if (!Object.hasOwn(data, "attester")) return undefined;
   if (!isRecord(data.attester)) {
     invalid("attester");
-    return;
+    return undefined;
   }
-  if (typeof data.attester.resource !== "string") invalid("attester.resource");
+  if (typeof data.attester.resource !== "string") {
+    invalid("attester.resource");
+    return undefined;
+  }
+  return { resource: data.attester.resource };
+}
+
+function buildStrictDocument(
+  data: Record<string, unknown>,
+  documentId: string,
+  type: string,
+  frontmatter: ReturnType<typeof splitFrontmatter>,
+  fields: ProjectedFields,
+  facets: Extract<ProjectedFacets, { readonly conformance: "strict" }>,
+): OkfDocument {
+  return {
+    id: documentId,
+    type,
+    title: fields.title,
+    tags: [...fields.tags],
+    sources: fields.sources.map((source) => ({
+      ...source,
+      ...(source.usageWindow ? { usageWindow: { ...source.usageWindow } } : {}),
+    })),
+    verified: fields.verified.map((event) => ({ ...event })),
+    body: frontmatter.body,
+    extensions: Object.fromEntries(
+      Object.entries(data).filter(([key]) => !STANDARD_KEYS.has(key)),
+    ),
+    ...(fields.description === undefined ? {} : { description: fields.description }),
+    ...(fields.resource === undefined ? {} : { resource: fields.resource }),
+    ...(fields.usageWindow === undefined ? {} : { usageWindow: { ...fields.usageWindow } }),
+    ...(fields.generated === undefined ? {} : { generated: { ...fields.generated } }),
+    status: facets.status,
+    ...(facets.staleness.staleAfter === undefined ? {} : { staleAfter: facets.staleness.staleAfter }),
+    ...(fields.runtime === undefined ? {} : { runtime: fields.runtime }),
+    ...(fields.parameters === undefined ? {} : {
+      parameters: fields.parameters.map((parameter) => ({ ...parameter })),
+    }),
+    ...(fields.computation === undefined ? {} : { computation: fields.computation }),
+    ...(fields.executor === undefined ? {} : {
+      executor: { ...fields.executor, receipt: [...fields.executor.receipt] },
+    }),
+    ...(fields.attester === undefined ? {} : { attester: { ...fields.attester } }),
+  };
+}
+
+function buildProjection(
+  identity: {
+    readonly documentId: string;
+    readonly path: string;
+    readonly type: string;
+  },
+  fields: ProjectedFields,
+  facets: Extract<ProjectedFacets, { readonly conformance: "strict" }>,
+  conceptSections: Section[],
+  body: string,
+  bodyStartLine: number,
+): Extract<OkfIndexProjection, { readonly conformance: "strict" }>;
+function buildProjection(
+  identity: {
+    readonly documentId: string;
+    readonly path: string;
+    readonly type: string;
+  },
+  fields: ProjectedFields,
+  facets: Extract<ProjectedFacets, { readonly conformance: "degraded" }>,
+  conceptSections: Section[],
+  body: string,
+  bodyStartLine: number,
+): Extract<OkfIndexProjection, { readonly conformance: "degraded" }>;
+function buildProjection(
+  identity: {
+    readonly documentId: string;
+    readonly path: string;
+    readonly type: string;
+  },
+  fields: ProjectedFields,
+  facets: ProjectedFacets,
+  conceptSections: Section[],
+  body: string,
+  bodyStartLine: number,
+): OkfIndexProjection {
+  const lines = body.split(/\r\n|\n|\r/);
+  const slugCounts = new Map<string, number>();
+  const chunks = conceptSections.flatMap((section) => {
+    const sectionId = uniqueSlug(section.slug, slugCounts);
+    return chunkSection(lines, bodyStartLine, section).map((value, index, all) => ({
+      id: all.length === 1
+        ? `${identity.documentId}#${sectionId}`
+        : `${identity.documentId}#${sectionId}--part-${index + 1}`,
+      headingPath: section.headingPath,
+      ...value,
+    }));
+  });
+  const first = chunks[0];
+  if (!first) {
+    throw new Error("OKF projection requires at least one record");
+  }
+
+  const common = {
+    documentId: identity.documentId,
+    path: identity.path,
+    title: fields.title,
+    description: fields.description ?? "",
+    type: identity.type,
+    tags: [...fields.tags],
+    resource: fields.resource ?? "",
+    sourceText: fields.sourceText,
+  };
+
+  if (facets.conformance === "strict") {
+    const strictFacets = {
+      conformance: "strict" as const,
+      status: facets.status,
+      trustTier: facets.trustTier,
+    };
+    const records = facets.staleness.staleAfter === undefined
+      ? chunks.map((value) => ({
+          ...common,
+          ...strictFacets,
+          stalenessClassified: true as const,
+          ...value,
+        }))
+      : chunks.map((value) => ({
+          ...common,
+          ...strictFacets,
+          stalenessClassified: true as const,
+          staleAfter: facets.staleness.staleAfter,
+          staleAfterEpoch: facets.staleness.staleAfterEpoch,
+          ...value,
+        }));
+    return {
+      ...identity,
+      conformance: "strict",
+      records: [records[0]!, ...records.slice(1)],
+    };
+  }
+
+  const degradedFacets = {
+    conformance: "degraded" as const,
+    ...(facets.status === undefined ? {} : { status: facets.status }),
+    ...(facets.trustTier === undefined ? {} : { trustTier: facets.trustTier }),
+  };
+  if (!facets.staleness.classified) {
+    const records = chunks.map((value) => ({
+      ...common,
+      ...degradedFacets,
+      stalenessClassified: false as const,
+      ...value,
+    }));
+    return {
+      ...identity,
+      conformance: "degraded",
+      records: [records[0]!, ...records.slice(1)],
+    };
+  }
+  if (facets.staleness.staleAfter === undefined) {
+    const records = chunks.map((value) => ({
+      ...common,
+      ...degradedFacets,
+      stalenessClassified: true as const,
+      ...value,
+    }));
+    return {
+      ...identity,
+      conformance: "degraded",
+      records: [records[0]!, ...records.slice(1)],
+    };
+  }
+  const staleAfter = facets.staleness.staleAfter;
+  const staleAfterEpoch = facets.staleness.staleAfterEpoch;
+  if (staleAfter === undefined || staleAfterEpoch === undefined) {
+    throw new Error("Classified stale_after requires text and epoch");
+  }
+  const records = chunks.map((value) => ({
+    ...common,
+    ...degradedFacets,
+    stalenessClassified: true as const,
+    staleAfter,
+    staleAfterEpoch,
+    ...value,
+  }));
+  return {
+    ...identity,
+    conformance: "degraded",
+    records: [records[0]!, ...records.slice(1)],
+  };
 }
 
 function validTimestamp(value: unknown): value is string {
   return typeof value === "string" && parseTimestamp(value) !== undefined;
-}
-
-function buildDocument(
-  data: Record<string, unknown>,
-  id: string,
-  frontmatter: ReturnType<typeof splitFrontmatter>,
-): ParsedDocument {
-  const verified = verificationValue(data.verified);
-  const status = Object.hasOwn(data, "status") ? data.status as OkfStatus : "stable";
-  const staleAfter = Object.hasOwn(data, "stale_after") ? data.stale_after as string : undefined;
-  const document: OkfDocument = {
-    id,
-    type: data.type as string,
-    title: Object.hasOwn(data, "title") ? data.title as string : titleFromId(id),
-    tags: Object.hasOwn(data, "tags") ? [...data.tags as string[]] : [],
-    sources: sourceList(data.sources),
-    verified: verified.events,
-    body: frontmatter.body,
-    extensions: Object.fromEntries(Object.entries(data).filter(([key]) => !STANDARD_KEYS.has(key))),
-    ...(Object.hasOwn(data, "description") ? { description: data.description as string } : {}),
-    ...(Object.hasOwn(data, "resource") ? { resource: data.resource as string } : {}),
-    ...(Object.hasOwn(data, "usage_window") ? { usageWindow: timeWindow(data.usage_window) } : {}),
-    ...(Object.hasOwn(data, "generated") ? { generated: generation(data.generated) } : {}),
-    status,
-    ...(staleAfter !== undefined ? { staleAfter } : {}),
-    ...(Object.hasOwn(data, "runtime") ? { runtime: data.runtime as string } : {}),
-    ...(Object.hasOwn(data, "parameters") ? { parameters: parameterList(data.parameters) } : {}),
-    ...(Object.hasOwn(data, "computation") ? { computation: data.computation as string } : {}),
-    ...(Object.hasOwn(data, "executor") ? { executor: executorValue(data.executor) } : {}),
-    ...(Object.hasOwn(data, "attester") ? { attester: attesterValue(data.attester) } : {}),
-  };
-
-  return {
-    document,
-    bodyStartLine: frontmatter.bodyStartLine,
-    status,
-    trustTier: verified.tier,
-    staleAfterEpoch: staleAfter === undefined ? undefined : parseTimestamp(staleAfter),
-    stalenessClassified: true,
-  };
-}
-
-function prepareParsedDocument(
-  parsed: ParsedDocument,
-  path: string,
-  conceptSections: Section[],
-): OkfPreparedDocument {
-  const { document, bodyStartLine } = parsed;
-  const lines = document.body.split(/\r\n|\n|\r/);
-  const slugCounts = new Map<string, number>();
-  const common = {
-    documentId: document.id,
-    path,
-    title: document.title,
-    description: document.description ?? "",
-    type: document.type,
-    tags: [...document.tags],
-    resource: document.resource ?? "",
-    sourceText: flattenSources(document.sources),
-    status: parsed.status,
-    trustTier: parsed.trustTier,
-    stalenessClassified: parsed.stalenessClassified,
-    ...(document.staleAfter ? { staleAfter: document.staleAfter } : {}),
-    ...(parsed.staleAfterEpoch !== undefined ? { staleAfterEpoch: parsed.staleAfterEpoch } : {}),
-  };
-  const records = conceptSections.flatMap((section): OkfIndexRecord[] => {
-    const sectionId = uniqueSlug(section.slug, slugCounts);
-    const chunks = chunkSection(lines, bodyStartLine, section);
-    return chunks.map((chunk, index) => ({
-      ...common,
-      id: chunks.length === 1 ? `${document.id}#${sectionId}` : `${document.id}#${sectionId}--part-${index + 1}`,
-      headingPath: section.headingPath,
-      text: chunk.text,
-      startLine: chunk.startLine,
-      endLine: chunk.endLine,
-    }));
-  });
-  return { document, records };
 }
 
 function splitFrontmatter(
@@ -655,73 +1093,6 @@ function chunk(
   };
 }
 
-function sourceList(value: unknown): OkfSource[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => {
-    const source = item as Record<string, unknown>;
-    return {
-      resource: source.resource as string,
-      ...(Object.hasOwn(source, "id") ? { id: source.id as string } : {}),
-      ...(Object.hasOwn(source, "title") ? { title: source.title as string } : {}),
-      ...(Object.hasOwn(source, "author") ? { author: source.author as string } : {}),
-      ...(Object.hasOwn(source, "usage_count") ? { usageCount: source.usage_count as number } : {}),
-      ...(Object.hasOwn(source, "last_modified") ? { lastModified: source.last_modified as string } : {}),
-      ...(Object.hasOwn(source, "usage_window") ? { usageWindow: timeWindow(source.usage_window) } : {}),
-    };
-  });
-}
-
-function verificationValue(value: unknown): {
-  events: OkfVerification[];
-  tier: OkfTrustTier;
-} {
-  if (value === undefined) return { events: [], tier: "unverified" };
-  const values = Array.isArray(value) ? value : [value];
-  const events = values.map((item) => {
-    const event = item as Record<string, string>;
-    return { by: event.by!, at: event.at! };
-  });
-  return {
-    events,
-    tier: events.some((event) => event.by.startsWith("human:"))
-      ? "human-reviewed"
-      : events.length ? "machine-confirmed" : "unverified",
-  };
-}
-
-function timeWindow(value: unknown): OkfTimeWindow {
-  const window = value as Record<string, string>;
-  return { from: window.from!, to: window.to! };
-}
-
-function generation(value: unknown): OkfDocument["generated"] {
-  const generated = value as Record<string, string>;
-  return {
-    by: generated.by!,
-    ...(Object.hasOwn(generated, "at") ? { at: generated.at } : {}),
-  };
-}
-
-function parameterList(value: unknown): NonNullable<OkfDocument["parameters"]> {
-  return (value as Array<Record<string, unknown>>).map((parameter) => ({
-    name: parameter.name as string,
-    type: parameter.type as string,
-    required: parameter.required as boolean,
-  }));
-}
-
-function executorValue(value: unknown): NonNullable<OkfDocument["executor"]> {
-  const executor = value as Record<string, unknown>;
-  return {
-    resource: executor.resource as string,
-    receipt: [...executor.receipt as string[]],
-  };
-}
-
-function attesterValue(value: unknown): NonNullable<OkfDocument["attester"]> {
-  return { resource: (value as Record<string, string>).resource! };
-}
-
 function validActor(value: string): boolean {
   return /^human:\S+$/.test(value) ||
     /^process:\S+$/.test(value) ||
@@ -799,23 +1170,6 @@ function daysInMonth(
   return [4, 6, 9, 11].includes(month)
     ? 30
     : 31;
-}
-
-function flattenSources(
-  sources: readonly OkfSource[],
-): string {
-  return sources
-    .flatMap((source) => [
-      source.id,
-      source.title,
-      source.author,
-      source.resource,
-    ])
-    .filter(
-      (value): value is string =>
-        Boolean(value),
-    )
-    .join(" ");
 }
 
 export function normalizeDocumentIdentity(

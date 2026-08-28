@@ -6,16 +6,20 @@ import type { OkfBundle } from "../src/index.js";
 import type { OkfReservedFile } from "../src/index.js";
 // @ts-expect-error OkfIndexRecord is not part of the package root API.
 import type { OkfIndexRecord } from "../src/index.js";
+// @ts-expect-error OkfConformance is private until Phase 2.
+import type { OkfConformance } from "../src/index.js";
 import { validateOkfDocument } from "../src/index.js";
 import type {
   OkfDiagnostic,
   OkfDiagnosticCode,
+  OkfDegradedDocument,
   OkfDocument,
   OkfDocumentInput,
   OkfErrorCode,
   OkfIngestResult,
   OkfSearch,
   OkfSearchField,
+  OkfSearchHit,
   OkfSearchOptions,
   OkfStatus,
   OkfValidationResult,
@@ -29,16 +33,33 @@ type ExactOkfValidationResult = Assert<Same<
   OkfValidationResult,
   {
     readonly isValid: boolean;
+    readonly isIndexable: boolean;
     readonly errors: readonly OkfDiagnostic[];
+  }
+>>;
+type ExactOkfDegradedDocument = Assert<Same<
+  OkfDegradedDocument,
+  {
+    readonly documentId: string;
+    readonly path: string;
+    readonly diagnostics: readonly [OkfDiagnostic, ...OkfDiagnostic[]];
   }
 >>;
 type ExactOkfIngestResult = Assert<Same<
   OkfIngestResult,
-  { document: OkfDocument }
+  | {
+      readonly conformance: "strict";
+      readonly document: OkfDocument;
+    }
+  | ({ readonly conformance: "degraded" } & OkfDegradedDocument)
 >>;
 type ExactOkfDocumentStatus = Assert<Same<
   OkfDocument["status"],
   OkfStatus
+>>;
+type ExactOkfListDegradedDocuments = Assert<Same<
+  OkfSearch["listDegradedDocuments"],
+  () => readonly OkfDegradedDocument[]
 >>;
 type ExactOkfListTypes = Assert<Same<
   OkfSearch["listTypes"],
@@ -51,6 +72,27 @@ type ExactOkfRemove = Assert<Same<
 type ExactOkfSearchBoost = Assert<Same<
   OkfSearchOptions["boost"],
   Readonly<Partial<Record<OkfSearchField, number>>> | undefined
+>>;
+type ExactOkfSearchOptionKeys = Assert<Same<
+  keyof OkfSearchOptions,
+  "limit" | "where" | "asOf" | "match" | "fields" | "boost" | "fuzzy"
+>>;
+type ExactOkfSearchWhereKeys = Assert<Same<
+  keyof NonNullable<OkfSearchOptions["where"]>,
+  "types" | "tagsAny" | "statuses" | "trustTiers" | "stale"
+>>;
+type ExactOkfSearchHitKeys = Assert<Same<
+  keyof OkfSearchHit,
+  | "documentId"
+  | "title"
+  | "sectionId"
+  | "score"
+  | "matchedFields"
+  | "headingPath"
+  | "path"
+  | "startLine"
+  | "endLine"
+  | "snippet"
 >>;
 type ExactOkfErrorCode = Assert<Same<
   OkfErrorCode,
@@ -69,6 +111,7 @@ const validate: (
 ) => OkfValidationResult = validateOkfDocument;
 const validation: OkfValidationResult = {
   isValid: true,
+  isIndexable: true,
   errors: [],
 };
 // @ts-expect-error Validation result state is readonly.
@@ -83,17 +126,46 @@ const diagnosticCode: OkfDiagnosticCode = "ERR_OKF_PARSE";
 const unusableCode: OkfErrorCode = "ERR_OKF_INDEX_UNUSABLE";
 // @ts-expect-error Fatal handle state is not a document diagnostic.
 const unusableDiagnostic: OkfDiagnosticCode = "ERR_OKF_INDEX_UNUSABLE";
+const diagnostic: OkfDiagnostic = {
+  code: "ERR_OKF_FIELD",
+  path: "concept.md",
+  field: "status",
+  message: "diagnostic",
+};
+const degradedDocument: OkfDegradedDocument = {
+  documentId: "concept",
+  path: "concept.md",
+  diagnostics: [diagnostic],
+};
+declare const ingestResult: OkfIngestResult;
+if (ingestResult.conformance === "strict") {
+  const strictDocument: OkfDocument = ingestResult.document;
+  void strictDocument;
+} else {
+  const degradedResult: OkfDegradedDocument = ingestResult;
+  // @ts-expect-error Degraded ingest does not expose a document.
+  ingestResult.document;
+  void degradedResult;
+}
 void [
   validate,
   validation,
   diagnosticCode,
   unusableCode,
   unusableDiagnostic,
+  diagnostic,
+  degradedDocument,
+  null as unknown as OkfConformance,
   null as unknown as ExactOkfErrorCode,
   null as unknown as ExactOkfDiagnosticCode,
   null as unknown as ExactOkfValidationResult,
+  null as unknown as ExactOkfDegradedDocument,
   null as unknown as ExactOkfIngestResult,
   null as unknown as ExactOkfDocumentStatus,
+  null as unknown as ExactOkfSearchOptionKeys,
+  null as unknown as ExactOkfSearchWhereKeys,
+  null as unknown as ExactOkfSearchHitKeys,
+  null as unknown as ExactOkfListDegradedDocuments,
   null as unknown as ExactOkfListTypes,
   null as unknown as ExactOkfRemove,
   null as unknown as ExactOkfSearchBoost,

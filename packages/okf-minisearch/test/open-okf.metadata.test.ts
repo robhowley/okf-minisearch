@@ -60,17 +60,168 @@ describe("optional metadata", () => {
     ["status", "status: future", "status"],
     ["verification", "verified: broken", "verified"],
     ["staleness", "stale_after: yesterday", "stale_after"],
-  ])("rejects malformed present %s metadata", async (_name, metadata, field) => {
-    const tree = await createBundle({
+  ])("indexes malformed present %s metadata as unclassified", async (
+    name,
+    metadata,
+    field,
+  ) => {
+    const okf = await open({
       "malformed.md": concept(`type: note\n${metadata}`, "facetneedle"),
     });
-    bundles.push(tree);
 
-    await expect(openOkf(tree.root)).rejects.toMatchObject({
-      code: "ERR_OKF_FIELD",
-      path: "malformed.md",
-      field,
+    expect(ids(okf)).toEqual(["malformed"]);
+    expect(okf.listDegradedDocuments()).toEqual([
+      expect.objectContaining({
+        documentId: "malformed",
+        path: "malformed.md",
+        diagnostics: [expect.objectContaining({ field })],
+      }),
+    ]);
+
+    if (name === "status") {
+      expect(ids(okf, {
+        where: { statuses: ["draft", "stable", "deprecated"] },
+      })).toEqual([]);
+    } else if (name === "verification") {
+      expect(ids(okf, {
+        where: {
+          trustTiers: [
+            "unverified",
+            "machine-confirmed",
+            "human-reviewed",
+          ],
+        },
+      })).toEqual([]);
+    } else {
+      expect(ids(okf, {
+        where: { stale: true },
+      })).toEqual([]);
+      expect(ids(okf, {
+        where: { stale: false },
+      })).toEqual([]);
+    }
+  });
+
+  it("returns normalized, sorted, deeply detached current degraded state", async () => {
+    const okf = await open({});
+
+    okf.ingest({
+      path: "z.md",
+      markdown: concept("type: note\ntitle: 1", "inventoryneedle z"),
     });
+    okf.ingest({
+      path: "./a//nested.md",
+      markdown: concept("type: note\ntags: [kept, 1]", "inventoryneedle a"),
+    });
+    okf.ingest({
+      path: "A.md",
+      markdown: concept("type: note\ndescription: 1", "inventoryneedle upper"),
+    });
+
+    const first = okf.listDegradedDocuments();
+
+    expect(first).toEqual([
+      expect.objectContaining({
+        documentId: "A",
+        path: "A.md",
+        diagnostics: [expect.objectContaining({ field: "description" })],
+      }),
+      expect.objectContaining({
+        documentId: "a/nested",
+        path: "a/nested.md",
+        diagnostics: [expect.objectContaining({ field: "tags[1]" })],
+      }),
+      expect.objectContaining({
+        documentId: "z",
+        path: "z.md",
+        diagnostics: [expect.objectContaining({ field: "title" })],
+      }),
+    ]);
+
+    first[0]!.diagnostics[0]!.message = "caller mutation";
+    Array.prototype.push.call(
+      first[0]!.diagnostics,
+      first[0]!.diagnostics[0]!,
+    );
+
+    const second = okf.listDegradedDocuments();
+    expect(second).not.toBe(first);
+    expect(second[0]).not.toBe(first[0]);
+    expect(second[0]!.diagnostics).not.toBe(first[0]!.diagnostics);
+    expect(second[0]!.diagnostics[0]).not.toBe(first[0]!.diagnostics[0]);
+    expect(second[0]!.diagnostics).toEqual([
+      expect.objectContaining({
+        field: "description",
+        message: "Invalid OKF field: A.md (description)",
+      }),
+    ]);
+
+    okf.ingest({
+      path: "z.md",
+      markdown: concept("type: note\nresource: 1", "inventoryneedle replaced"),
+    });
+    const replaced = okf.listDegradedDocuments().find(
+      (document: { readonly path: string }) => document.path === "z.md",
+    );
+    expect(replaced?.diagnostics).toEqual([
+      expect.objectContaining({ field: "resource" }),
+    ]);
+
+    for (const path of ["A.md", "a/nested.md"]) {
+      okf.ingest({
+        path,
+        markdown: concept("type: note", "inventoryneedle recovered"),
+      });
+    }
+    expect(okf.listDegradedDocuments()).toEqual([
+      expect.objectContaining({ path: "z.md" }),
+    ]);
+
+    expect(okf.remove("./z.md")).toBe(true);
+    expect(okf.listDegradedDocuments()).toEqual([]);
+  });
+
+  it("tracks strict, degraded, fatal, and recovered current state", async () => {
+    const okf = await open({});
+
+    okf.ingest({
+      path: "transition.md",
+      markdown: concept("type: original", "transitionstrictneedle"),
+    });
+    expect(okf.listDegradedDocuments()).toEqual([]);
+
+    okf.ingest({
+      path: "./transition.md",
+      markdown: concept(
+        "type: degraded\nstatus: future",
+        "transitiondegradedneedle",
+      ),
+    });
+    const degraded = okf.listDegradedDocuments();
+    expect(degraded).toEqual([
+      expect.objectContaining({
+        documentId: "transition",
+        path: "transition.md",
+        diagnostics: [expect.objectContaining({ field: "status" })],
+      }),
+    ]);
+
+    expect(() => okf.ingest({
+      path: "transition.md",
+      markdown: concept("type: '   '", "transitionfatalneedle"),
+    })).toThrow(expect.objectContaining({
+      code: "ERR_OKF_FIELD",
+      field: "type",
+    }));
+    expect(okf.listDegradedDocuments()).toEqual(degraded);
+    expect(okf.listTypes()).toEqual(["degraded"]);
+
+    okf.ingest({
+      path: "transition.md",
+      markdown: concept("type: recovered", "transitionrecoveredneedle"),
+    });
+    expect(okf.listDegradedDocuments()).toEqual([]);
+    expect(okf.listTypes()).toEqual(["recovered"]);
   });
 
   it("classifies valid status values and defaults absent status to stable", async () => {
