@@ -10,6 +10,7 @@ import * as api from "../src/index.js";
 import type {
   IsoDateTime,
   OkfAttester,
+  OkfConformance,
   OkfDiagnostic,
   OkfDiagnosticCode,
   OkfDegradedDocument,
@@ -100,6 +101,7 @@ describe("package API", () => {
       expect.objectContaining({
         documentId: "package-api",
         path: "package-api.md",
+        conformance: "strict",
       }),
     ]);
     expectTypeOf(result).toMatchTypeOf<OkfIngestResult>();
@@ -133,6 +135,14 @@ describe("package API", () => {
       documentId: "degraded-package-api",
       path: "degraded-package-api.md",
     });
+    expect(okf.search("packageboundarydegradedneedle", {
+      where: { conformance: ["degraded"] as const },
+    })).toEqual([
+      expect.objectContaining({
+        documentId: "degraded-package-api",
+        conformance: "degraded",
+      }),
+    ]);
     const inventory = okf.listDegradedDocuments();
     expect(inventory).toEqual([
       expect.objectContaining({
@@ -301,11 +311,13 @@ describe("package API", () => {
   it("exports the exact search controls contract", () => {
     const fields = ["heading", "body"] as const;
     const boost = { title: 1.5, body: 2 } as const;
+    const conformance = ["strict", "degraded"] as const;
     const options: OkfSearchOptions = {
       match: "all",
       fields,
       fuzzy: true,
       boost,
+      where: { conformance },
     };
 
     expectTypeOf<OkfSearchField>().toEqualTypeOf<
@@ -326,6 +338,13 @@ describe("package API", () => {
       .toEqualTypeOf<boolean | number | undefined>();
     expectTypeOf<OkfSearchOptions["boost"]>()
       .toEqualTypeOf<Readonly<Partial<Record<OkfSearchField, number>>> | undefined>();
+    expectTypeOf<OkfConformance>().toEqualTypeOf<
+      "strict" | "degraded"
+    >();
+    expectTypeOf<NonNullable<OkfSearchOptions["where"]>["conformance"]>()
+      .toEqualTypeOf<readonly OkfConformance[] | undefined>();
+    expectTypeOf<OkfSearchHit["conformance"]>()
+      .toEqualTypeOf<OkfConformance>();
     expectTypeOf<OkfSearchHit["matchedFields"]>()
       .toEqualTypeOf<OkfSearchField[]>();
     expectTypeOf<OkfSearchHit["title"]>()
@@ -335,6 +354,7 @@ describe("package API", () => {
       fields,
       fuzzy: true,
       boost,
+      where: { conformance },
     });
   });
 

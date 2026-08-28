@@ -6,10 +6,9 @@ import type { OkfBundle } from "../src/index.js";
 import type { OkfReservedFile } from "../src/index.js";
 // @ts-expect-error OkfIndexRecord is not part of the package root API.
 import type { OkfIndexRecord } from "../src/index.js";
-// @ts-expect-error OkfConformance is private until Phase 2.
-import type { OkfConformance } from "../src/index.js";
 import { validateOkfDocument } from "../src/index.js";
 import type {
+  OkfConformance,
   OkfDiagnostic,
   OkfDiagnosticCode,
   OkfDegradedDocument,
@@ -29,6 +28,10 @@ type Same<T, U> =
   (<V>() => V extends T ? 1 : 2) extends
   (<V>() => V extends U ? 1 : 2) ? true : false;
 type Assert<T extends true> = T;
+type ExactOkfConformance = Assert<Same<
+  OkfConformance,
+  "strict" | "degraded"
+>>;
 type ExactOkfValidationResult = Assert<Same<
   OkfValidationResult,
   | {
@@ -92,6 +95,10 @@ type ExactOkfSearchWhereKeys = Assert<Same<
   "types" | "tagsAny" | "statuses" | "trustTiers" | "stale"
   | "conformance"
 >>;
+type ExactOkfSearchConformance = Assert<Same<
+  NonNullable<OkfSearchOptions["where"]>["conformance"],
+  readonly OkfConformance[] | undefined
+>>;
 type ExactOkfSearchHitKeys = Assert<Same<
   keyof OkfSearchHit,
   | "documentId"
@@ -105,6 +112,10 @@ type ExactOkfSearchHitKeys = Assert<Same<
   | "startLine"
   | "endLine"
   | "snippet"
+>>;
+type ExactOkfSearchHitConformance = Assert<Same<
+  OkfSearchHit["conformance"],
+  OkfConformance
 >>;
 type ExactOkfErrorCode = Assert<Same<
   OkfErrorCode,
@@ -174,6 +185,7 @@ void [
   diagnostic,
   degradedDocument,
   null as unknown as OkfConformance,
+  null as unknown as ExactOkfConformance,
   null as unknown as ExactOkfErrorCode,
   null as unknown as ExactOkfDiagnosticCode,
   null as unknown as ExactOkfValidationResult,
@@ -182,7 +194,9 @@ void [
   null as unknown as ExactOkfDocumentStatus,
   null as unknown as ExactOkfSearchOptionKeys,
   null as unknown as ExactOkfSearchWhereKeys,
+  null as unknown as ExactOkfSearchConformance,
   null as unknown as ExactOkfSearchHitKeys,
+  null as unknown as ExactOkfSearchHitConformance,
   null as unknown as ExactOkfListDegradedDocuments,
   null as unknown as ExactOkfListTypes,
   null as unknown as ExactOkfRemove,
@@ -201,9 +215,13 @@ const stringFuzzy: OkfSearchOptions = { fuzzy: "true" };
 void [booleanFuzzy, numericFuzzy, stringFuzzy];
 
 const readonlyBoosts = { title: 1.5, body: 2 } as const;
+const readonlyConformance = ["strict", "degraded"] as const;
 const readonlySearchOptions: OkfSearchOptions = {
   boost: readonlyBoosts,
+  where: { conformance: readonlyConformance },
 };
+// @ts-expect-error Conformance filters are readonly.
+readonlySearchOptions.where?.conformance?.push("strict");
 // @ts-expect-error MiniSearch's internal field name is not public.
 const internalHeadingBoost: OkfSearchOptions = { boost: { headingPath: 2 } };
 // @ts-expect-error MiniSearch's internal field name is not public.
@@ -217,6 +235,7 @@ const nestedBoostOption: OkfSearchOptions = { ["relevance"]: { boost: { title: 2
 
 void [
   readonlyBoosts,
+  readonlyConformance,
   readonlySearchOptions,
   internalHeadingBoost,
   internalSourceBoost,
