@@ -32,7 +32,7 @@ Run `/okf status` to confirm which directory Pi loaded, which document types it 
 
 ![The OKF status command showing the loaded root, document types, degraded document count, and index freshness](docs/okf-status.png)
 
-The `Degraded` row reports one count per degraded logical document in the loaded snapshot. It shows `0 · clean` when the snapshot has none, or `1 document` / `N documents` otherwise. “Clean” describes only that loaded snapshot; it does not describe excluded files, a failed build or refresh, or source files changed on disk after the snapshot was loaded.
+The `Degraded` row shows how many documents in the loaded snapshot need repair. `0 · clean` means none do.
 
 ## Configuration
 
