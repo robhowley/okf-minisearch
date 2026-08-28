@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.0.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v1.2.0...okf-minisearch-v2.0.0) (2026-08-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **okf-minisearch:** add conformance search controls ([#37](https://github.com/robhowley/okf-minisearch/issues/37))
+* **okf-minisearch:** support degraded documents ([#35](https://github.com/robhowley/okf-minisearch/issues/35))
+
+### Features
+
+* **okf-minisearch:** add conformance search controls ([#37](https://github.com/robhowley/okf-minisearch/issues/37)) ([0126dca](https://github.com/robhowley/okf-minisearch/commit/0126dca9cc63d419a8133d3a980f003071e155be))
+* **okf-minisearch:** support degraded documents ([#35](https://github.com/robhowley/okf-minisearch/issues/35)) ([670be13](https://github.com/robhowley/okf-minisearch/commit/670be13ada0d28fb3d60f10a12432a2c79a49da8))
+
 ## [1.2.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v1.1.0...okf-minisearch-v1.2.0) (2026-08-27)
 
 
