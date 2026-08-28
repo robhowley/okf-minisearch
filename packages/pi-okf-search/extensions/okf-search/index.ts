@@ -188,15 +188,21 @@ export default function okfSearchExtension(pi: ExtensionAPI): void {
 
       try {
         const invokedAt = Date.now();
-        const { root, types, indexedAt } = await runtime.status(ctx);
+        const { root, types, degradedDocumentCount, indexedAt } =
+          await runtime.status(ctx);
         const theme = ctx.mode === "tui" ? ctx.ui.theme : undefined;
         const paint = (
-          color: "accent" | "text" | "muted",
+          color: "accent" | "text" | "muted" | "warning",
           text: string,
         ): string => theme?.fg(color, text) ?? text;
         const label = (text: string): string =>
           paint("muted", text.padEnd(10));
         const typeList = types.length === 0 ? "(none)" : types.join(" · ");
+        const degraded =
+          degradedDocumentCount === 0
+            ? "0 · clean"
+            : `${degradedDocumentCount} document${degradedDocumentCount === 1 ? "" : "s"}`;
+        const degradedColor = degradedDocumentCount === 0 ? "text" : "warning";
 
         ctx.ui.notify(
           [
@@ -204,6 +210,7 @@ export default function okfSearchExtension(pi: ExtensionAPI): void {
             "",
             `  ${label("Root")}${paint("text", root)}`,
             `  ${label("Types")}${paint("text", typeList)}`,
+            `  ${label("Degraded")}${paint(degradedColor, degraded)}`,
             `  ${label("Indexed")}${paint("text", formatIndexedAge(indexedAt, invokedAt))}`,
           ].join("\n"),
           "info",

@@ -28,9 +28,11 @@ Search the knowledge base to find the rollback procedure.
 
 ## Inspect the loaded index
 
-Run `/okf status` to confirm which directory Pi loaded, which document types it found, and how recently it built the in-memory index.
+Run `/okf status` to confirm which directory Pi loaded, which document types it found, whether the loaded snapshot has degraded documents, and how recently it built the in-memory index.
 
-![The OKF status command showing the loaded root, document types, and index freshness](docs/okf-status.png)
+![The OKF status command showing the loaded root, document types, degraded document count, and index freshness](docs/okf-status.png)
+
+The `Degraded` row shows how many documents in the loaded snapshot need repair. `0 · clean` means none do.
 
 ## Configuration
 

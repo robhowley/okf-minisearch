@@ -368,61 +368,92 @@ describe("okf_search extension", () => {
     {
       types: ["guide", "runbook"],
       expectedTypes: "guide · runbook",
+      degradedDocumentCount: 0,
+      expectedDegraded: "0 · clean",
     },
-    { types: [], expectedTypes: "(none)" },
-  ])("formats status with loaded root and types", async ({ types, expectedTypes }) => {
-    const pi = installExtension();
-    const command = onlyCommand(pi);
-    const runtime = runtimes[0]!;
-    const { context, notify } = makeContext();
-    vi.spyOn(Date, "now").mockReturnValue(NOW);
-    runtime.status.mockResolvedValueOnce({
-      root: "/workspace/knowledge",
+    {
+      types: [],
+      expectedTypes: "(none)",
+      degradedDocumentCount: 1,
+      expectedDegraded: "1 document",
+    },
+    {
+      types: ["guide"],
+      expectedTypes: "guide",
+      degradedDocumentCount: 2,
+      expectedDegraded: "2 documents",
+    },
+  ])(
+    "formats status rows in plain output",
+    async ({
       types,
-      indexedAt: NOW,
-    });
+      expectedTypes,
+      degradedDocumentCount,
+      expectedDegraded,
+    }) => {
+      const pi = installExtension();
+      const command = onlyCommand(pi);
+      const runtime = runtimes[0]!;
+      const { context, notify } = makeContext();
+      vi.spyOn(Date, "now").mockReturnValue(NOW);
+      runtime.status.mockResolvedValueOnce({
+        root: "/workspace/knowledge",
+        types,
+        degradedDocumentCount,
+        indexedAt: NOW,
+      });
 
-    await command.handler(" \tstatus\n ", context);
+      await command.handler(" \tstatus\n ", context);
 
-    expect(runtime.status).toHaveBeenCalledTimes(1);
-    expect(runtime.status).toHaveBeenCalledWith(context);
-    expect(notify).toHaveBeenCalledWith(
-      [
-        "◆ OKF snapshot",
-        "",
-        "  Root      /workspace/knowledge",
-        `  Types     ${expectedTypes}`,
-        "  Indexed   just now",
-      ].join("\n"),
-      "info",
-    );
-  });
+      expect(runtime.status).toHaveBeenCalledTimes(1);
+      expect(runtime.status).toHaveBeenCalledWith(context);
+      expect(notify).toHaveBeenCalledWith(
+        [
+          "◆ OKF snapshot",
+          "",
+          "  Root      /workspace/knowledge",
+          `  Types     ${expectedTypes}`,
+          `  Degraded  ${expectedDegraded}`,
+          "  Indexed   just now",
+        ].join("\n"),
+        "info",
+      );
+    },
+  );
 
-  it("uses the active TUI theme for status hierarchy", async () => {
-    const pi = installExtension();
-    const command = onlyCommand(pi);
-    const runtime = runtimes[0]!;
-    const { context, notify } = makeContext("tui");
-    vi.spyOn(Date, "now").mockReturnValue(NOW);
-    runtime.status.mockResolvedValueOnce({
-      root: "/Users/roberthowley/Documents/sample-bundle",
-      types: ["Garden Guide", "concept"],
-      indexedAt: NOW,
-    });
+  it.each([
+    { degradedDocumentCount: 0, expectedDegraded: "<text>0 · clean</text>" },
+    { degradedDocumentCount: 2, expectedDegraded: "<warning>2 documents</warning>" },
+  ])(
+    "uses the active TUI theme for degraded count $degradedDocumentCount",
+    async ({ degradedDocumentCount, expectedDegraded }) => {
+      const pi = installExtension();
+      const command = onlyCommand(pi);
+      const runtime = runtimes[0]!;
+      const { context, notify } = makeContext("tui");
+      vi.spyOn(Date, "now").mockReturnValue(NOW);
+      runtime.status.mockResolvedValueOnce({
+        root: "/Users/roberthowley/Documents/sample-bundle",
+        types: ["Garden Guide", "concept"],
+        degradedDocumentCount,
+        indexedAt: NOW,
+      });
 
-    await command.handler("status", context);
+      await command.handler("status", context);
 
-    expect(notify).toHaveBeenCalledWith(
-      [
-        "<accent>◆ OKF</accent> <text>snapshot</text>",
-        "",
-        "  <muted>Root      </muted><text>/Users/roberthowley/Documents/sample-bundle</text>",
-        "  <muted>Types     </muted><text>Garden Guide · concept</text>",
-        "  <muted>Indexed   </muted><text>just now</text>",
-      ].join("\n"),
-      "info",
-    );
-  });
+      expect(notify).toHaveBeenCalledWith(
+        [
+          "<accent>◆ OKF</accent> <text>snapshot</text>",
+          "",
+          "  <muted>Root      </muted><text>/Users/roberthowley/Documents/sample-bundle</text>",
+          "  <muted>Types     </muted><text>Garden Guide · concept</text>",
+          `  <muted>Degraded  </muted>${expectedDegraded}`,
+          "  <muted>Indexed   </muted><text>just now</text>",
+        ].join("\n"),
+        "info",
+      );
+    },
+  );
 
   it.each([
     { age: 0, expected: "just now" },
@@ -444,9 +475,9 @@ describe("okf_search extension", () => {
     runtime.status.mockResolvedValueOnce({
       root: "/workspace/knowledge",
       types: [],
+      degradedDocumentCount: 0,
       indexedAt: NOW - age,
     });
-
     await command.handler("status", context);
 
     expect(notify).toHaveBeenCalledWith(
@@ -455,6 +486,7 @@ describe("okf_search extension", () => {
         "",
         "  Root      /workspace/knowledge",
         "  Types     (none)",
+        "  Degraded  0 · clean",
         `  Indexed   ${expected}`,
       ].join("\n"),
       "info",
@@ -472,9 +504,9 @@ describe("okf_search extension", () => {
     runtime.status.mockResolvedValue({
       root: "/workspace/knowledge",
       types: [],
+      degradedDocumentCount: 0,
       indexedAt: NOW,
     });
-
     await command.handler("status", context);
     await command.handler("status", context);
 
@@ -485,6 +517,7 @@ describe("okf_search extension", () => {
         "",
         "  Root      /workspace/knowledge",
         "  Types     (none)",
+        "  Degraded  0 · clean",
         "  Indexed   just now",
       ].join("\n"),
       [
@@ -492,6 +525,7 @@ describe("okf_search extension", () => {
         "",
         "  Root      /workspace/knowledge",
         "  Types     (none)",
+        "  Degraded  0 · clean",
         "  Indexed   5s ago",
       ].join("\n"),
     ]);
@@ -506,9 +540,9 @@ describe("okf_search extension", () => {
     runtime.status.mockResolvedValueOnce({
       root: "/workspace/knowledge",
       types: [],
+      degradedDocumentCount: 0,
       indexedAt: NOW,
     });
-
     await command.handler("status", context);
 
     expect(notify).toHaveBeenCalledWith(
@@ -517,6 +551,7 @@ describe("okf_search extension", () => {
         "",
         "  Root      /workspace/knowledge",
         "  Types     (none)",
+        "  Degraded  0 · clean",
         "  Indexed   just now",
       ].join("\n"),
       "info",
