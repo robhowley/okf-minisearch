@@ -12,6 +12,7 @@ import {
 
 import MiniSearch from "minisearch";
 
+import { autoSuggest } from "./auto-suggest.js";
 import { OkfError } from "./errors.js";
 import {
   normalizeDocumentIdentity,
@@ -204,6 +205,11 @@ export async function openOkf(
     search(query, options) {
       assertUsable();
       return search(index, query, options);
+    },
+
+    autoSuggest(query, options) {
+      assertUsable();
+      return autoSuggest(index, query, options);
     },
   };
 }

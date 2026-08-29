@@ -168,6 +168,14 @@ export interface OkfSearchOptions {
   fuzzy?: boolean | number;
 }
 
+export type OkfAutoSuggestOptions = OkfSearchOptions;
+
+export interface OkfSuggestion {
+  readonly suggestion: string;
+  readonly terms: readonly string[];
+  readonly score: number;
+}
+
 export interface OkfSearchHit {
   documentId: string;
   title: string;
@@ -196,4 +204,9 @@ export interface OkfSearch {
     query: string,
     options?: OkfSearchOptions,
   ): OkfSearchHit[];
+
+  autoSuggest(
+    query: string,
+    options?: OkfAutoSuggestOptions,
+  ): OkfSuggestion[];
 }
