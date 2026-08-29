@@ -27,7 +27,7 @@ const packageRoots = {
 };
 const packageNames = {
   library: "okf-minisearch",
-  pi: "@robhowley/pi-okf-search",
+  pi: "pi-okf-search",
 };
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
@@ -741,7 +741,7 @@ async function prepareConsumer(
     type: "module",
     dependencies: {
       "okf-minisearch": `file:../tarballs/${libraryFilename}`,
-      "@robhowley/pi-okf-search": `file:../tarballs/${piFilename}`,
+      "pi-okf-search": `file:../tarballs/${piFilename}`,
       "@earendil-works/pi-ai": "0.84.3",
       "@earendil-works/pi-coding-agent": "0.84.3",
       typebox: "1.3.7",
@@ -778,7 +778,7 @@ async function prepareConsumer(
     ].join("\n"),
   );
   await writeJson(join(agentDir, "settings.json"), {
-    packages: [join(consumerRoot, "node_modules", "@robhowley", "pi-okf-search")],
+    packages: [join(consumerRoot, "node_modules", "pi-okf-search")],
     "pi-okf-search": { root: "../fixture" },
   });
 

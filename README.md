@@ -1,13 +1,13 @@
 # okf-minisearch
 
-`okf-minisearch` is a Node.js library for searching local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown. It builds an in-memory MiniSearch index; the companion `@robhowley/pi-okf-search` package exposes the same search through one read-only `okf_search` tool.
+`okf-minisearch` is a Node.js library for searching local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown. It builds an in-memory MiniSearch index; the companion `pi-okf-search` package exposes the same search through one read-only `okf_search` tool.
 
 [![Package validation](https://github.com/robhowley/okf-minisearch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/robhowley/okf-minisearch/actions/workflows/ci.yml)
 
 ## Choose an entry point
 
 - **Node.js users:** [`okf-minisearch`](packages/okf-minisearch/README.md) is the ESM library and TypeScript API.
-- **Pi users:** [`@robhowley/pi-okf-search`](packages/pi-okf-search/README.md) searches one configured local OKF tree from a Pi session.
+- **Pi users:** [`pi-okf-search`](packages/pi-okf-search/README.md) searches one configured local OKF tree from a Pi session.
 - **Contributors:** see [Development](#development) for workspace setup and checks.
 
 ## Use from Node.js
@@ -60,10 +60,10 @@ OKF Markdown → openOkf() → in-memory MiniSearch index → relevant section
 
 ## Use from Pi
 
-Once `@robhowley/pi-okf-search` is available on npm, install it globally:
+Once `pi-okf-search` is available on npm, install it globally:
 
 ```sh
-pi install npm:@robhowley/pi-okf-search
+pi install npm:pi-okf-search
 ```
 
 Merge a root into `~/.pi/agent/settings.json` (use an absolute path for the clearest first setup):
