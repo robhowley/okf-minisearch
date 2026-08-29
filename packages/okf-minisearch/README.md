@@ -162,6 +162,49 @@ Details worth knowing:
 
 Degraded documents are searched by default and do not receive a general score penalty. A stronger degraded match ranks above a weaker strict match; strict wins only when scores are exactly equal. Trust tiers and conformance change which documents are included only when used as filters.
 
+## Auto-suggest
+
+Use `autoSuggest` for phrase completions without exposing MiniSearch details:
+
+```js
+const suggestions = okf.autoSuggest("roll sna", {
+  limit: 5,
+  where: { types: ["runbook"] },
+});
+
+for (const { suggestion, terms, score } of suggestions) {
+  console.log(suggestion, terms, score);
+}
+```
+
+It returns wrapper-owned results with no document metadata:
+
+```ts
+interface OkfSuggestion {
+  readonly suggestion: string;
+  readonly terms: readonly string[];
+  readonly score: number;
+}
+```
+
+`terms` are the completed indexed terms, so prefix or fuzzy matching can differ from the query. `score` is an opaque ranking value: use it to order results from one call with one option profile, not to compare calls, indexes, or MiniSearch versions. Suggestions preserve native MiniSearch phrase grouping: records producing the same completed phrase are combined, and their score is averaged. Filtering runs per indexed record before grouping; `limit` is applied after grouping and score ordering. Equal scores have no wrapper-defined secondary order and should not be treated as deterministic.
+
+### Suggestion options
+
+Suggestions accept the same option shape as [`search`](#query-options), but their defaults are intentionally different:
+
+| Option | Suggestion default and behavior |
+| --- | --- |
+| `limit` | `10`; applied after native grouping and ordering. `0` returns `[]` after validation. |
+| `where` | Omitted; filters combine with AND, values in each array with OR, and empty arrays are ignored. Applied before grouping. |
+| `asOf` | One `new Date()` captured per call; controls `where.stale`. |
+| `match` | `"all"`; explicit `"any"` uses OR matching. |
+| `fields` | All eight public search fields: `resource`, `title`, `heading`, `description`, `tags`, `type`, `sources`, and `body`. |
+| `boost` | Neutral `1` for every searched field; omitted fields remain neutral. |
+| `fuzzy` | Disabled when omitted, `false`, or `0`; `true` means `0.2`, and numbers from `0` through `1` are accepted. |
+
+The final query term uses native prefix matching, including one- and two-character prefixes; there is no three-character threshold. The final term is still prefix-matched when fuzzy matching is enabled. In contrast, `search` defaults to `match: "any"`, its OKF baseline field weights (`resource: 6`, `title: 5`, `heading: 4`, `description: 3`, `tags: 2`, `type: 1.5`, `sources: 1`, `body: 1`), and a three-character minimum for final-term prefix matching. `search` also returns at most one hit per document, while suggestions group matching indexed records by phrase.
+
 ## Validate a document
 
 Use `validateOkfDocument` to check in-memory Markdown without opening a directory or changing an index:

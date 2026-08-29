@@ -51,6 +51,7 @@ console.log({
 
 - Recursively loads a local OKF Markdown tree into an in-memory MiniSearch index; no separate service.
 - Returns one ranked section per document with its title, path, heading path, line range, and snippet.
+- Provides phrase-level `autoSuggest` completions; see the [library auto-suggest guide](packages/okf-minisearch/README.md#auto-suggest).
 - Filters by type, tags, status, trust tier, and staleness.
 - Provides `ingest` for add/replace updates and `remove` for explicit in-memory removal. Malformed replacements leave existing records searchable, and source files stay unchanged.
 
