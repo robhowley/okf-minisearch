@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/robhowley/okf-minisearch/compare/pi-okf-search-v0.2.1...pi-okf-search-v0.3.0) (2026-08-29)
+
+
+### Features
+
+* **pi-okf-search:** expose conformance filter and remove package scope ([#43](https://github.com/robhowley/okf-minisearch/issues/43)) ([a2369c7](https://github.com/robhowley/okf-minisearch/commit/a2369c739f7e87c558e089e77507780f37a589e7))
+* **pi-okf-search:** show degraded document status ([#41](https://github.com/robhowley/okf-minisearch/issues/41)) ([e8515ff](https://github.com/robhowley/okf-minisearch/commit/e8515ff317dc56ea00cd4e0da068a39298a73151))
+
 ## [0.2.1](https://github.com/robhowley/okf-minisearch/compare/pi-okf-search-v0.2.0...pi-okf-search-v0.2.1) (2026-08-28)
 
 
