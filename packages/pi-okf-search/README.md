@@ -1,4 +1,4 @@
-# @robhowley/pi-okf-search
+# pi-okf-search
 
 Search a local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown directory from [Pi](https://pi.dev/). The package adds one read-only tool, `okf_search`, which returns ranked snippets with source paths and line ranges. The `/okf` command provides utilities for inspecting and refreshing the index.
 
@@ -7,7 +7,7 @@ Search a local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatf
 Install the package:
 
 ```sh
-pi install npm:@robhowley/pi-okf-search
+pi install npm:pi-okf-search
 ```
 
 Add `pi-okf-search` to `~/.pi/agent/settings.json`:

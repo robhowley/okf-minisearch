@@ -1,5 +1,5 @@
 {
-  "name": "@robhowley/pi-okf-search",
+  "name": "pi-okf-search",
   "version": "0.2.1",
   "description": "Search local Open Knowledge Format content from Pi.",
   "keywords": [
