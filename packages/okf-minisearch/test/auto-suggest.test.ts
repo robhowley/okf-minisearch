@@ -155,13 +155,43 @@ describe("autoSuggest filters and validation", () => {
         verified:
           - by: human:alice
             at: 2026-08-24T10:00:00Z
-      `, "filterautosuggest"),
+      `, "filterautosuggest finishtarget"),
       "wrong-type.md": concept(`
         type: recipe
         tags: [target]
         status: stable
         stale_after: 2026-08-24T13:00:00Z
-      `, "filterautosuggest"),
+        verified:
+          - by: human:alice
+            at: 2026-08-24T10:00:00Z
+      `, "filterautosuggest finishwrongtype"),
+      "wrong-tag.md": concept(`
+        type: note
+        tags: [other]
+        status: stable
+        stale_after: 2026-08-24T13:00:00Z
+        verified:
+          - by: human:alice
+            at: 2026-08-24T10:00:00Z
+      `, "filterautosuggest finishwrongtag"),
+      "wrong-status.md": concept(`
+        type: note
+        tags: [target]
+        status: draft
+        stale_after: 2026-08-24T13:00:00Z
+        verified:
+          - by: human:alice
+            at: 2026-08-24T10:00:00Z
+      `, "filterautosuggest finishwrongstatus"),
+      "wrong-trust.md": concept(`
+        type: note
+        tags: [target]
+        status: stable
+        stale_after: 2026-08-24T13:00:00Z
+        verified:
+          - by: process:auto-suggest
+            at: 2026-08-24T10:00:00Z
+      `, "filterautosuggest finishwrongtrust"),
       "stale.md": concept(`
         type: note
         tags: [target]
@@ -170,11 +200,21 @@ describe("autoSuggest filters and validation", () => {
         verified:
           - by: human:alice
             at: 2026-08-24T10:00:00Z
-      `, "filterautosuggest"),
+      `, "filterautosuggest finishstale"),
+      "degraded.md": concept(`
+        type: note
+        tags: [target]
+        status: stable
+        stale_after: 2026-08-24T13:00:00Z
+        verified:
+          - by: human:alice
+            at: 2026-08-24T10:00:00Z
+        description: 42
+      `, "filterautosuggest finishwrongconformance"),
     });
     const asOf = new Date("2026-08-24T12:00:00Z");
-
-    expect(suggestions(okf, "filterautosuggest", {
+    const allSuggestions = suggestions(okf, "filterautosuggest finish");
+    const filtered = suggestions(okf, "filterautosuggest finish", {
       asOf,
       where: {
         types: ["note"],
@@ -184,7 +224,18 @@ describe("autoSuggest filters and validation", () => {
         stale: false,
         conformance: ["strict"],
       },
-    })).toEqual(["filterautosuggest"]);
+    });
+
+    expect(allSuggestions).toEqual(expect.arrayContaining([
+      "filterautosuggest finishtarget",
+      "filterautosuggest finishwrongtype",
+      "filterautosuggest finishwrongtag",
+      "filterautosuggest finishwrongstatus",
+      "filterautosuggest finishwrongtrust",
+      "filterautosuggest finishstale",
+      "filterautosuggest finishwrongconformance",
+    ]));
+    expect(filtered).toEqual(["filterautosuggest finishtarget"]);
 
     const all = okf.autoSuggest("filterautosuggest");
     expect(okf.autoSuggest("filterautosuggest", {
@@ -249,6 +300,7 @@ describe("autoSuggest grouping and lifecycle", () => {
       "two.md": concept("type: note", "# Only\ntopic alpha"),
       "three.md": concept("type: note", "# Only\ntopic alpine"),
       "four.md": concept("type: recipe", "# Only\ntopic albatross"),
+      "five.md": concept("type: recipe", "# Only\ntopic alpha"),
     });
 
     const unrestricted = okf.autoSuggest("topic a", { limit: 20 });
@@ -267,6 +319,26 @@ describe("autoSuggest grouping and lifecycle", () => {
     });
     expect(filtered.map((item) => item.suggestion)).not.toContain("topic albatross");
     expect(filtered.map((item) => item.suggestion)).toContain("topic alpha");
+
+    const noteAlpha = filtered.find((item) => item.suggestion === "topic alpha");
+    const recipeAlpha = okf.autoSuggest("topic a", {
+      where: { types: ["recipe"] },
+      limit: 20,
+    }).find((item) => item.suggestion === "topic alpha");
+    const unrestrictedAlpha = unrestricted.find((item) => item.suggestion === "topic alpha");
+    expect(noteAlpha).toBeDefined();
+    expect(recipeAlpha).toBeDefined();
+    expect(unrestrictedAlpha).toBeDefined();
+
+    const noteRecordCount = 3;
+    const recipeRecordCount = 1;
+    expect(unrestrictedAlpha!.score).toBeCloseTo(
+      (
+        noteAlpha!.score * noteRecordCount +
+        recipeAlpha!.score * recipeRecordCount
+      ) / (noteRecordCount + recipeRecordCount),
+    );
+
     expect(okf.autoSuggest("topic a", {
       where: { types: ["note"] },
       limit: 2,
