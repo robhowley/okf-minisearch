@@ -320,29 +320,61 @@ describe("autoSuggest grouping and lifecycle", () => {
     expect(filtered.map((item) => item.suggestion)).not.toContain("topic albatross");
     expect(filtered.map((item) => item.suggestion)).toContain("topic alpha");
 
-    const noteAlpha = filtered.find((item) => item.suggestion === "topic alpha");
-    const recipeAlpha = okf.autoSuggest("topic a", {
-      where: { types: ["recipe"] },
-      limit: 20,
-    }).find((item) => item.suggestion === "topic alpha");
-    const unrestrictedAlpha = unrestricted.find((item) => item.suggestion === "topic alpha");
-    expect(noteAlpha).toBeDefined();
-    expect(recipeAlpha).toBeDefined();
-    expect(unrestrictedAlpha).toBeDefined();
-
-    const noteRecordCount = 3;
-    const recipeRecordCount = 1;
-    expect(unrestrictedAlpha!.score).toBeCloseTo(
-      (
-        noteAlpha!.score * noteRecordCount +
-        recipeAlpha!.score * recipeRecordCount
-      ) / (noteRecordCount + recipeRecordCount),
-    );
-
     expect(okf.autoSuggest("topic a", {
       where: { types: ["note"] },
       limit: 2,
     })).toEqual(filtered.slice(0, 2));
+  });
+
+  it("uses every filtered record in the same-phrase score", async () => {
+    const phrase = "topic alpha";
+    const okf = await open({
+      "note-sections.md": concept(
+        "type: note",
+        `# First\n${phrase}\n# Second\n${phrase}`,
+      ),
+      "note-root.md": concept("type: note", phrase),
+      "recipe.md": concept(
+        "type: recipe",
+        `${phrase} ${"filler ".repeat(40)}`,
+      ),
+    });
+
+    const noteAlpha = okf.autoSuggest("topic a", {
+      fields: ["body"],
+      where: { types: ["note"] },
+    }).find((item) => item.suggestion === phrase);
+    const recipeAlpha = okf.autoSuggest("topic a", {
+      fields: ["body"],
+      where: { types: ["recipe"] },
+    }).find((item) => item.suggestion === phrase);
+    const unrestrictedAlpha = okf.autoSuggest("topic a", {
+      fields: ["body"],
+    }).find((item) => item.suggestion === phrase);
+    expect(noteAlpha).toBeDefined();
+    expect(recipeAlpha).toBeDefined();
+    expect(unrestrictedAlpha).toBeDefined();
+    expect(noteAlpha!.score).not.toBeCloseTo(recipeAlpha!.score, 5);
+
+    const noteRecordCount = 3;
+    const recipeRecordCount = 1;
+    const recordWeightedMean = (
+      noteAlpha!.score * noteRecordCount +
+      recipeAlpha!.score * recipeRecordCount
+    ) / (noteRecordCount + recipeRecordCount);
+    expect(noteRecordCount).not.toBe(recipeRecordCount);
+    expect(unrestrictedAlpha!.score).toBeCloseTo(recordWeightedMean, 10);
+
+    expect(recordWeightedMean).not.toBeCloseTo(noteAlpha!.score, 5);
+    expect(recordWeightedMean).not.toBeCloseTo(recipeAlpha!.score, 5);
+
+    const noteDocumentCount = 2;
+    const recipeDocumentCount = 1;
+    const documentWeightedMean = (
+      noteAlpha!.score * noteDocumentCount +
+      recipeAlpha!.score * recipeDocumentCount
+    ) / (noteDocumentCount + recipeDocumentCount);
+    expect(recordWeightedMean).not.toBeCloseTo(documentWeightedMean, 5);
   });
 
   it("keeps blank and punctuation-only input empty, detaches results, and exposes no record metadata", async () => {
