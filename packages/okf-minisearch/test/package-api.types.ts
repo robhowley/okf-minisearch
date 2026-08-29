@@ -6,8 +6,13 @@ import type { OkfBundle } from "../src/index.js";
 import type { OkfReservedFile } from "../src/index.js";
 // @ts-expect-error OkfIndexRecord is not part of the package root API.
 import type { OkfIndexRecord } from "../src/index.js";
+// @ts-expect-error MiniSearch SearchOptions is not part of the package root API.
+import type { SearchOptions as MiniSearchSearchOptions } from "../src/index.js";
+// @ts-expect-error MiniSearch Suggestion is not part of the package root API.
+import type { Suggestion as MiniSearchSuggestion } from "../src/index.js";
 import { validateOkfDocument } from "../src/index.js";
 import type {
+  OkfAutoSuggestOptions,
   OkfConformance,
   OkfDiagnostic,
   OkfDiagnosticCode,
@@ -21,6 +26,7 @@ import type {
   OkfSearchHit,
   OkfSearchOptions,
   OkfStatus,
+  OkfSuggestion,
   OkfValidationResult,
 } from "../src/index.js";
 
@@ -81,6 +87,37 @@ type ExactOkfListTypes = Assert<Same<
 type ExactOkfRemove = Assert<Same<
   OkfSearch["remove"],
   (path: string) => boolean
+>>;
+type ExactOkfSearchField = Assert<Same<
+  OkfSearchField,
+  | "resource"
+  | "title"
+  | "heading"
+  | "description"
+  | "tags"
+  | "type"
+  | "sources"
+  | "body"
+>>;
+type ExactOkfAutoSuggestOptions = Assert<Same<
+  OkfAutoSuggestOptions,
+  OkfSearchOptions
+>>;
+type ExactOkfSuggestionKeys = Assert<Same<
+  keyof OkfSuggestion,
+  "suggestion" | "terms" | "score"
+>>;
+type ExactOkfSuggestion = Assert<Same<
+  OkfSuggestion,
+  {
+    readonly suggestion: string;
+    readonly terms: readonly string[];
+    readonly score: number;
+  }
+>>;
+type ExactOkfAutoSuggest = Assert<Same<
+  OkfSearch["autoSuggest"],
+  (query: string, options?: OkfAutoSuggestOptions) => OkfSuggestion[]
 >>;
 type ExactOkfSearchBoost = Assert<Same<
   OkfSearchOptions["boost"],
@@ -166,6 +203,37 @@ const degradedDocument: OkfDegradedDocument = {
   path: "concept.md",
   diagnostics: [diagnostic],
 };
+
+declare const suggestion: OkfSuggestion;
+// @ts-expect-error Suggestions are readonly at the public boundary.
+suggestion.suggestion = "changed";
+// @ts-expect-error Suggestion terms are readonly at the public boundary.
+suggestion.terms.push("changed");
+// @ts-expect-error Suggestion scores are readonly at the public boundary.
+suggestion.score = 2;
+
+const readonlyAutoSuggestFields = ["heading", "body"] as const;
+const readonlyAutoSuggestTypes = ["guide"] as const;
+const readonlyAutoSuggestTags = ["public"] as const;
+const readonlyAutoSuggestStatuses = ["stable"] as const;
+const readonlyAutoSuggestTrustTiers = ["human-reviewed"] as const;
+const readonlyAutoSuggestConformance = ["strict"] as const;
+const readonlyAutoSuggestOptions: OkfAutoSuggestOptions = {
+  fields: readonlyAutoSuggestFields,
+  boost: { heading: 2 } as const,
+  where: {
+    types: readonlyAutoSuggestTypes,
+    tagsAny: readonlyAutoSuggestTags,
+    statuses: readonlyAutoSuggestStatuses,
+    trustTiers: readonlyAutoSuggestTrustTiers,
+    conformance: readonlyAutoSuggestConformance,
+  },
+};
+// @ts-expect-error Auto-suggest where arrays are readonly.
+readonlyAutoSuggestOptions.where?.types?.push("other");
+// @ts-expect-error Auto-suggest fields are readonly.
+readonlyAutoSuggestOptions.fields?.push("title");
+
 declare const ingestResult: OkfIngestResult;
 if (ingestResult.conformance === "strict") {
   const strictDocument: OkfDocument = ingestResult.document;
@@ -184,6 +252,8 @@ void [
   unusableDiagnostic,
   diagnostic,
   degradedDocument,
+  suggestion,
+  readonlyAutoSuggestOptions,
   null as unknown as OkfConformance,
   null as unknown as ExactOkfConformance,
   null as unknown as ExactOkfErrorCode,
@@ -201,6 +271,13 @@ void [
   null as unknown as ExactOkfListTypes,
   null as unknown as ExactOkfRemove,
   null as unknown as ExactOkfSearchBoost,
+  null as unknown as ExactOkfSearchField,
+  null as unknown as ExactOkfAutoSuggestOptions,
+  null as unknown as ExactOkfSuggestionKeys,
+  null as unknown as ExactOkfSuggestion,
+  null as unknown as ExactOkfAutoSuggest,
+  null as unknown as MiniSearchSearchOptions,
+  null as unknown as MiniSearchSuggestion,
 ];
 
 void (undefined as unknown as OkfBundle | OkfReservedFile | OkfIndexRecord);

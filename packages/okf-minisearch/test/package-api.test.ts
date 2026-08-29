@@ -10,6 +10,7 @@ import * as api from "../src/index.js";
 import type {
   IsoDateTime,
   OkfAttester,
+  OkfAutoSuggestOptions,
   OkfConformance,
   OkfDiagnostic,
   OkfDiagnosticCode,
@@ -26,6 +27,7 @@ import type {
   OkfSearchHit,
   OkfSearchOptions,
   OkfSource,
+  OkfSuggestion,
   OkfStatus,
   OkfTimeWindow,
   OkfTrustTier,
@@ -77,6 +79,7 @@ describe("package API", () => {
     expect(okf.listTypes).toBeTypeOf("function");
     expect(okf.remove).toBeTypeOf("function");
     expect(okf.search).toBeTypeOf("function");
+    expect(okf.autoSuggest).toBeTypeOf("function");
     expect(okf.listTypes()).toEqual([]);
 
     const result = okf.ingest({
@@ -87,6 +90,7 @@ describe("package API", () => {
       ),
     });
     const hits = okf.search("packageboundaryneedle");
+    const suggestions = okf.autoSuggest("packageboundaryneed");
 
     if (result.conformance !== "strict") {
       expect.unreachable("valid input must return the strict arm");
@@ -104,8 +108,25 @@ describe("package API", () => {
         conformance: "strict",
       }),
     ]);
+    expect(suggestions.length).toBeGreaterThan(0);
+    expect(suggestions[0]).toEqual({
+      suggestion: expect.any(String),
+      terms: expect.any(Array),
+      score: expect.any(Number),
+    });
+    expect(Object.keys(suggestions[0]!)).toEqual([
+      "suggestion",
+      "terms",
+      "score",
+    ]);
+    expect(suggestions[0]!.terms).toEqual(
+      suggestions[0]!.suggestion.split(" "),
+    );
+    expect(Number.isFinite(suggestions[0]!.score)).toBe(true);
     expectTypeOf(result).toMatchTypeOf<OkfIngestResult>();
     expectTypeOf(hits).toEqualTypeOf<OkfSearchHit[]>();
+    expectTypeOf(suggestions).toEqualTypeOf<OkfSuggestion[]>();
+    expectTypeOf<OkfAutoSuggestOptions>().toEqualTypeOf<OkfSearchOptions>();
 
     const degradedInput = {
       path: "degraded-package-api.md",

@@ -47,6 +47,7 @@ const unusedHandle: OkfSearch = {
   listTypes: () => [],
   remove: () => false,
   search: () => [],
+  autoSuggest: () => [],
 };
 
 function deferred<T>(): {

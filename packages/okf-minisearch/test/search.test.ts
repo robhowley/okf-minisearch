@@ -183,6 +183,31 @@ describe("search limits", () => {
       limit: -1,
     })).toThrowError(expected);
   });
+
+  it("treats untyped null as omitted while retaining asOf validation", async () => {
+    const okf = await open({
+      "valid.md": concept("type: note", "asofnullneedle"),
+    });
+    const omitted = okf.search("asofnullneedle");
+    const untypedNull = {
+      asOf: null,
+    } as unknown as OkfSearchOptions;
+
+    expect(okf.search("asofnullneedle", untypedNull)).toEqual(omitted);
+
+    for (const asOf of [
+      "2026-08-24T12:00:00Z",
+      0,
+      {},
+      new Date(Number.NaN),
+    ]) {
+      expect(() => okf.search("asofnullneedle", {
+        asOf: asOf as unknown as Date,
+      })).toThrowError(new TypeError(
+        "options.asOf must be a valid Date",
+      ));
+    }
+  });
 });
 
 describe("search controls", () => {
