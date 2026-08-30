@@ -14,20 +14,15 @@ type RuntimeContext = Pick<
   "cwd" | "isProjectTrusted"
 >;
 
-export type RuntimeHandle = Pick<
-  OkfSearch,
-  "search" | "listTypes" | "listDegradedDocuments"
->;
-
 interface Snapshot {
   readonly root: string;
-  readonly search: RuntimeHandle;
+  readonly search: OkfSearch;
   readonly indexedAt: number;
 }
 
 interface RuntimeDependencies {
   readonly loadConfig?: typeof loadConfig;
-  readonly openOkf?: (root: string) => Promise<RuntimeHandle>;
+  readonly openOkf?: typeof openOkf;
   readonly now?: () => number;
 }
 
