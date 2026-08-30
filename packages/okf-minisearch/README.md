@@ -164,20 +164,33 @@ Degraded documents are searched by default and do not receive a general score pe
 
 ## Auto-suggest
 
-Use `autoSuggest` for phrase completions without exposing MiniSearch details:
+Use `autoSuggest` to complete a partial query from terms in the current index:
 
 ```js
 const suggestions = okf.autoSuggest("roll sna", {
-  limit: 5,
   where: { types: ["runbook"] },
+  limit: 5,
 });
 
-for (const { suggestion, terms, score } of suggestions) {
-  console.log(suggestion, terms, score);
+for (const { suggestion } of suggestions) {
+  console.log(suggestion);
 }
 ```
 
-It returns wrapper-owned results with no document metadata:
+`autoSuggest` accepts the same options as [`search`](#query-options), including field selection, boosts, fuzzy matching, metadata filters, and stale filtering.
+
+The important differences from `search` are:
+
+| Behavior | `autoSuggest` | `search` |
+| --- | --- | --- |
+| Query matching | All terms must match | Any term may match |
+| Field weights | All searched fields are equal | Uses the [default OKF weights](#search-fields) |
+| Final term | Prefix-matched at any length | Prefix-matched from three characters |
+| Results | Completed phrases | One hit per document |
+
+Both methods default to 10 results with fuzzy matching disabled.
+
+Each suggestion contains:
 
 ```ts
 interface OkfSuggestion {
@@ -187,23 +200,9 @@ interface OkfSuggestion {
 }
 ```
 
-`terms` are the completed indexed terms, so prefix or fuzzy matching can differ from the query. `score` is an opaque ranking value: use it to order results from one call with one option profile, not to compare calls, indexes, or MiniSearch versions. Suggestions preserve native MiniSearch phrase grouping: records producing the same completed phrase are combined, and their score is averaged. Filtering runs per indexed record before grouping; `limit` is applied after grouping and score ordering. Equal scores have no wrapper-defined secondary order and should not be treated as deterministic.
+`suggestion` is the completed phrase. `terms` contains the completed indexed terms, which may differ from the query when prefix or fuzzy matching is used. `score` ranks suggestions within the current call; do not compare scores across queries or indexes.
 
-### Suggestion options
-
-Suggestions accept the same option shape as [`search`](#query-options), but their defaults are intentionally different:
-
-| Option | Suggestion default and behavior |
-| --- | --- |
-| `limit` | `10`; applied after native grouping and ordering. `0` returns `[]` after validation. |
-| `where` | Omitted; filters combine with AND, values in each array with OR, and empty arrays are ignored. Applied before grouping. |
-| `asOf` | One `new Date()` captured per call; controls `where.stale`. |
-| `match` | `"all"`; explicit `"any"` uses OR matching. |
-| `fields` | All eight public search fields: `resource`, `title`, `heading`, `description`, `tags`, `type`, `sources`, and `body`. |
-| `boost` | Neutral `1` for every searched field; omitted fields remain neutral. |
-| `fuzzy` | Disabled when omitted, `false`, or `0`; `true` means `0.2`, and numbers from `0` through `1` are accepted. |
-
-The final query term uses native prefix matching, including one- and two-character prefixes; there is no three-character threshold. The final term is still prefix-matched when fuzzy matching is enabled. In contrast, `search` defaults to `match: "any"`, its OKF baseline field weights (`resource: 6`, `title: 5`, `heading: 4`, `description: 3`, `tags: 2`, `type: 1.5`, `sources: 1`, `body: 1`), and a three-character minimum for final-term prefix matching. `search` also returns at most one hit per document, while suggestions group matching indexed records by phrase.
+Duplicate completed phrases are grouped into one suggestion. Metadata filters are applied before grouping.
 
 ## Validate a document
 
@@ -355,14 +354,15 @@ try {
 
 If `ingest` or `remove` throws `ERR_OKF_INDEX_UNUSABLE`, discard the handle and rebuild it with `openOkf(root)`.
 
-`search` rejects invalid options with `TypeError`.
+`search` and `autoSuggest` reject invalid options with `TypeError`.
 
 ## Public API
 
-The package root exports `openOkf`, `validateOkfDocument`, and `OkfError`. `openOkf(root)` returns an `OkfSearch` handle with `search(query, options?)`, `listTypes()`, `listDegradedDocuments()`, `ingest(input)`, and `remove(path)`. Public TypeScript types can be imported from the package root:
+The package root exports `openOkf`, `validateOkfDocument`, and `OkfError`. `openOkf(root)` returns an `OkfSearch` handle with `search(query, options?)`, `autoSuggest(query, options?)`, `listTypes()`, `listDegradedDocuments()`, `ingest(input)`, and `remove(path)`. Public TypeScript types can be imported from the package root:
 
 ```ts
 import type {
+  OkfAutoSuggestOptions,
   OkfConformance,
   OkfDegradedDocument,
   OkfDiagnostic,
@@ -374,6 +374,7 @@ import type {
   OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
+  OkfSuggestion,
 } from "okf-minisearch";
 ```
 
