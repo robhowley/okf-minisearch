@@ -4,13 +4,7 @@ import type { SearchResult } from "minisearch";
 import {
   makeIndexedBoosts,
   matchesFilters,
-  normalizeFields,
-  normalizeFuzzy,
-  normalizeMatch,
-  validateAsOf,
-  validateBoost,
-  validateLimit,
-  validateWhere,
+  prepareSearchOptions,
 } from "./search-options.js";
 
 import type {
@@ -30,27 +24,18 @@ export function autoSuggest(
   options: OkfAutoSuggestOptions = {},
 ): OkfSuggestion[] {
   const optionAsOf = options.asOf;
-  const asOf = validateAsOf(
-    optionAsOf === undefined
-      ? new Date()
-      : optionAsOf,
-  );
-  const limit = validateLimit(options.limit);
-  const combineWith = normalizeMatch(
-    options.match,
-  );
-  const fields = normalizeFields(
-    options.fields,
-  );
-  const fuzzy = normalizeFuzzy(
-    options.fuzzy,
-  );
-  const where = validateWhere(
-    options.where,
-  );
-  const boosts = validateBoost(
-    options.boost,
-  );
+  const resolvedAsOf = optionAsOf === undefined
+    ? new Date()
+    : optionAsOf;
+  const {
+    asOf,
+    limit,
+    combineWith,
+    fields,
+    fuzzy,
+    where,
+    boosts,
+  } = prepareSearchOptions(options, resolvedAsOf);
 
   const normalizedQuery = query.trim();
 

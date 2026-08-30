@@ -18,6 +18,16 @@ export type SearchBoosts = Partial<
   Record<OkfSearchField, number>
 >;
 
+export type PreparedSearchOptions = {
+  asOf: Date;
+  limit: number;
+  combineWith: "OR" | "AND" | undefined;
+  fields: IndexedField[] | undefined;
+  fuzzy: number | undefined;
+  where: SearchFilters | undefined;
+  boosts: SearchBoosts;
+};
+
 export type IndexedField =
   | "resource"
   | "title"
@@ -349,6 +359,29 @@ export function validateBoost(
   }
 
   return boosts;
+}
+
+export function prepareSearchOptions(
+  options: OkfSearchOptions,
+  resolvedAsOf: unknown,
+): PreparedSearchOptions {
+  const asOf = validateAsOf(resolvedAsOf);
+  const limit = validateLimit(options.limit);
+  const combineWith = normalizeMatch(options.match);
+  const fields = normalizeFields(options.fields);
+  const fuzzy = normalizeFuzzy(options.fuzzy);
+  const where = validateWhere(options.where);
+  const boosts = validateBoost(options.boost);
+
+  return {
+    asOf,
+    limit,
+    combineWith,
+    fields,
+    fuzzy,
+    where,
+    boosts,
+  };
 }
 
 export function makeIndexedBoosts(

@@ -6,13 +6,7 @@ import type {
 import {
   makeIndexedBoosts,
   matchesFilters,
-  normalizeFields,
-  normalizeFuzzy,
-  normalizeMatch,
-  validateAsOf,
-  validateBoost,
-  validateLimit,
-  validateWhere,
+  prepareSearchOptions,
 } from "./search-options.js";
 
 import type {
@@ -77,24 +71,17 @@ export function search(
   query: string,
   options: OkfSearchOptions = {},
 ): OkfSearchHit[] {
-  const asOf = validateAsOf(
-    options.asOf ?? new Date(),
-  );
-  const limit = validateLimit(options.limit);
-  const combineWith =
-    normalizeMatch(options.match) ?? "OR";
-  const fields = normalizeFields(
-    options.fields,
-  );
-  const fuzzy = normalizeFuzzy(
-    options.fuzzy,
-  );
-  const where = validateWhere(
-    options.where,
-  );
-  const boosts = validateBoost(
-    options.boost,
-  );
+  const resolvedAsOf = options.asOf ?? new Date();
+  const {
+    asOf,
+    limit,
+    combineWith: preparedCombineWith,
+    fields,
+    fuzzy,
+    where,
+    boosts,
+  } = prepareSearchOptions(options, resolvedAsOf);
+  const combineWith = preparedCombineWith ?? "OR";
 
   const normalizedQuery = query.trim();
 
