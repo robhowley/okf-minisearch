@@ -4,60 +4,20 @@ import type {
 } from "minisearch";
 
 import {
-  isOkfStatus,
-  isOkfTrustTier,
-} from "./vocabulary.js";
+  makeIndexedBoosts,
+  matchesFilters,
+  prepareSearchOptions,
+} from "./search-options.js";
 
 import type {
-  OkfConformance,
+  IndexedField,
+} from "./search-options.js";
+import type {
   OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
 } from "./types.js";
 import type { OkfIndexRecord } from "./internal-types.js";
-
-type SearchFilters = NonNullable<
-  OkfSearchOptions["where"]
->;
-
-type SearchBoosts = Partial<
-  Record<OkfSearchField, number>
->;
-
-type IndexedField =
-  | "resource"
-  | "title"
-  | "headingPath"
-  | "description"
-  | "tags"
-  | "type"
-  | "sourceText"
-  | "text";
-
-const PUBLIC_FIELDS: readonly OkfSearchField[] = [
-  "resource",
-  "title",
-  "heading",
-  "description",
-  "tags",
-  "type",
-  "sources",
-  "body",
-];
-
-const PUBLIC_TO_INDEXED_FIELD: Record<
-  OkfSearchField,
-  IndexedField
-> = {
-  resource: "resource",
-  title: "title",
-  heading: "headingPath",
-  description: "description",
-  tags: "tags",
-  type: "type",
-  sources: "sourceText",
-  body: "text",
-};
 
 const INDEXED_TO_PUBLIC_FIELD: Record<
   IndexedField,
@@ -87,17 +47,6 @@ const BASELINE_FIELD_BOOSTS: Record<
   body: 1,
 };
 
-const FILTER_NAMES = [
-  "types",
-  "tagsAny",
-  "statuses",
-  "trustTiers",
-  "stale",
-  "conformance",
-] as const;
-
-type FilterName = typeof FILTER_NAMES[number];
-
 type IndexedHit = SearchResult &
   Pick<
     OkfIndexRecord,
@@ -122,51 +71,17 @@ export function search(
   query: string,
   options: OkfSearchOptions = {},
 ): OkfSearchHit[] {
-  const asOf =
-    options.asOf ?? new Date();
-
-  if (
-    !(asOf instanceof Date) ||
-    Number.isNaN(asOf.getTime())
-  ) {
-    throw new TypeError(
-      "options.asOf must be a valid Date",
-    );
-  }
-
-  const limit =
-    options.limit === undefined
-      ? 10
-      : options.limit;
-
-  if (
-    typeof limit !== "number" ||
-    !Number.isFinite(limit) ||
-    !Number.isInteger(limit) ||
-    limit < 0
-  ) {
-    throw new TypeError(
-      "options.limit must be a finite non-negative integer",
-    );
-  }
-
-  const combineWith = validateMatch(
-    options.match,
-  );
-  const fields = normalizeFields(
-    options.fields,
-  );
-
-  const fuzzy = normalizeFuzzy(
-    options.fuzzy,
-  );
-
-  const where = validateWhere(
-    options.where,
-  );
-  const boosts = validateBoost(
-    options.boost,
-  );
+  const resolvedAsOf = options.asOf ?? new Date();
+  const {
+    asOf,
+    limit,
+    combineWith: preparedCombineWith,
+    fields,
+    fuzzy,
+    where,
+    boosts,
+  } = prepareSearchOptions(options, resolvedAsOf);
+  const combineWith = preparedCombineWith ?? "OR";
 
   const normalizedQuery = query.trim();
 
@@ -177,7 +92,10 @@ export function search(
   const rawHits = index.search(
     normalizedQuery,
     {
-      boost: makeIndexedBoosts(boosts),
+      boost: makeIndexedBoosts(
+        boosts,
+        BASELINE_FIELD_BOOSTS,
+      ),
 
       prefix: (
         term,
@@ -266,294 +184,6 @@ export function search(
   return hits;
 }
 
-function normalizeFuzzy(
-  fuzzy: OkfSearchOptions["fuzzy"],
-): number | undefined {
-  if (fuzzy === undefined || fuzzy === false) {
-    return undefined;
-  }
-
-  if (fuzzy === true) {
-    return 0.2;
-  }
-
-  if (
-    typeof fuzzy !== "number" ||
-    !Number.isFinite(fuzzy) ||
-    fuzzy < 0 ||
-    fuzzy > 1
-  ) {
-    throw new TypeError(
-      "options.fuzzy must be a boolean or a finite number between 0 and 1, inclusive",
-    );
-  }
-
-  return fuzzy;
-}
-
-function validateMatch(
-  match: OkfSearchOptions["match"],
-): "OR" | "AND" {
-  if (
-    match !== undefined &&
-    match !== "any" &&
-    match !== "all"
-  ) {
-    throw new TypeError(
-      'options.match must be "any" or "all"',
-    );
-  }
-
-  return match === "all" ? "AND" : "OR";
-}
-
-function normalizeFields(
-  fields: OkfSearchOptions["fields"],
-): IndexedField[] | undefined {
-  if (fields === undefined) {
-    return undefined;
-  }
-
-  if (!Array.isArray(fields) || fields.length === 0) {
-    throw new TypeError(
-      "options.fields must be a non-empty array",
-    );
-  }
-
-  const normalized: IndexedField[] = [];
-
-  for (const field of fields as readonly unknown[]) {
-    if (
-      typeof field !== "string" ||
-      !PUBLIC_FIELDS.includes(
-        field as OkfSearchField,
-      )
-    ) {
-      throw new TypeError(
-        "options.fields must contain only valid OkfSearchField values",
-      );
-    }
-
-    const indexedField =
-      PUBLIC_TO_INDEXED_FIELD[
-        field as OkfSearchField
-      ];
-
-    if (!normalized.includes(indexedField)) {
-      normalized.push(indexedField);
-    }
-  }
-
-  return normalized;
-}
-
-function validateBoost(
-  boost: OkfSearchOptions["boost"],
-): SearchBoosts {
-  if (boost === undefined) {
-    return {};
-  }
-
-  if (
-    boost === null ||
-    typeof boost !== "object" ||
-    Array.isArray(boost)
-  ) {
-    throw new TypeError(
-      "options.boost must be an object",
-    );
-  }
-
-  for (const key of Reflect.ownKeys(boost)) {
-    if (
-      Object.prototype.propertyIsEnumerable.call(
-        boost,
-        key,
-      ) &&
-      (
-        typeof key !== "string" ||
-        !PUBLIC_FIELDS.includes(
-          key as OkfSearchField,
-        )
-      )
-    ) {
-      throw new TypeError(
-        "options.boost must contain only valid OkfSearchField keys",
-      );
-    }
-  }
-
-  const boosts: SearchBoosts = {};
-
-  for (const field of PUBLIC_FIELDS) {
-    if (!Object.hasOwn(boost, field)) {
-      continue;
-    }
-
-    const value = boost[field];
-
-    if (
-      typeof value !== "number" ||
-      !Number.isFinite(value) ||
-      value < 0.1 ||
-      value > 10
-    ) {
-      throw new TypeError(
-        `options.boost.${field} must be a finite number between 0.1 and 10, inclusive`,
-      );
-    }
-
-    boosts[field] = value;
-  }
-
-  return boosts;
-}
-
-function makeIndexedBoosts(
-  boosts: SearchBoosts,
-): Record<IndexedField, number> {
-  const indexedBoosts = {} as Record<
-    IndexedField,
-    number
-  >;
-
-  for (const field of PUBLIC_FIELDS) {
-    const boost = Object.hasOwn(
-      boosts,
-      field,
-    )
-      ? boosts[field] as number
-      : BASELINE_FIELD_BOOSTS[field];
-
-    indexedBoosts[PUBLIC_TO_INDEXED_FIELD[field]] = boost;
-  }
-
-  return indexedBoosts;
-}
-
-function validateWhere(
-  where: OkfSearchOptions["where"],
-): SearchFilters | undefined {
-  if (where === undefined) {
-    return undefined;
-  }
-
-  if (
-    where === null ||
-    typeof where !== "object" ||
-    Array.isArray(where)
-  ) {
-    throw new TypeError(
-      "options.where must be an object",
-    );
-  }
-
-  for (const key of Reflect.ownKeys(where)) {
-    if (
-      Object.prototype.propertyIsEnumerable.call(
-        where,
-        key,
-      ) &&
-      (
-        typeof key !== "string" ||
-        !FILTER_NAMES.includes(key as FilterName)
-      )
-    ) {
-      throw new TypeError(
-        "options.where must contain only valid filter names",
-      );
-    }
-  }
-
-  const validated: SearchFilters = {};
-
-  if (Object.hasOwn(where, "types")) {
-    validated.types = validateFilterArray(
-      where.types,
-      "types",
-      (entry): entry is string =>
-        typeof entry === "string",
-      "options.where.types must contain only strings",
-    );
-  }
-
-  if (Object.hasOwn(where, "tagsAny")) {
-    validated.tagsAny = validateFilterArray(
-      where.tagsAny,
-      "tagsAny",
-      (entry): entry is string =>
-        typeof entry === "string",
-      "options.where.tagsAny must contain only strings",
-    );
-  }
-
-  if (Object.hasOwn(where, "statuses")) {
-    validated.statuses = validateFilterArray(
-      where.statuses,
-      "statuses",
-      isOkfStatus,
-      "options.where.statuses must contain only valid OkfStatus values",
-    );
-  }
-
-  if (Object.hasOwn(where, "trustTiers")) {
-    validated.trustTiers = validateFilterArray(
-      where.trustTiers,
-      "trustTiers",
-      isOkfTrustTier,
-      "options.where.trustTiers must contain only valid OkfTrustTier values",
-    );
-  }
-
-  if (Object.hasOwn(where, "stale")) {
-    if (typeof where.stale !== "boolean") {
-      throw new TypeError(
-        "options.where.stale must be a boolean",
-      );
-    }
-
-    validated.stale = where.stale;
-  }
-
-  if (Object.hasOwn(where, "conformance")) {
-    validated.conformance = validateFilterArray(
-      where.conformance,
-      "conformance",
-      (entry): entry is OkfConformance =>
-        entry === "strict" || entry === "degraded",
-      "options.where.conformance must contain only valid OkfConformance values",
-    );
-  }
-
-  return validated;
-}
-
-function validateFilterArray<T>(
-  value: unknown,
-  field: string,
-  isValidEntry: (entry: unknown) => entry is T,
-  invalidEntryMessage: string,
-): readonly T[] {
-  if (!Array.isArray(value)) {
-    throw new TypeError(
-      `options.where.${field} must be an array`,
-    );
-  }
-
-  for (let index = 0; index < value.length; index++) {
-    if (
-      !Object.hasOwn(value, index) ||
-      !isValidEntry(value[index])
-    ) {
-      throw new TypeError(
-        invalidEntryMessage,
-      );
-    }
-  }
-
-  return value;
-}
-
 function translateMatchedFields(
   match: Record<string, readonly string[]>,
 ): OkfSearchField[] {
@@ -582,86 +212,6 @@ function translateMatchedFields(
   }
 
   return fields;
-}
-
-function matchesFilters(
-  hit: IndexedHit,
-  where: SearchFilters | undefined,
-  asOf: Date,
-): boolean {
-  if (!where) {
-    return true;
-  }
-
-  if (
-    where.types?.length &&
-    !where.types.includes(hit.type)
-  ) {
-    return false;
-  }
-
-  if (
-    where.tagsAny?.length &&
-    !where.tagsAny.some((tag) =>
-      hit.tags.includes(tag),
-    )
-  ) {
-    return false;
-  }
-
-  if (
-    where.statuses?.length &&
-    (
-      !hit.status ||
-      !where.statuses.includes(hit.status)
-    )
-  ) {
-    return false;
-  }
-
-  if (
-    where.trustTiers?.length &&
-    (
-      !hit.trustTier ||
-      !where.trustTiers.includes(
-        hit.trustTier,
-      )
-    )
-  ) {
-    return false;
-  }
-
-  if (where.stale !== undefined) {
-    if (!hit.stalenessClassified) {
-      return false;
-    }
-
-    if (
-      isStale(
-        hit.staleAfterEpoch,
-        asOf,
-      ) !== where.stale
-    ) {
-      return false;
-    }
-  }
-
-  if (
-    where.conformance?.length &&
-    !where.conformance.includes(hit.conformance)
-  ) {
-    return false;
-  }
-
-  return true;
-}
-
-function isStale(
-  staleAfterEpoch: number | undefined,
-  asOf: Date,
-): boolean {
-  return staleAfterEpoch !== undefined &&
-    staleAfterEpoch <= asOf.getTime();
 }
 
 function makeSnippet(

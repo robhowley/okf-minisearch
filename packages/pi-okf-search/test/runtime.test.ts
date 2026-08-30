@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { OkfError } from "okf-minisearch";
 import type {
   OkfDegradedDocument,
-  OkfSearch,
   OkfSearchHit,
   OkfSearchOptions,
 } from "okf-minisearch";
@@ -16,6 +15,7 @@ import {
 
 import {
   createRuntime,
+  type RuntimeSearchHandle,
   type RuntimeSearchRequest,
 } from "../extensions/okf-search/runtime.js";
 
@@ -39,13 +39,9 @@ function degradedDocument(path: string): OkfDegradedDocument {
   };
 }
 
-const unusedHandle: OkfSearch = {
-  ingest: () => {
-    throw new Error("ingest should not be called");
-  },
+const unusedHandle: RuntimeSearchHandle = {
   listDegradedDocuments: () => [],
   listTypes: () => [],
-  remove: () => false,
   search: () => [],
 };
 
@@ -70,7 +66,7 @@ function deferred<T>(): {
 
 describe("createRuntime", () => {
   it("builds on start and returns undefined", async () => {
-    const opening = deferred<OkfSearch>();
+    const opening = deferred<RuntimeSearchHandle>();
     const loadConfig = vi.fn(() => ({ root }));
     const openOkf = vi.fn(() => opening.promise);
     const runtime = createRuntime({ loadConfig, openOkf });
@@ -92,7 +88,7 @@ describe("createRuntime", () => {
       query: string;
       options?: OkfSearchOptions;
     }> = [];
-    const handle: OkfSearch = {
+    const handle: RuntimeSearchHandle = {
       ...unusedHandle,
       search(query, options) {
         searches.push({ query, options });
@@ -120,7 +116,7 @@ describe("createRuntime", () => {
     ];
     const listTypes = vi.fn(() => types);
     const listDegradedDocuments = vi.fn(() => degradedDocuments);
-    const handle: OkfSearch = {
+    const handle: RuntimeSearchHandle = {
       ...unusedHandle,
       listTypes,
       listDegradedDocuments,
@@ -173,7 +169,7 @@ describe("createRuntime", () => {
   });
 
   it("captures the timestamp only after opening succeeds", async () => {
-    const opening = deferred<OkfSearch>();
+    const opening = deferred<RuntimeSearchHandle>();
     const now = vi.fn(() => 12_345);
     const loadConfig = vi.fn(() => ({ root }));
     const openOkf = vi.fn(() => opening.promise);
@@ -190,16 +186,16 @@ describe("createRuntime", () => {
   });
 
   it("refreshes a cached snapshot from current config and swaps after opening", async () => {
-    const refreshedOpening = deferred<OkfSearch>();
+    const refreshedOpening = deferred<RuntimeSearchHandle>();
     const initialRoot = "/workspace/initial-knowledge";
     const refreshedRoot = "/workspace/refreshed-knowledge";
     let configuredRoot = initialRoot;
-    const initialHandle: OkfSearch = {
+    const initialHandle: RuntimeSearchHandle = {
       ...unusedHandle,
       listTypes: () => ["initial"],
       listDegradedDocuments: () => [degradedDocument("initial.md")],
     };
-    const refreshedHandle: OkfSearch = {
+    const refreshedHandle: RuntimeSearchHandle = {
       ...unusedHandle,
       listTypes: () => ["refreshed"],
       listDegradedDocuments: () => [
@@ -251,13 +247,13 @@ describe("createRuntime", () => {
     const retriedRoot = "/workspace/retried-knowledge";
     let configuredRoot = initialRoot;
     const initialSearch = vi.fn(() => []);
-    const initialHandle: OkfSearch = {
+    const initialHandle: RuntimeSearchHandle = {
       ...unusedHandle,
       search: initialSearch,
       listTypes: () => ["initial"],
       listDegradedDocuments: () => [degradedDocument("initial.md")],
     };
-    const retriedHandle: OkfSearch = {
+    const retriedHandle: RuntimeSearchHandle = {
       ...unusedHandle,
       listTypes: () => ["retried"],
       listDegradedDocuments: () => [],
@@ -300,18 +296,18 @@ describe("createRuntime", () => {
   });
 
   it("coalesces concurrent refreshes while status and search use the prior snapshot", async () => {
-    const refreshedOpening = deferred<OkfSearch>();
+    const refreshedOpening = deferred<RuntimeSearchHandle>();
     const initialRoot = "/workspace/initial-knowledge";
     const refreshedRoot = "/workspace/refreshed-knowledge";
     let configuredRoot = initialRoot;
     const initialSearch = vi.fn(() => []);
     const refreshedSearch = vi.fn(() => []);
-    const initialHandle: OkfSearch = {
+    const initialHandle: RuntimeSearchHandle = {
       ...unusedHandle,
       search: initialSearch,
       listTypes: () => ["initial"],
     };
-    const refreshedHandle: OkfSearch = {
+    const refreshedHandle: RuntimeSearchHandle = {
       ...unusedHandle,
       search: refreshedSearch,
       listTypes: () => ["refreshed"],
@@ -389,7 +385,7 @@ describe("createRuntime", () => {
   });
 
   it("shares one successful timestamp across concurrent callers", async () => {
-    const opening = deferred<OkfSearch>();
+    const opening = deferred<RuntimeSearchHandle>();
     const now = vi.fn(() => 12_345);
     const loadConfig = vi.fn(() => ({ root }));
     const openOkf = vi.fn(() => opening.promise);
@@ -436,9 +432,9 @@ describe("createRuntime", () => {
   });
 
   it("coalesces concurrent start and search calls", async () => {
-    const opening = deferred<OkfSearch>();
+    const opening = deferred<RuntimeSearchHandle>();
     const searches: string[] = [];
-    const handle: OkfSearch = {
+    const handle: RuntimeSearchHandle = {
       ...unusedHandle,
       search(query) {
         searches.push(query);
@@ -493,7 +489,7 @@ describe("createRuntime", () => {
   });
 
   it("shares a failed build with concurrent callers", async () => {
-    const opening = deferred<OkfSearch>();
+    const opening = deferred<RuntimeSearchHandle>();
     const failure = new Error("opening failed");
     const loadConfig = vi.fn(() => ({ root }));
     const openOkf = vi.fn(() => opening.promise);
@@ -513,7 +509,7 @@ describe("createRuntime", () => {
   });
 
   it("retries after a failed build instead of retaining the failure", async () => {
-    const firstOpening = deferred<OkfSearch>();
+    const firstOpening = deferred<RuntimeSearchHandle>();
     const firstFailure = new Error("first opening failed");
     let attempts = 0;
     const loadConfig = vi.fn(() => ({ root }));
@@ -567,7 +563,7 @@ describe("createRuntime", () => {
     const controller = new AbortController();
     controller.abort(reason);
     const searches: string[] = [];
-    const handle: OkfSearch = {
+    const handle: RuntimeSearchHandle = {
       ...unusedHandle,
       search(query) {
         searches.push(query);
@@ -587,11 +583,11 @@ describe("createRuntime", () => {
   });
 
   it("keeps cancellation local while a shared build succeeds", async () => {
-    const opening = deferred<OkfSearch>();
+    const opening = deferred<RuntimeSearchHandle>();
     const reason = new Error("caller canceled");
     const controller = new AbortController();
     const searches: string[] = [];
-    const handle: OkfSearch = {
+    const handle: RuntimeSearchHandle = {
       ...unusedHandle,
       search(query) {
         searches.push(query);
@@ -636,7 +632,7 @@ describe("createRuntime", () => {
   });
 
   it("gives an aborted waiter its reason when a shared build fails", async () => {
-    const opening = deferred<OkfSearch>();
+    const opening = deferred<RuntimeSearchHandle>();
     const buildFailure = new Error("opening failed");
     const abortReason = new Error("caller canceled");
     const controller = new AbortController();
@@ -671,7 +667,7 @@ describe("createRuntime", () => {
   });
 
   it("does not mask a failed build for an active signalled caller", async () => {
-    const opening = deferred<OkfSearch>();
+    const opening = deferred<RuntimeSearchHandle>();
     const buildFailure = new Error("opening failed");
     const controller = new AbortController();
     const loadConfig = vi.fn(() => ({ root }));
@@ -693,7 +689,7 @@ describe("createRuntime", () => {
 
   it("honors cancellation on a cached snapshot before searching", async () => {
     const searches: string[] = [];
-    const handle: OkfSearch = {
+    const handle: RuntimeSearchHandle = {
       ...unusedHandle,
       search(query) {
         searches.push(query);
@@ -722,7 +718,7 @@ describe("createRuntime", () => {
       query: string;
       options?: OkfSearchOptions;
     }> = [];
-    const handle: OkfSearch = {
+    const handle: RuntimeSearchHandle = {
       ...unusedHandle,
       search(query, options) {
         calls.push({ query, options });
@@ -752,7 +748,7 @@ describe("createRuntime", () => {
       query: string;
       options?: OkfSearchOptions;
     }> = [];
-    const handle: OkfSearch = {
+    const handle: RuntimeSearchHandle = {
       ...unusedHandle,
       search(query, options) {
         calls.push({ query, options });
@@ -826,7 +822,7 @@ describe("createRuntime", () => {
         snippet: "first snippet",
       },
     ];
-    const handle: OkfSearch = {
+    const handle: RuntimeSearchHandle = {
       ...unusedHandle,
       search: () => hits,
     };
@@ -875,7 +871,7 @@ describe("createRuntime", () => {
       endLine: 2,
       snippet: "needle",
     };
-    const handle: OkfSearch = {
+    const handle: RuntimeSearchHandle = {
       ...unusedHandle,
       search: () => {
         searches += 1;
@@ -940,7 +936,7 @@ describe("createRuntime", () => {
     expect(openFailure.cause).toBe(openCause);
 
     const searchFailure = new TypeError("invalid search input");
-    const searchHandle: OkfSearch = {
+    const searchHandle: RuntimeSearchHandle = {
       ...unusedHandle,
       search: () => {
         throw searchFailure;
@@ -968,7 +964,7 @@ describe("createRuntime", () => {
     await expect(openingRuntime.start(ctx)).rejects.toBe(openingFailure);
 
     const searchFailure = Symbol("search-failure");
-    const searchHandle: OkfSearch = {
+    const searchHandle: RuntimeSearchHandle = {
       ...unusedHandle,
       search: () => {
         throw searchFailure;

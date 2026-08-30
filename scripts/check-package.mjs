@@ -191,6 +191,7 @@ const typeConsumer = `import { OkfError, openOkf, validateOkfDocument } from "ok
 import type {
   IsoDateTime,
   OkfAttester,
+  OkfAutoSuggestOptions,
   OkfConformance,
   OkfDiagnostic,
   OkfDiagnosticCode,
@@ -208,6 +209,7 @@ import type {
   OkfSearchOptions,
   OkfSource,
   OkfStatus,
+  OkfSuggestion,
   OkfTimeWindow,
   OkfTrustTier,
   OkfValidationResult,
@@ -326,6 +328,20 @@ type ExactSearchHitKeys = Assert<
 type ExactSearchHitConformance = Assert<
   Same<OkfSearchHit["conformance"], OkfConformance>
 >;
+type ExactAutoSuggestOptions = Assert<
+  Same<OkfAutoSuggestOptions, OkfSearchOptions>
+>;
+type ExactSuggestion = Assert<
+  Same<OkfSuggestion, {
+    readonly suggestion: string;
+    readonly terms: readonly string[];
+    readonly score: number;
+  }>
+>;
+type ExactAutoSuggest = Assert<
+  Same<OkfSearch["autoSuggest"],
+    (query: string, options?: OkfAutoSuggestOptions) => OkfSuggestion[]>
+>;
 type ExactDocumentStatus = Assert<
   Same<OkfDocument["status"], OkfStatus>
 >;
@@ -339,8 +355,17 @@ const searchOptions: OkfSearchOptions = {
   boost: readonlyBoosts,
   where: { conformance: readonlyConformance },
 };
+const autoSuggestOptions: OkfAutoSuggestOptions = {
+  match: "all",
+  fields: readonlyFields,
+  fuzzy: 0.2,
+  boost: readonlyBoosts,
+  where: { conformance: readonlyConformance },
+};
 // @ts-expect-error Conformance filters are readonly.
 searchOptions.where?.conformance?.push("strict");
+// @ts-expect-error MiniSearch's internal field name is not public.
+const internalAutoSuggestBoost: OkfAutoSuggestOptions = { boost: { headingPath: 2 } };
 // @ts-expect-error MiniSearch's internal field name is not public.
 const internalHeadingBoost: OkfSearchOptions = { boost: { headingPath: 2 } };
 // @ts-expect-error MiniSearch's internal field name is not public.
@@ -361,6 +386,17 @@ const listTypes = null as unknown as OkfSearch["listTypes"];
 const types: readonly string[] = listTypes();
 const remove = null as unknown as OkfSearch["remove"];
 const removalResult: boolean = remove("consumer.md");
+const autoSuggest = null as unknown as OkfSearch["autoSuggest"];
+const autoSuggestions: OkfSuggestion[] = autoSuggest(
+  "consumer",
+  autoSuggestOptions,
+);
+const suggestion = null as unknown as OkfSuggestion;
+const suggestionText: string = suggestion.suggestion;
+const suggestionTerms: readonly string[] = suggestion.terms;
+const suggestionScore: number = suggestion.score;
+// @ts-expect-error Suggestion terms are readonly.
+suggestion.terms.push("unexpected");
 // @ts-expect-error MiniSearch's internal field name is not public.
 const internalField: OkfSearchField = "headingPath";
 const validator: (
@@ -430,6 +466,12 @@ void [
   stringBoost,
   nestedBoostOption,
   searchOptions,
+  autoSuggestOptions,
+  internalAutoSuggestBoost,
+  autoSuggestions,
+  suggestionText,
+  suggestionTerms,
+  suggestionScore,
   hitConformance,
   matchedField,
   types,
@@ -450,6 +492,9 @@ void [
   null as ExactSearchConformance | null,
   null as ExactSearchHitKeys | null,
   null as ExactSearchHitConformance | null,
+  null as ExactAutoSuggestOptions | null,
+  null as ExactSuggestion | null,
+  null as ExactAutoSuggest | null,
   null as ExactDocumentStatus | null,
   null as OkfSource | null,
   null as OkfStatus | null,
@@ -508,6 +553,19 @@ const ingestResult = okf.ingest({
 assert.deepEqual(Object.keys(ingestResult), ["conformance", "document"]);
 assert.equal(ingestResult.conformance, "strict");
 assert.equal(ingestResult.document.status, "stable");
+assert.equal(typeof okf.autoSuggest, "function");
+const suggestions = okf.autoSuggest("packedremovalneedle");
+assert.equal(suggestions.length, 1);
+assert.deepEqual(Object.keys(suggestions[0]).sort(), [
+  "score",
+  "suggestion",
+  "terms",
+]);
+assert.equal(suggestions[0].suggestion, "packedremovalneedle");
+assert.deepEqual(suggestions[0].terms, ["packedremovalneedle"]);
+assert.equal(typeof suggestions[0].score, "number");
+assert.ok(suggestions[0].score > 0);
+assert.equal(Object.hasOwn(suggestions[0], "documentId"), false);
 assert.deepEqual(okf.listTypes(), ["note", "packed"]);
 assert.equal(Object.isFrozen(okf.listTypes()), true);
 assert.equal(Object.hasOwn(ingestResult, "records"), false);

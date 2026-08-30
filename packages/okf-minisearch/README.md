@@ -162,6 +162,48 @@ Details worth knowing:
 
 Degraded documents are searched by default and do not receive a general score penalty. A stronger degraded match ranks above a weaker strict match; strict wins only when scores are exactly equal. Trust tiers and conformance change which documents are included only when used as filters.
 
+## Auto-suggest
+
+Use `autoSuggest` to complete a partial query from terms in the current index:
+
+```js
+const suggestions = okf.autoSuggest("roll sna", {
+  where: { types: ["runbook"] },
+  limit: 5,
+});
+
+for (const { suggestion } of suggestions) {
+  console.log(suggestion);
+}
+```
+
+`autoSuggest` accepts the same options as [`search`](#query-options), including field selection, boosts, fuzzy matching, metadata filters, and stale filtering.
+
+The important differences from `search` are:
+
+| Behavior | `autoSuggest` | `search` |
+| --- | --- | --- |
+| Query matching | All terms must match | Any term may match |
+| Field weights | All searched fields are equal | Uses the [default OKF weights](#search-fields) |
+| Final term | Prefix-matched at any length | Prefix-matched from three characters |
+| Results | Completed phrases | One hit per document |
+
+Both methods default to 10 results with fuzzy matching disabled.
+
+Each suggestion contains:
+
+```ts
+interface OkfSuggestion {
+  readonly suggestion: string;
+  readonly terms: readonly string[];
+  readonly score: number;
+}
+```
+
+`suggestion` is the completed phrase. `terms` contains the completed indexed terms, which may differ from the query when prefix or fuzzy matching is used. `score` ranks suggestions within the current call; do not compare scores across queries or indexes.
+
+Duplicate completed phrases are grouped into one suggestion. Metadata filters are applied before grouping.
+
 ## Validate a document
 
 Use `validateOkfDocument` to check in-memory Markdown without opening a directory or changing an index:
@@ -312,14 +354,15 @@ try {
 
 If `ingest` or `remove` throws `ERR_OKF_INDEX_UNUSABLE`, discard the handle and rebuild it with `openOkf(root)`.
 
-`search` rejects invalid options with `TypeError`.
+`search` and `autoSuggest` reject invalid options with `TypeError`.
 
 ## Public API
 
-The package root exports `openOkf`, `validateOkfDocument`, and `OkfError`. `openOkf(root)` returns an `OkfSearch` handle with `search(query, options?)`, `listTypes()`, `listDegradedDocuments()`, `ingest(input)`, and `remove(path)`. Public TypeScript types can be imported from the package root:
+The package root exports `openOkf`, `validateOkfDocument`, and `OkfError`. `openOkf(root)` returns an `OkfSearch` handle with `search(query, options?)`, `autoSuggest(query, options?)`, `listTypes()`, `listDegradedDocuments()`, `ingest(input)`, and `remove(path)`. Public TypeScript types can be imported from the package root:
 
 ```ts
 import type {
+  OkfAutoSuggestOptions,
   OkfConformance,
   OkfDegradedDocument,
   OkfDiagnostic,
@@ -331,6 +374,7 @@ import type {
   OkfSearchField,
   OkfSearchHit,
   OkfSearchOptions,
+  OkfSuggestion,
 } from "okf-minisearch";
 ```
 

@@ -75,6 +75,7 @@ function expectEveryLaterOperationToRethrow(
     ["listDegradedDocuments", () => okf.listDegradedDocuments()],
     ["listTypes", () => okf.listTypes()],
     ["search", () => okf.search("presentneedle")],
+    ["autoSuggest", () => okf.autoSuggest("presentneedle", { limit: -1 })],
     ["malformed ingest", () => okf.ingest({
       path: "malformed.md",
       markdown: "not an OKF document",
@@ -115,11 +116,13 @@ describe("poisoned MiniSearch handle", () => {
 
     const discardSpy = vi.spyOn(MiniSearch.prototype, "discard");
     const searchSpy = vi.spyOn(MiniSearch.prototype, "search");
+    const autoSuggestSpy = vi.spyOn(MiniSearch.prototype, "autoSuggest");
     expectEveryLaterOperationToRethrow(okf, failure);
 
     expect(addSpy).toHaveBeenCalledTimes(1);
     expect(discardSpy).not.toHaveBeenCalled();
     expect(searchSpy).not.toHaveBeenCalled();
+    expect(autoSuggestSpy).not.toHaveBeenCalled();
   });
 
   it("poisons after a remove mutation fails", async () => {
@@ -143,11 +146,13 @@ describe("poisoned MiniSearch handle", () => {
 
     const addSpy = vi.spyOn(MiniSearch.prototype, "add");
     const searchSpy = vi.spyOn(MiniSearch.prototype, "search");
+    const autoSuggestSpy = vi.spyOn(MiniSearch.prototype, "autoSuggest");
     expectEveryLaterOperationToRethrow(okf, failure);
 
     expect(discardSpy).toHaveBeenCalledTimes(1);
     expect(addSpy).not.toHaveBeenCalled();
     expect(searchSpy).not.toHaveBeenCalled();
+    expect(autoSuggestSpy).not.toHaveBeenCalled();
   });
 
   it("poisons after a replacement ingest discard fails", async () => {
@@ -173,11 +178,13 @@ describe("poisoned MiniSearch handle", () => {
 
     const addSpy = vi.spyOn(MiniSearch.prototype, "add");
     const searchSpy = vi.spyOn(MiniSearch.prototype, "search");
+    const autoSuggestSpy = vi.spyOn(MiniSearch.prototype, "autoSuggest");
     expectEveryLaterOperationToRethrow(okf, failure);
 
     expect(discardSpy).toHaveBeenCalledTimes(1);
     expect(addSpy).not.toHaveBeenCalled();
     expect(searchSpy).not.toHaveBeenCalled();
+    expect(autoSuggestSpy).not.toHaveBeenCalled();
   });
 
   it("keeps prior metadata until a replacement add fails, then poisons", async () => {
@@ -213,7 +220,9 @@ describe("poisoned MiniSearch handle", () => {
     expect(discardSpy).toHaveBeenCalled();
     expect(addSpy).toHaveBeenCalledTimes(1);
     expectPoisonError(failure, rawError);
+    const autoSuggestSpy = vi.spyOn(MiniSearch.prototype, "autoSuggest");
     expectEveryLaterOperationToRethrow(okf, failure);
+    expect(autoSuggestSpy).not.toHaveBeenCalled();
   });
 
   it("poisons when backend ownership diverges before removal", async () => {
@@ -251,7 +260,9 @@ describe("poisoned MiniSearch handle", () => {
       message: "OKF index ownership is inconsistent for nested/guide",
     });
     expectPoisonError(failure, cause as Error);
+    const autoSuggestSpy = vi.spyOn(MiniSearch.prototype, "autoSuggest");
     expectEveryLaterOperationToRethrow(okf, failure);
+    expect(autoSuggestSpy).not.toHaveBeenCalled();
   });
 
   it("does not poison the handle after parse or field failures", async () => {

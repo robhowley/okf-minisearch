@@ -7,6 +7,7 @@ export { openOkf } from "./open-okf.js";
 export type {
   IsoDateTime,
   OkfAttester,
+  OkfAutoSuggestOptions,
   OkfConformance,
   OkfDiagnostic,
   OkfDiagnosticCode,
@@ -23,6 +24,7 @@ export type {
   OkfSearchOptions,
   OkfSource,
   OkfStatus,
+  OkfSuggestion,
   OkfTimeWindow,
   OkfTrustTier,
   OkfValidationResult,
