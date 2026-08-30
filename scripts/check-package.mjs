@@ -20,6 +20,10 @@ import {
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
+import { nodeResolve } from "@rollup/plugin-node-resolve";
+import { build as esbuild } from "esbuild";
+import { rollup } from "rollup";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const packageRoots = {
   library: join(root, "packages", "okf-minisearch"),
@@ -100,6 +104,10 @@ function checkLibraryPaths(paths) {
   const required = [
     "LICENSE",
     "README.md",
+    "dist/browser.d.ts",
+    "dist/browser.js",
+    "dist/create-okf-search.d.ts",
+    "dist/create-okf-search.js",
     "dist/index.d.ts",
     "dist/index.js",
     "package.json",
@@ -187,7 +195,7 @@ async function writeJson(path, value) {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-const typeConsumer = `import { OkfError, openOkf, validateOkfDocument } from "okf-minisearch";
+const typeConsumer = `import { OkfError, createOkfSearch, openOkf, validateOkfDocument } from "okf-minisearch";
 import type {
   IsoDateTime,
   OkfAttester,
@@ -249,6 +257,13 @@ type ExactSearchBoost = Assert<
     OkfSearchOptions["boost"],
     Readonly<Partial<Record<OkfSearchField, number>>> | undefined
   >
+>;
+type ExactCreateOkfSearch = Assert<
+  Same<typeof createOkfSearch,
+    (documents: readonly OkfDocumentInput[]) => OkfSearch>
+>;
+type ExactNodeOpenOkf = Assert<
+  Same<typeof openOkf, (root: string) => Promise<OkfSearch>>
 >;
 type ExactListDegradedDocuments = Assert<
   Same<OkfSearch["listDegradedDocuments"], () => readonly OkfDegradedDocument[]>
@@ -386,6 +401,10 @@ const listTypes = null as unknown as OkfSearch["listTypes"];
 const types: readonly string[] = listTypes();
 const remove = null as unknown as OkfSearch["remove"];
 const removalResult: boolean = remove("consumer.md");
+const direct: OkfSearch = createOkfSearch([]);
+const opened: Promise<OkfSearch> = openOkf("./knowledge");
+// @ts-expect-error The Node declaration accepts only a filesystem root string.
+openOkf([]);
 const autoSuggest = null as unknown as OkfSearch["autoSuggest"];
 const autoSuggestions: OkfSuggestion[] = autoSuggest(
   "consumer",
@@ -434,7 +453,10 @@ diagnostic.severity = "error";
 
 void [
   OkfError,
+  createOkfSearch,
   openOkf,
+  direct,
+  opened,
   validator,
   validationResult,
   diagnostic,
@@ -479,6 +501,8 @@ void [
   listDegradedDocuments,
   null as ExactSearchField | null,
   null as ExactConformance | null,
+  null as ExactCreateOkfSearch | null,
+  null as ExactNodeOpenOkf | null,
   null as ExactListDegradedDocuments | null,
   null as ExactListTypes | null,
   null as ExactRemove | null,
@@ -504,12 +528,100 @@ void [
 ];
 `;
 
+const browserTypeConsumer = `import {
+  OkfError,
+  createOkfSearch,
+  openOkf,
+  validateOkfDocument,
+} from "okf-minisearch";
+import type {
+  OkfAutoSuggestOptions,
+  OkfDocumentInput,
+  OkfSearch,
+  OkfSearchOptions,
+  OkfSuggestion,
+} from "okf-minisearch";
+
+type Same<T, U> =
+  (<V>() => V extends T ? 1 : 2) extends
+  (<V>() => V extends U ? 1 : 2) ? true : false;
+type Assert<T extends true> = T;
+type ExactCreate = Assert<Same<
+  typeof createOkfSearch,
+  (documents: readonly OkfDocumentInput[]) => OkfSearch
+>>;
+type ExactBrowserOpen = Assert<Same<
+  typeof openOkf,
+  (files: FileList | readonly File[]) => Promise<OkfSearch>
+>>;
+type ExactOptions = Assert<Same<OkfAutoSuggestOptions, OkfSearchOptions>>;
+
+const direct: OkfSearch = createOkfSearch([]);
+const files = null as unknown as FileList;
+const opened: Promise<OkfSearch> = openOkf(files);
+const openedArray: Promise<OkfSearch> = openOkf([] as readonly File[]);
+const suggestions: OkfSuggestion[] = direct.autoSuggest("browser");
+// @ts-expect-error The browser declaration accepts only selected files.
+openOkf("./knowledge");
+
+void [
+  OkfError,
+  validateOkfDocument,
+  direct,
+  opened,
+  openedArray,
+  suggestions,
+  null as ExactCreate | null,
+  null as ExactBrowserOpen | null,
+  null as ExactOptions | null,
+];
+`;
+
+const browserRuntimeConsumer = `import * as api from "okf-minisearch";
+
+const equal = (actual, expected, message) => {
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(message + ": " + JSON.stringify(actual));
+  }
+};
+equal(Object.keys(api).sort(), [
+  "OkfError",
+  "createOkfSearch",
+  "openOkf",
+  "validateOkfDocument",
+], "browser runtime exports");
+const markdown = "---\\ntype: browser\\n---\\npackedbrowserneedle";
+const bytes = new TextEncoder().encode(markdown);
+const file = {
+  name: "browser.md",
+  webkitRelativePath: "knowledge/browser.md",
+  arrayBuffer: async () => bytes.slice().buffer,
+};
+const okf = await api.openOkf([file]);
+equal(okf.listTypes(), ["browser"], "browser types");
+if (okf.search("packedbrowserneedle").length !== 1) {
+  throw new Error("browser root import did not search selected file");
+}
+const direct = api.createOkfSearch([{
+  path: "direct.md",
+  markdown,
+}]);
+if (direct.autoSuggest("packedbrowser").length !== 1) {
+  throw new Error("browser createOkfSearch did not expose autoSuggest");
+}
+`;
+
+const nodeBundleConsumer = `import { openOkf } from "okf-minisearch";
+if (typeof openOkf !== "function") throw new Error("missing Node openOkf");
+`;
+
 const runtimeConsumer = `import assert from "node:assert/strict";
 import { join } from "node:path";
 import * as api from "okf-minisearch";
 
-assert.deepEqual(Object.keys(api).sort(), ["OkfError", "openOkf", "validateOkfDocument"]);
+assert.deepEqual(Object.keys(api).sort(), ["OkfError", "createOkfSearch", "openOkf", "validateOkfDocument"]);
 assert.equal(typeof api.OkfError, "function");
+assert.equal(typeof api.createOkfSearch, "function");
 assert.equal(typeof api.openOkf, "function");
 assert.equal(typeof api.validateOkfDocument, "function");
 const validationResult = api.validateOkfDocument({
@@ -540,6 +652,13 @@ assert.deepEqual(fatalValidation, {
     message: "Invalid OKF field: fatal.md (type)",
   }],
 });
+
+const direct = api.createOkfSearch([{
+  path: "direct.md",
+  markdown: "---\\ntype: direct\\n---\\npackeddirectneedle",
+}]);
+assert.equal(direct instanceof Promise, false);
+assert.equal(direct.search("packeddirectneedle").length, 1);
 
 const root = join(process.cwd(), "fixture");
 const okf = await api.openOkf(root);
@@ -715,14 +834,39 @@ assert.equal(installedLibraryManifest.version, ${JSON.stringify(libraryVersion)}
 `;
 }
 
-async function inspectPiManifest(piTarball, extractionRoot, libraryVersion) {
+async function inspectLibraryManifest(libraryTarball, extractionRoot) {
+  await mkdir(extractionRoot, { recursive: true });
+  run("tar", ["-xzf", libraryTarball, "-C", extractionRoot]);
+
+  const manifest = JSON.parse(
+    await readFile(join(extractionRoot, "package", "package.json"), "utf8"),
+  );
+  assert.equal(manifest.main, "./dist/index.js");
+  assert.equal(manifest.types, "./dist/index.d.ts");
+  assert.deepEqual(Object.keys(manifest.exports["."]), ["node", "default"]);
+  assert.deepEqual(manifest.exports["."], {
+    node: {
+      types: "./dist/index.d.ts",
+      import: "./dist/index.js",
+    },
+    default: {
+      types: "./dist/browser.d.ts",
+      import: "./dist/browser.js",
+    },
+  });
+}
+
+async function inspectPiManifest(
+  piTarball,
+  extractionRoot,
+  expectedLibraryRange,
+) {
   await mkdir(extractionRoot, { recursive: true });
   run("tar", ["-xzf", piTarball, "-C", extractionRoot]);
 
   const manifestPath = join(extractionRoot, "package", "package.json");
   const serialized = await readFile(manifestPath, "utf8");
   const manifest = JSON.parse(serialized);
-  const expectedLibraryRange = `^${libraryVersion}`;
 
   assert.deepEqual(manifest.files, ["extensions"]);
   assert.deepEqual(manifest.scripts, {
@@ -806,11 +950,24 @@ async function prepareConsumer(
     },
   });
   await writeFile(join(consumerRoot, "consumer.mts"), typeConsumer);
+  await writeFile(
+    join(consumerRoot, "browser-consumer.ts"),
+    browserTypeConsumer,
+  );
+  await writeFile(
+    join(consumerRoot, "browser-runtime.mjs"),
+    browserRuntimeConsumer,
+  );
+  await writeFile(
+    join(consumerRoot, "node-bundle.mjs"),
+    nodeBundleConsumer,
+  );
   await writeFile(join(consumerRoot, "runtime.mjs"), runtimeConsumer);
   await writeFile(join(consumerRoot, "smoke.mjs"), smokeConsumer(libraryVersion));
   await writeJson(join(consumerRoot, "tsconfig.json"), {
     compilerOptions: {
       target: "ES2022",
+      lib: ["ES2022"],
       module: "NodeNext",
       moduleResolution: "NodeNext",
       strict: true,
@@ -820,6 +977,19 @@ async function prepareConsumer(
       typeRoots: [join(root, "node_modules", "@types")],
     },
     include: ["consumer.mts"],
+  });
+  await writeJson(join(consumerRoot, "tsconfig.browser.json"), {
+    compilerOptions: {
+      target: "ES2022",
+      lib: ["ES2022", "DOM"],
+      module: "ESNext",
+      moduleResolution: "Bundler",
+      strict: true,
+      noEmit: true,
+      skipLibCheck: false,
+      types: [],
+    },
+    include: ["browser-consumer.ts"],
   });
   await writeFile(
     join(fixtureDir, "marker.md"),
@@ -844,18 +1014,140 @@ async function prepareConsumer(
 }
 
 function checkLibraryConsumer(consumerRoot) {
+  const tsc = join(root, "node_modules", "typescript", "bin", "tsc");
   run(
     process.execPath,
-    [
-      join(root, "node_modules", "typescript", "bin", "tsc"),
-      "--project",
-      "tsconfig.json",
-      "--pretty",
-      "false",
-    ],
+    [tsc, "--project", "tsconfig.json", "--pretty", "false"],
+    { cwd: consumerRoot },
+  );
+  run(
+    process.execPath,
+    [tsc, "--project", "tsconfig.browser.json", "--pretty", "false"],
     { cwd: consumerRoot },
   );
   run(process.execPath, ["runtime.mjs"], { cwd: consumerRoot });
+}
+
+function normalizedModuleIds(ids) {
+  return ids.map((id) => id.replaceAll("\\\\", "/"));
+}
+
+function assertBranch(ids, selected, excluded, label) {
+  const modules = normalizedModuleIds(ids);
+  assert.ok(
+    modules.some((id) => id.endsWith(`/okf-minisearch/dist/${selected}`)),
+    `${label} did not select dist/${selected}`,
+  );
+  assert.equal(
+    modules.some((id) => id.endsWith(`/okf-minisearch/dist/${excluded}`)),
+    false,
+    `${label} unexpectedly selected dist/${excluded}`,
+  );
+}
+
+async function checkEsbuildConsumers(consumerRoot) {
+  const outputRoot = join(consumerRoot, ".bundles");
+  await mkdir(outputRoot);
+  const browserOutput = join(outputRoot, "browser.mjs");
+  const browser = await esbuild({
+    entryPoints: [join(consumerRoot, "browser-runtime.mjs")],
+    bundle: true,
+    format: "esm",
+    metafile: true,
+    outfile: browserOutput,
+    platform: "browser",
+    target: "es2022",
+  });
+  assertBranch(
+    Object.keys(browser.metafile.inputs),
+    "browser.js",
+    "index.js",
+    "esbuild browser bundle",
+  );
+  const browserCode = await readFile(browserOutput, "utf8");
+  assert.equal(
+    /["']node:/.test(browserCode),
+    false,
+    "esbuild browser bundle contains a node: import",
+  );
+  const browserRunner = join(outputRoot, "run-browser.mjs");
+  await writeFile(browserRunner, `globalThis.document = {
+  createElement: () => ({
+    textContent: "",
+    set innerHTML(value) { this.textContent = value; },
+  }),
+};
+await import(${JSON.stringify(browserOutput)});
+`);
+  run(process.execPath, [browserRunner], { cwd: consumerRoot });
+
+  const node = await esbuild({
+    entryPoints: [join(consumerRoot, "node-bundle.mjs")],
+    bundle: true,
+    format: "esm",
+    metafile: true,
+    outfile: join(outputRoot, "node.mjs"),
+    platform: "node",
+    target: "node20",
+  });
+  assertBranch(
+    Object.keys(node.metafile.inputs),
+    "index.js",
+    "browser.js",
+    "esbuild Node bundle",
+  );
+}
+
+async function rollupModuleIds(input, exportConditions) {
+  const bundle = await rollup({
+    input,
+    external(id) {
+      return id !== packageNames.library &&
+        !id.startsWith(".") &&
+        !isAbsolute(id);
+    },
+    plugins: [nodeResolve({ exportConditions })],
+    onwarn(warning) {
+      throw new Error(`Rollup warning: ${warning.message}`);
+    },
+  });
+
+  try {
+    const generated = await bundle.generate({ format: "esm" });
+    return generated.output.flatMap((item) =>
+      item.type === "chunk" ? Object.keys(item.modules) : []);
+  } finally {
+    await bundle.close();
+  }
+}
+
+async function checkRollupConsumers(consumerRoot) {
+  const defaultModules = await rollupModuleIds(
+    join(consumerRoot, "browser-runtime.mjs"),
+    [],
+  );
+  assertBranch(
+    defaultModules,
+    "browser.js",
+    "index.js",
+    "Rollup default-condition bundle",
+  );
+  assert.equal(
+    normalizedModuleIds(defaultModules).some((id) => id.startsWith("node:")),
+    false,
+    "Rollup default-condition graph contains a Node built-in",
+  );
+
+  const nodeModules = await rollupModuleIds(
+    join(consumerRoot, "node-bundle.mjs"),
+    ["node"],
+  );
+  assertBranch(
+    nodeModules,
+    "open-okf.js",
+    "browser.js",
+    "Rollup Node-condition bundle",
+  );
 }
 
 async function main() {
@@ -879,11 +1171,25 @@ async function main() {
     const libraryVersion = libraryManifest.version;
     assert.equal(typeof libraryVersion, "string");
     assert.ok(libraryVersion.length > 0);
+    const piSourceManifest = JSON.parse(
+      await readFile(join(packageRoots.pi, "package.json"), "utf8"),
+    );
+    const expectedLibraryRange =
+      piSourceManifest.dependencies?.[packageNames.library]?.replace(
+        /^workspace:/,
+        "",
+      );
+    assert.equal(typeof expectedLibraryRange, "string");
+    assert.ok(expectedLibraryRange.length > 0);
 
+    await inspectLibraryManifest(
+      libraryPackage.tarball,
+      join(temporaryRoot, "extracted", "library"),
+    );
     await inspectPiManifest(
       piPackage.tarball,
       join(temporaryRoot, "extracted", "pi"),
-      libraryVersion,
+      expectedLibraryRange,
     );
     const consumerRoot = await prepareConsumer(
       temporaryRoot,
@@ -898,10 +1204,12 @@ async function main() {
       { cwd: temporaryRoot },
     );
     checkLibraryConsumer(consumerRoot);
+    await checkEsbuildConsumers(consumerRoot);
+    await checkRollupConsumers(consumerRoot);
     run(process.execPath, ["consumer/smoke.mjs"], { cwd: temporaryRoot });
 
     console.log(
-      `\nPacked packages passed manifest, install, TypeScript, runtime, and Pi loader checks: ${relative(root, packageRoots.library)}, ${relative(root, packageRoots.pi)}`,
+      `\nPacked packages passed manifest, install, Node/browser TypeScript, runtime, esbuild, Rollup, and Pi loader checks: ${relative(root, packageRoots.library)}, ${relative(root, packageRoots.pi)}`,
     );
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });

@@ -53,6 +53,7 @@ describe("package API", () => {
   it("exports the runtime boundary", () => {
     expect(Object.keys(api).sort()).toEqual([
       "OkfError",
+      "createOkfSearch",
       "openOkf",
       "validateOkfDocument",
     ]);
@@ -71,6 +72,13 @@ describe("package API", () => {
       isIndexable: true,
       errors: [],
     });
+
+    const direct = api.createOkfSearch([{
+      path: "direct.md",
+      markdown: concept("type: direct", "directpackageneedle"),
+    }]);
+    expect(direct).not.toBeInstanceOf(Promise);
+    expect(direct.search("directpackageneedle")).toHaveLength(1);
 
     const okf = await api.openOkf(tree.root);
 
@@ -386,7 +394,12 @@ describe("package API", () => {
     expectTypeOf(api.validateOkfDocument)
       .returns
       .toEqualTypeOf<OkfValidationResult>();
-    expectTypeOf(api.openOkf).returns.resolves.toMatchTypeOf<OkfSearch>();
+    expectTypeOf(api.createOkfSearch)
+      .toEqualTypeOf<(
+        documents: readonly OkfDocumentInput[],
+      ) => OkfSearch>();
+    expectTypeOf(api.openOkf)
+      .toEqualTypeOf<(root: string) => Promise<OkfSearch>>();
     expectTypeOf<OkfSearch["ingest"]>()
       .parameter(0)
       .toEqualTypeOf<OkfDocumentInput>();

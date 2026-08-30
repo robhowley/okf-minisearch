@@ -10,7 +10,12 @@ import type { OkfIndexRecord } from "../src/index.js";
 import type { SearchOptions as MiniSearchSearchOptions } from "../src/index.js";
 // @ts-expect-error MiniSearch Suggestion is not part of the package root API.
 import type { Suggestion as MiniSearchSuggestion } from "../src/index.js";
-import { validateOkfDocument } from "../src/index.js";
+import {
+  createOkfSearch,
+  openOkf as openNodeOkf,
+  validateOkfDocument,
+} from "../src/index.js";
+import { openOkf as openBrowserOkf } from "../src/browser.js";
 import type {
   OkfAutoSuggestOptions,
   OkfConformance,
@@ -169,6 +174,17 @@ type ExactOkfDiagnosticCode = Assert<Same<
 const validate: (
   input: OkfDocumentInput,
 ) => OkfValidationResult = validateOkfDocument;
+const create: (
+  documents: readonly OkfDocumentInput[],
+) => OkfSearch = createOkfSearch;
+const openNode: (root: string) => Promise<OkfSearch> = openNodeOkf;
+const openBrowser: (
+  files: FileList | readonly File[],
+) => Promise<OkfSearch> = openBrowserOkf;
+// @ts-expect-error Node openOkf accepts only a filesystem root string.
+openNodeOkf([] as readonly File[]);
+// @ts-expect-error Browser openOkf accepts only selected browser files.
+openBrowserOkf("./knowledge");
 const validation: OkfValidationResult = {
   isValid: true,
   isIndexable: true,
@@ -246,6 +262,9 @@ if (ingestResult.conformance === "strict") {
 }
 void [
   validate,
+  create,
+  openNode,
+  openBrowser,
   validation,
   diagnosticCode,
   unusableCode,

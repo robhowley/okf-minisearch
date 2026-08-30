@@ -1,6 +1,6 @@
 # okf-minisearch
 
-`okf-minisearch` is a Node.js library for searching local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown. It builds an in-memory MiniSearch index; the companion `pi-okf-search` package exposes the same search through one read-only `okf_search` tool.
+`okf-minisearch` searches [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown in Node.js, browsers, or any runtime with preloaded documents. It builds an in-memory MiniSearch index; the companion `pi-okf-search` package exposes the Node path adapter through one read-only `okf_search` tool.
 
 [![Package validation](https://github.com/robhowley/okf-minisearch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/robhowley/okf-minisearch/actions/workflows/ci.yml)
 
@@ -49,7 +49,8 @@ console.log({
 
 ### Library capabilities
 
-- Recursively loads a local OKF Markdown tree into an in-memory MiniSearch index; no separate service.
+- Recursively loads a local Node.js tree, opens browser `FileList` selections, or synchronously indexes preloaded Markdown; no separate service.
+- Exposes the same search and mutation handle from every construction path.
 - Returns one ranked section per document with its title, path, heading path, line range, and snippet.
 - Provides phrase-level `autoSuggest` completions; see the [library auto-suggest guide](packages/okf-minisearch/README.md#auto-suggest).
 - Filters by type, tags, status, trust tier, and staleness.
@@ -87,7 +88,7 @@ The model can call `okf_search`, inspect ranked snippets, and reopen a result's 
 
 ## Requirements and documentation
 
-- **Library:** Node.js 20+, ESM-only, with TypeScript declarations.
+- **Library:** ESM-only with conditional Node/browser implementations and declarations; the Node filesystem adapter requires Node.js 20+.
 - **Pi package:** Node.js `>=22.19.0`. Its tests pin `@earendil-works/pi-ai` and `@earendil-works/pi-coding-agent` `0.84.3`; the peer dependency ranges do not establish a narrower supported Pi version range.
 - **Pi package loading:** the package manifest exposes `./extensions/okf-search`; Pi discovers the extension entry point from that directory.
 
@@ -105,7 +106,7 @@ pnpm install
 pnpm package:check
 ```
 
-`pnpm package:check` performs a frozen install, builds the library, type-checks and tests both packages, packs them, and checks the packed Node and Pi consumers.
+`pnpm package:check` performs a frozen install, builds the library, type-checks and tests both packages, packs them, and checks packed Node, browser, TypeScript, bundler, and Pi consumers. Rollup consumers that need the Node adapter must include `"node"` in `@rollup/plugin-node-resolve`'s `exportConditions`; Rollup's default conditions select the browser branch.
 
 Build only the library:
 
