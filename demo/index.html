@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="A client-only OKF phrase completion workbench.">
+    <title>OKF phrase bench</title>
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/okf-minisearch@2"></script>
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#completion">Skip to phrase completion</a>
+
+    <main class="site-shell">
+      <header class="masthead">
+        <div class="masthead-mark" aria-hidden="true">
+          <span>OKF</span>
+          <span>PHRASE / 02</span>
+        </div>
+        <div class="masthead-copy">
+          <p class="eyebrow">Open Knowledge Format · browser bench</p>
+          <h1>Finish the thought.</h1>
+          <p class="lede">Try vocabulary completion against a small, typed corpus. Filters change which phrases can finish your sentence.</p>
+        </div>
+        <div class="corpus-chip" id="corpus-status" role="status" aria-live="polite" data-state="loading">
+          <span class="chip-dot" aria-hidden="true"></span>
+          <span id="corpus-status-text">Loading sample bundle…</span>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <aside class="filter-drawer" aria-labelledby="filters-heading">
+          <div class="drawer-heading">
+            <p class="eyebrow">Constrain the vocabulary</p>
+            <h2 id="filters-heading">Filters</h2>
+          </div>
+
+          <form id="filters-form">
+            <fieldset>
+              <legend>Types</legend>
+              <div class="choice-stack" id="type-options">
+                <span class="muted-choice">Waiting for the index…</span>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Status</legend>
+              <div class="choice-grid choice-grid--three">
+                <label class="check-label"><input type="checkbox" name="statuses" value="draft"> <span>Draft</span></label>
+                <label class="check-label"><input type="checkbox" name="statuses" value="stable"> <span>Stable</span></label>
+                <label class="check-label"><input type="checkbox" name="statuses" value="deprecated"> <span>Deprecated</span></label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Trust</legend>
+              <div class="choice-stack">
+                <label class="check-label"><input type="checkbox" name="trustTiers" value="unverified"> <span>Unverified</span></label>
+                <label class="check-label"><input type="checkbox" name="trustTiers" value="machine-confirmed"> <span>Machine-confirmed</span></label>
+                <label class="check-label"><input type="checkbox" name="trustTiers" value="human-reviewed"> <span>Human-reviewed</span></label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Tags <span class="legend-note">comma-separated</span></legend>
+              <label class="sr-only" for="tag-filter">Filter by tags</label>
+              <input id="tag-filter" name="tagsAny" type="text" autocomplete="off" placeholder="kiln, safety">
+            </fieldset>
+
+            <fieldset>
+              <legend>Staleness</legend>
+              <div class="choice-stack">
+                <label class="check-label"><input type="radio" name="stale" value="any" checked> <span>Any age</span></label>
+                <label class="check-label"><input type="radio" name="stale" value="current"> <span>Current at reference time</span></label>
+                <label class="check-label"><input type="radio" name="stale" value="stale"> <span>Stale at reference time</span></label>
+              </div>
+              <label class="field-label" for="as-of">Reference time</label>
+              <input id="as-of" name="asOf" type="datetime-local">
+            </fieldset>
+
+            <fieldset>
+              <legend>Conformance</legend>
+              <div class="choice-grid choice-grid--two">
+                <label class="check-label"><input type="checkbox" name="conformance" value="strict"> <span>Strict</span></label>
+                <label class="check-label"><input type="checkbox" name="conformance" value="degraded"> <span>Degraded</span></label>
+              </div>
+            </fieldset>
+          </form>
+
+          <p class="memory-note"><span aria-hidden="true">↳</span> Uploads are memory-only. Reload to clear them.</p>
+        </aside>
+
+        <section class="completion-area" id="completion" aria-labelledby="completion-heading">
+          <div class="completion-intro">
+            <p class="eyebrow">The completion bench</p>
+            <h2 id="completion-heading">Give it a beginning.</h2>
+            <p>Suggestions come from indexed words and headings. Accepting one fills this box; it never runs a full search.</p>
+          </div>
+
+          <div class="completion-track">
+            <label class="query-label" for="query">Start with a phrase</label>
+            <div class="query-shell">
+              <input
+                id="query"
+                type="text"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-controls="suggestion-list"
+                aria-expanded="false"
+                aria-haspopup="listbox"
+                aria-activedescendant=""
+                aria-describedby="completion-state"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="e.g. kiln lo"
+                disabled
+              >
+              <span class="query-key" aria-hidden="true">↵</span>
+            </div>
+
+            <div class="suggestion-slipstack">
+              <ul id="suggestion-list" class="suggestion-list" role="listbox" aria-label="Phrase suggestions" hidden></ul>
+              <div class="completion-state" id="completion-state" role="status" aria-live="polite" data-state="loading">Loading the sample bundle…</div>
+            </div>
+          </div>
+
+          <div class="lower-panels">
+            <section class="panel upload-panel" aria-labelledby="upload-heading">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Bring your own note</p>
+                  <h2 id="upload-heading">Add Markdown</h2>
+                </div>
+                <span class="panel-index" aria-hidden="true">01</span>
+              </div>
+              <p>Choose one or more <code>.md</code> files. Each valid file is added or replaced as <code>uploads/filename.md</code>.</p>
+              <label class="file-picker" for="upload-files">
+                <span class="file-picker-action">Choose files</span>
+                <span class="file-picker-copy">Markdown only · memory-only</span>
+              </label>
+              <input id="upload-files" class="file-input" type="file" accept=".md" multiple disabled>
+              <div id="upload-status" class="upload-status" role="status" aria-live="polite">Waiting for the index…</div>
+              <ul id="upload-outcomes" class="outcome-list" aria-live="polite"></ul>
+            </section>
+
+            <section class="panel diagnostics-panel" aria-labelledby="diagnostics-heading">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Index health</p>
+                  <h2 id="diagnostics-heading">Diagnostics</h2>
+                </div>
+                <span class="panel-index" aria-hidden="true">02</span>
+              </div>
+              <div id="diagnostics-status" class="diagnostics-status" role="status" aria-live="polite">Waiting for the index…</div>
+              <div id="diagnostics-list" class="diagnostics-list"></div>
+            </section>
+          </div>
+
+          <div class="app-error" id="app-error" role="alert" hidden></div>
+        </section>
+      </div>
+
+      <footer class="site-footer">
+        <span>Client-only demo · no server · no build step</span>
+        <span>okf-minisearch / phrase completion</span>
+      </footer>
+    </main>
+  </body>
+</html>
