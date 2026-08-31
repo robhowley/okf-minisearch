@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Try okf-minisearch autoSuggest in the browser with OKF filters and Markdown uploads.">
-    <title>autoSuggest browser demo · okf-minisearch</title>
+    <meta name="description" content="Search a sample OKF index, test phrase suggestions, and validate uploaded Markdown in your browser.">
+    <title>Search and validate OKF documents · okf-minisearch</title>
     <link rel="stylesheet" href="./styles.css">
     <script src="https://cdn.jsdelivr.net/npm/okf-minisearch@2"></script>
     <script type="module" src="./app.js"></script>
@@ -16,8 +16,8 @@
       <header class="masthead">
         <div class="masthead-copy">
           <p class="product-name">okf-minisearch</p>
-          <h1>autoSuggest browser demo</h1>
-          <p class="lede">Type part of a phrase to test suggestions from a small OKF corpus. Use filters, uploads, and diagnostics to inspect the result.</p>
+          <h1>Search and validate OKF documents</h1>
+          <p class="lede">Type a phrase to get suggestions and search matching documents. Upload Markdown files to validate and add them to the in-memory index.</p>
         </div>
         <div class="corpus-chip" id="corpus-status" role="status" aria-live="polite" data-state="loading">
           <span class="chip-dot" aria-hidden="true"></span>
@@ -139,7 +139,7 @@
               <div class="panel-heading">
                 <h2 id="upload-heading">Upload Markdown</h2>
               </div>
-              <p>Add or replace one or more <code>.md</code> files as <code>uploads/filename.md</code>.</p>
+              <p>Validate one or more <code>.md</code> files, then add or replace them as <code>uploads/filename.md</code>.</p>
               <label class="file-picker" for="upload-files">
                 <span class="file-picker-action">Choose files</span>
                 <span class="file-picker-copy">Markdown only · memory-only</span>
