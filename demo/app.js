@@ -75,6 +75,7 @@ export function toSearchResultText(hit = {}) {
     headingPath: textValue(hit.headingPath),
     snippet: textValue(hit.snippet),
     conformance: textValue(hit.conformance),
+    lineRange: formatLineRange(hit.startLine, hit.endLine),
     matchedFields,
     score: formatScore(hit.score),
   };
@@ -802,7 +803,9 @@ function createController(documentRef, windowRef) {
 
       const path = documentRef.createElement("div");
       path.className = "hit-path";
-      path.textContent = hit.path;
+      path.textContent = hit.lineRange
+        ? `${hit.path} · ${hit.lineRange}`
+        : hit.path;
 
       article.append(heading, path);
 
@@ -1079,6 +1082,16 @@ function toDiagnostic(error, fallbackPath, fallbackCode) {
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function formatLineRange(startLine, endLine) {
+  if (!Number.isSafeInteger(startLine) || startLine <= 0 ||
+      !Number.isSafeInteger(endLine) || endLine <= 0 || endLine < startLine) {
+    return "";
+  }
+  return startLine === endLine
+    ? `line ${startLine}`
+    : `lines ${startLine}–${endLine}`;
 }
 
 function formatScore(score) {

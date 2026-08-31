@@ -21,6 +21,7 @@ import {
   readUpload,
   resolveCommittedQuery,
   resolveSearchKeyAction,
+  toSearchResultText,
   transitionCombobox,
   uploadPath,
 } from "../demo/app.js";
@@ -360,6 +361,24 @@ describe("committed search behavior", () => {
     },
   );
 
+  it("formats valid line ranges and rejects malformed or absent values", () => {
+    expect(toSearchResultText({ startLine: 12, endLine: 18 }).lineRange)
+      .toBe("lines 12–18");
+    expect(toSearchResultText({ startLine: 7, endLine: 7 }).lineRange)
+      .toBe("line 7");
+
+    for (const hit of [
+      { startLine: 0, endLine: 2 },
+      { startLine: 1, endLine: 0 },
+      { startLine: 1.5, endLine: 2 },
+      { startLine: 4, endLine: 3 },
+      { startLine: 1, endLine: Number.NaN },
+      {},
+    ]) {
+      expect(toSearchResultText(hit).lineRange).toBe("");
+    }
+  });
+
   it("replaces success, zero, and error outcomes with text-safe result data", () => {
     const unsafeHit = {
       title: "<img src=x onerror=alert(1)>",
@@ -391,6 +410,7 @@ describe("committed search behavior", () => {
         headingPath: "<b>Unsafe heading</b>",
         snippet: "<em>snippet & text</em>",
         conformance: "<strict>",
+        lineRange: "",
         matchedFields: ["<title>", "heading&body"],
         score: "1.235",
       }],
