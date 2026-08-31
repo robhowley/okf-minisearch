@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/robhowley/okf-minisearch/compare/pi-okf-search-v0.3.0...pi-okf-search-v0.4.0) (2026-08-30)
+
+
+### Features
+
+* **okf-minisearch:** add auto-suggest API ([#44](https://github.com/robhowley/okf-minisearch/issues/44)) ([fdd1089](https://github.com/robhowley/okf-minisearch/commit/fdd108927243789f4fa289ccad17f367eea6f4dc))
+
 ## [0.3.0](https://github.com/robhowley/okf-minisearch/compare/pi-okf-search-v0.2.1...pi-okf-search-v0.3.0) (2026-08-29)
 
 
