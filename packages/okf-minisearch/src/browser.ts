@@ -7,6 +7,9 @@ import type {
   OkfSearch,
 } from "./types.js";
 
+const BROWSER_FILE_INPUT_ERROR =
+  "Browser openOkf requires selected File objects; path strings are Node-only.";
+
 interface BrowserCandidate {
   readonly file: File;
   readonly path: string;
@@ -16,7 +19,17 @@ interface BrowserCandidate {
 export async function openOkf(
   files: FileList | readonly File[],
 ): Promise<OkfSearch> {
-  const candidates = Array.from(files)
+  const input = files as unknown;
+  if (typeof input === "string") {
+    throw new TypeError(BROWSER_FILE_INPUT_ERROR);
+  }
+
+  const snapshot = Array.from(input as FileList | readonly File[]);
+  if (snapshot.some((file) => !isBrowserFile(file))) {
+    throw new TypeError(BROWSER_FILE_INPUT_ERROR);
+  }
+
+  const candidates = snapshot
     .filter((file) => isConceptFile(file.name))
     .map((file): BrowserCandidate => {
       const identity = normalizeDocumentIdentity(browserPath(file));
@@ -84,6 +97,20 @@ function isConceptFile(filename: string): boolean {
   return filename.endsWith(".md") &&
     filename !== "index.md" &&
     filename !== "log.md";
+}
+
+function isBrowserFile(value: unknown): value is File {
+  if (!value || typeof value !== "object") return false;
+
+  const candidate = value as {
+    name?: unknown;
+    arrayBuffer?: unknown;
+    webkitRelativePath?: unknown;
+  };
+  return typeof candidate.name === "string" &&
+    typeof candidate.arrayBuffer === "function" &&
+    (candidate.webkitRelativePath === undefined ||
+      typeof candidate.webkitRelativePath === "string");
 }
 
 export { OkfError } from "./errors.js";

@@ -58,6 +58,34 @@ describe("browser openOkf", () => {
     ]);
   });
 
+  it("rejects Node path strings at the browser boundary", async () => {
+    await expect(
+      openOkf("./knowledge" as unknown as readonly File[]),
+    ).rejects.toThrowError(
+      new TypeError(
+        "Browser openOkf requires selected File objects; path strings are Node-only.",
+      ),
+    );
+  });
+
+  it("rejects malformed members before reading any files", async () => {
+    const selected = file(
+      "selected.md",
+      concept("type: selected", "selectedneedle"),
+    );
+    const selectedRead = vi.spyOn(selected, "arrayBuffer");
+
+    await expect(openOkf([
+      selected,
+      "./knowledge" as unknown as File,
+    ])).rejects.toThrowError(
+      new TypeError(
+        "Browser openOkf requires selected File objects; path strings are Node-only.",
+      ),
+    );
+    expect(selectedRead).not.toHaveBeenCalled();
+  });
+
   it("snapshots FileList membership before reading", async () => {
     const selected = file(
       "selected.md",
