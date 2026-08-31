@@ -95,6 +95,7 @@ label.file-picker:has(+ input:focus-visible),
 .masthead h1,
 .completion-intro h2,
 .drawer-heading h2,
+.results-heading h2,
 .panel-heading h2 {
   margin: 0;
   font-family: var(--sans);
@@ -427,6 +428,94 @@ input:disabled + span,
 
 .completion-state[data-state="ready"] {
   color: var(--ink);
+}
+
+.results-section {
+  padding: 0 0 2.5rem;
+}
+
+.results-heading {
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--ink);
+}
+
+.results-heading h2 {
+  font-size: 1rem;
+}
+
+.search-status {
+  padding: 0.7rem 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.search-status[data-state="ready"] {
+  color: var(--ink);
+}
+
+.search-status[data-state="empty"],
+.search-status[data-state="error"] {
+  color: var(--rust-deep);
+}
+
+.search-results {
+  margin: 0;
+  padding: 0 0 0 2rem;
+  border-top: 1px solid var(--rule);
+}
+
+.search-results:empty {
+  display: none;
+}
+
+.search-results li {
+  padding: 1rem 0 1rem 0.35rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.search-results li::marker {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+}
+
+.search-hit {
+  min-width: 0;
+}
+
+.search-hit h3 {
+  margin: 0;
+  font-size: 0.94rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.hit-path,
+.hit-heading-path,
+.hit-meta {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.hit-path {
+  margin-top: 0.15rem;
+  color: var(--ink);
+}
+
+.hit-heading-path {
+  margin-top: 0.15rem;
+}
+
+.hit-snippet {
+  margin: 0.55rem 0;
+  color: var(--ink);
+  font-size: 0.8rem;
+  line-height: 1.55;
 }
 
 .lower-panels {

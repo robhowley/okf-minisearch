@@ -90,7 +90,7 @@
         <section class="completion-area" id="completion" aria-labelledby="completion-heading">
           <div class="completion-intro">
             <h2 id="completion-heading">Suggestions</h2>
-            <p>Enter a partial phrase. Choose a suggestion to fill the query without running a full search.</p>
+            <p>Type a phrase. Choose a suggestion or press Enter to search.</p>
           </div>
 
           <div class="completion-track">
@@ -118,6 +118,21 @@
               <div class="completion-state" id="completion-state" role="status" aria-live="polite" data-state="loading">Loading the sample bundle…</div>
             </div>
           </div>
+
+          <section class="results-section" aria-labelledby="results-heading">
+            <div class="results-heading">
+              <h2 id="results-heading">Search results</h2>
+            </div>
+            <div
+              id="search-status"
+              class="search-status"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              data-state="blank"
+            >Search results appear after you choose a suggestion or press Enter.</div>
+            <ol id="search-results" class="search-results" aria-label="Committed document search results"></ol>
+          </section>
 
           <div class="lower-panels">
             <section class="panel upload-panel" aria-labelledby="upload-heading">

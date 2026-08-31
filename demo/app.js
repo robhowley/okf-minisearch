@@ -1,10 +1,8 @@
 const SUGGESTION_LIMIT = 8;
+const SEARCH_LIMIT = 8;
 
-/**
- * Turn the visible filter controls into the public autoSuggest options.
- * Empty arrays and an empty `where` object are intentionally omitted.
- */
-export function mapFilterOptions(filters = {}) {
+/** Turn the visible filters into the options shared by suggest and search. */
+function mapStructuredFilterOptions(filters = {}) {
   const where = {};
 
   addFilter(where, "types", filters.types, false, false);
@@ -24,13 +22,125 @@ export function mapFilterOptions(filters = {}) {
     where.stale = filters.stale;
   }
 
-  const options = { limit: SUGGESTION_LIMIT };
+  const options = {};
   if (Object.keys(where).length > 0) options.where = where;
 
   const asOf = asDate(filters.asOf);
   if (asOf) options.asOf = asOf;
 
   return options;
+}
+
+/** Map visible filters to the deliberate autoSuggest policy. */
+export function mapFilterOptions(filters = {}) {
+  return { limit: SUGGESTION_LIMIT, ...mapStructuredFilterOptions(filters) };
+}
+
+/** Map visible filters to the independent committed-search policy. */
+export function mapSearchOptions(filters = {}) {
+  return { limit: SEARCH_LIMIT, ...mapStructuredFilterOptions(filters) };
+}
+
+/** Choose the phrase committed by Enter or an active suggestion. */
+export function resolveCommittedQuery(query, activeSuggestion) {
+  if (typeof activeSuggestion?.suggestion === "string") {
+    return activeSuggestion.suggestion.trim();
+  }
+  return typeof query === "string" ? query.trim() : "";
+}
+
+/** Suppress commit and close keys while an IME owns the event. */
+export function isCompositionKey(event) {
+  return Boolean(event?.isComposing) || event?.keyCode === 229;
+}
+
+/** Resolve keyboard input to the committed-search action used by the controller. */
+export function resolveSearchKeyAction(event, query, activeSuggestion) {
+  if (isCompositionKey(event)) return { type: "composition" };
+  if (event?.key === "Escape") return { type: "close" };
+  if (event?.key !== "Enter") return { type: "ignore" };
+
+  const committedQuery = resolveCommittedQuery(query, activeSuggestion);
+  return committedQuery
+    ? { type: "commit", query: committedQuery }
+    : { type: "ignore" };
+}
+
+/** Convert one public search hit to strings that the DOM renders as text. */
+export function toSearchResultText(hit = {}) {
+  const matchedFields = Array.from(hit.matchedFields ?? [], textValue);
+  return {
+    title: textValue(hit.title),
+    path: textValue(hit.path),
+    headingPath: textValue(hit.headingPath),
+    snippet: textValue(hit.snippet),
+    conformance: textValue(hit.conformance),
+    matchedFields,
+    score: formatScore(hit.score),
+  };
+}
+
+/** Own committed-search calls and their replace-only result state. */
+export function createCommittedSearchSession(search) {
+  let state = blankSearchState();
+
+  return {
+    get state() {
+      return state;
+    },
+    invalidate() {
+      state = blankSearchState();
+      return state;
+    },
+    commit(query, filters = {}) {
+      const committedQuery = resolveCommittedQuery(query);
+      if (!committedQuery) {
+        state = blankSearchState();
+        return state;
+      }
+
+      try {
+        const hits = Array.from(
+          search(committedQuery, mapSearchOptions(filters)),
+          toSearchResultText,
+        ).slice(0, SEARCH_LIMIT);
+        state = hits.length > 0
+          ? {
+              status: "ready",
+              message: `${hits.length} document${hits.length === 1 ? "" : "s"} found for “${committedQuery}”.`,
+              query: committedQuery,
+              hits,
+            }
+          : {
+              status: "empty",
+              message: `No documents found for “${committedQuery}”. Try a broader phrase or adjust the filters.`,
+              query: committedQuery,
+              hits: [],
+            };
+      } catch {
+        state = {
+          status: "error",
+          message: `Search failed for “${committedQuery}”. Check the filters and try again.`,
+          query: committedQuery,
+          hits: [],
+        };
+      }
+      return state;
+    },
+  };
+}
+
+function blankSearchState() {
+  return {
+    status: "blank",
+    message: "Search results appear after you choose a suggestion or press Enter.",
+    query: "",
+    hits: [],
+  };
+}
+
+function textValue(value) {
+  return value === undefined || value === null ? "" : String(value);
 }
 
 function addFilter(
@@ -173,6 +283,8 @@ function createController(documentRef, windowRef) {
     query: documentRef.getElementById("query"),
     suggestionList: documentRef.getElementById("suggestion-list"),
     completionState: documentRef.getElementById("completion-state"),
+    searchResults: documentRef.getElementById("search-results"),
+    searchStatus: documentRef.getElementById("search-status"),
     fileInput: documentRef.getElementById("upload-files"),
     uploadStatus: documentRef.getElementById("upload-status"),
     uploadOutcomes: documentRef.getElementById("upload-outcomes"),
@@ -189,6 +301,8 @@ function createController(documentRef, windowRef) {
   let suggestions = [];
   let activeIndex = -1;
   let ready = false;
+  const committedSearch = createCommittedSearchSession((query, options) =>
+    handle.search(query, options));
 
   function initialize() {
     setControlsEnabled(false);
@@ -234,9 +348,9 @@ function createController(documentRef, windowRef) {
     elements.filtersForm?.addEventListener("submit", (event) => {
       event.preventDefault();
     });
-    elements.filtersForm?.addEventListener("input", refreshSuggestions);
-    elements.filtersForm?.addEventListener("change", refreshSuggestions);
-    elements.query?.addEventListener("input", refreshSuggestions);
+    elements.filtersForm?.addEventListener("input", onVisibleControlsChanged);
+    elements.filtersForm?.addEventListener("change", onVisibleControlsChanged);
+    elements.query?.addEventListener("input", onVisibleControlsChanged);
     elements.query?.addEventListener("keydown", onQueryKeydown);
     elements.query?.addEventListener("focus", () => {
       if (suggestions.length > 0 && elements.query.value.trim()) {
@@ -346,6 +460,7 @@ function createController(documentRef, windowRef) {
   async function processUploads(files) {
     if (!ready || files.length === 0) return;
 
+    clearSearchResults();
     uploadOutcomes = [];
     setUploadStatus("uploading", `Reading ${files.length} Markdown file${files.length === 1 ? "" : "s"}…`);
     setUploadEnabled(false);
@@ -445,12 +560,18 @@ function createController(documentRef, windowRef) {
   function refreshIndex() {
     if (!handle) return;
 
+    clearSearchResults();
     const types = Array.from(handle.listTypes());
     renderTypes(types);
 
     const degraded = Array.from(handle.listDegradedDocuments());
     setDiagnostics(degraded, degraded.length || seedFailures.length ? "degraded" : "ready");
     updateCorpusStatus(types, degraded);
+    refreshSuggestions();
+  }
+
+  function onVisibleControlsChanged() {
+    clearSearchResults();
     refreshSuggestions();
   }
 
@@ -574,12 +695,17 @@ function createController(documentRef, windowRef) {
   }
 
   function onQueryKeydown(event) {
-    if (!ready || suggestions.length === 0) {
-      if (event.key === "Escape") closeSuggestions();
-      return;
-    }
+    if (!ready) return;
 
-    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+    const activeSuggestion = activeIndex >= 0 ? suggestions[activeIndex] : undefined;
+    const action = resolveSearchKeyAction(
+      event,
+      elements.query?.value,
+      activeSuggestion,
+    );
+    if (action.type === "composition") return;
+
+    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && suggestions.length > 0) {
       event.preventDefault();
       const state = transitionCombobox(
         { activeIndex, open: !elements.suggestionList?.hidden },
@@ -592,13 +718,24 @@ function createController(documentRef, windowRef) {
       return;
     }
 
-    if (event.key === "Enter" && activeIndex >= 0) {
+    if (action.type === "commit") {
       event.preventDefault();
-      acceptSuggestion(activeIndex);
+      if (activeSuggestion) {
+        acceptCommittedSuggestion(action.query);
+      } else {
+        closeSuggestions();
+        commitSearch(action.query);
+      }
       return;
     }
 
-    if (event.key === "Escape") {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      closeSuggestions();
+      return;
+    }
+
+    if (action.type === "close") {
       event.preventDefault();
       const state = transitionCombobox(
         { activeIndex, open: true },
@@ -613,10 +750,81 @@ function createController(documentRef, windowRef) {
   function acceptSuggestion(index) {
     const item = suggestions[index];
     if (!item || !elements.query) return;
-    elements.query.value = item.suggestion;
+    const action = resolveSearchKeyAction(
+      { key: "Enter" },
+      elements.query.value,
+      item,
+    );
+    if (action.type === "commit") acceptCommittedSuggestion(action.query);
+  }
+
+  function acceptCommittedSuggestion(query) {
+    elements.query.value = query;
     activeIndex = -1;
     closeSuggestions();
-    setCompletionState("ready", `Accepted “${item.suggestion}”.`);
+    setCompletionState("ready", `Accepted “${query}”.`);
+    commitSearch(query);
+  }
+
+  function commitSearch(query) {
+    if (!handle) {
+      clearSearchResults();
+      return;
+    }
+
+    elements.searchResults?.setAttribute("aria-busy", "true");
+    const state = committedSearch.commit(query, readFilterValues());
+    renderCommittedSearch(state);
+    elements.searchResults?.setAttribute("aria-busy", "false");
+  }
+
+  function clearSearchResults() {
+    renderCommittedSearch(committedSearch.invalidate());
+  }
+
+  function renderCommittedSearch(state) {
+    renderSearchResults(state.hits);
+    setSearchStatus(state.status, state.message);
+  }
+
+  function renderSearchResults(hits) {
+    const list = elements.searchResults;
+    if (!list) return;
+    list.replaceChildren();
+
+    for (const hit of hits) {
+      const item = documentRef.createElement("li");
+      const article = documentRef.createElement("article");
+      article.className = "search-hit";
+
+      const heading = documentRef.createElement("h3");
+      heading.textContent = hit.title;
+
+      const path = documentRef.createElement("div");
+      path.className = "hit-path";
+      path.textContent = hit.path;
+
+      article.append(heading, path);
+
+      if (hit.headingPath.trim()) {
+        const headingPath = documentRef.createElement("div");
+        headingPath.className = "hit-heading-path";
+        headingPath.textContent = hit.headingPath;
+        article.append(headingPath);
+      }
+
+      const snippet = documentRef.createElement("p");
+      snippet.className = "hit-snippet";
+      snippet.textContent = hit.snippet;
+
+      const meta = documentRef.createElement("div");
+      meta.className = "hit-meta";
+      meta.textContent = `${hit.conformance} · matched ${hit.matchedFields.join(", ") || "—"} · score ${hit.score}`;
+
+      article.append(snippet, meta);
+      item.append(article);
+      list.append(item);
+    }
   }
 
   function closeAfterBlur() {
@@ -687,6 +895,12 @@ function createController(documentRef, windowRef) {
     if (!elements.completionState) return;
     elements.completionState.dataset.state = state;
     elements.completionState.textContent = text;
+  }
+
+  function setSearchStatus(state, text) {
+    if (!elements.searchStatus) return;
+    elements.searchStatus.dataset.state = state;
+    elements.searchStatus.textContent = text;
   }
 
   function setUploadStatus(state, text) {
@@ -793,6 +1007,7 @@ function createController(documentRef, windowRef) {
 
   function showFatal(title, detail) {
     ready = false;
+    clearSearchResults();
     setControlsEnabled(false);
     setCorpusStatus("error", title);
     setCompletionState("error", detail);
