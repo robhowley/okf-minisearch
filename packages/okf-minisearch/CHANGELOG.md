@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.1](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v2.2.0...okf-minisearch-v2.2.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **okf-minisearch:** add browser CDN bundle ([#48](https://github.com/robhowley/okf-minisearch/issues/48)) ([e68ec95](https://github.com/robhowley/okf-minisearch/commit/e68ec95d3be12a6a0afed79ec8ee5080645aebd2))
+
 ## [2.2.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v2.1.0...okf-minisearch-v2.2.0) (2026-08-31)
 
 
