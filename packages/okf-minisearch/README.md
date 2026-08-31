@@ -1,6 +1,6 @@
 # okf-minisearch
 
-Search an [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) directory from Node.js without running a separate search service. `okf-minisearch` loads OKF Markdown into an in-memory [MiniSearch](https://lucaong.github.io/minisearch/) index and returns the most relevant section from each matching document.
+Search [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown in Node.js or a browser without running a separate search service. `okf-minisearch` loads documents into an in-memory [MiniSearch](https://lucaong.github.io/minisearch/) index and returns the most relevant section from each matching document.
 
 ## Install
 
@@ -8,7 +8,7 @@ Search an [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/o
 npm install okf-minisearch
 ```
 
-Requires Node.js 20 or newer. The package is ESM-only and includes TypeScript declarations.
+The package is ESM-only and includes TypeScript declarations. Loading a directory requires Node.js 20 or newer.
 
 ## Quick start
 
@@ -46,9 +46,58 @@ for (const hit of hits) {
 }
 ```
 
-`openOkf(root)` recursively reads regular `.md` files. Files named exactly `index.md` or `log.md` are reserved and are not indexed.
+In Node.js, `openOkf(root)` recursively reads regular `.md` files. Files named exactly `index.md` or `log.md` are reserved and are not indexed.
 
 See [Accepted OKF documents](#accepted-okf-documents).
+
+Using Rollup for Node? Add `"node"` to `@rollup/plugin-node-resolve`'s `exportConditions`.
+
+## Browser
+
+Use the package-root `openOkf` with files selected in the browser. Pass a `FileList` or `File[]`, not a local path string. For a directory selection, add `webkitdirectory`:
+
+```html
+<input id="knowledge" type="file" accept=".md" multiple webkitdirectory>
+```
+
+```js
+import { openOkf } from "okf-minisearch";
+
+const input = document.querySelector("#knowledge");
+input.addEventListener("change", async () => {
+  if (!input.files) return;
+
+  const okf = await openOkf(input.files);
+  console.log(okf.search("rollback snapshot"));
+});
+```
+
+Only filenames ending in lowercase `.md` are indexed. Files named exactly `index.md` or `log.md` are ignored.
+
+## Preloaded Markdown
+
+When Markdown is already in memory, use `createOkfSearch` for synchronous construction in Node.js or a browser:
+
+```js
+import { createOkfSearch } from "okf-minisearch";
+
+const markdown = `---
+type: guide
+title: Recovery guide
+---
+# Recovery
+
+Restart the worker and inspect its health check.
+`;
+
+const okf = createOkfSearch([
+  { path: "guides/recovery.md", markdown },
+]);
+
+console.log(okf.search("health check"));
+```
+
+Each item needs a relative `.md` `path` and its Markdown string in `markdown`. The Markdown must have parseable frontmatter with a nonblank `type`.
 
 ## Search
 
@@ -329,7 +378,7 @@ A valid `human:<id>` verification means `human-reviewed`; other valid actors mea
 
 ## Errors
 
-`openOkf` and `ingest` throw `OkfError` when a document cannot be indexed because of its path, parsing, Markdown, or `type`. Problems in other recognized fields are accepted as degraded instead. `openOkf` also uses `OkfError` for filesystem and UTF-8 errors, while `remove` uses it for invalid paths. `validateOkfDocument` returns document errors as diagnostics instead of throwing.
+`createOkfSearch`, `openOkf`, and `ingest` throw `OkfError` when a document cannot be indexed because of its path, parsing, Markdown, or `type`. Problems in other recognized fields are accepted as degraded instead. `openOkf` also uses `OkfError` for read and UTF-8 errors, while `remove` uses it for invalid paths. `validateOkfDocument` returns document errors as diagnostics instead of throwing.
 
 ```js
 import { OkfError, openOkf } from "okf-minisearch";
@@ -358,7 +407,7 @@ If `ingest` or `remove` throws `ERR_OKF_INDEX_UNUSABLE`, discard the handle and 
 
 ## Public API
 
-The package root exports `openOkf`, `validateOkfDocument`, and `OkfError`. `openOkf(root)` returns an `OkfSearch` handle with `search(query, options?)`, `autoSuggest(query, options?)`, `listTypes()`, `listDegradedDocuments()`, `ingest(input)`, and `remove(path)`. Public TypeScript types can be imported from the package root:
+The package root exports `createOkfSearch`, `openOkf`, `validateOkfDocument`, and `OkfError`. Use `createOkfSearch(documents)` to build an `OkfSearch` synchronously from preloaded Markdown. `openOkf` builds one asynchronously from a Node directory path or browser `FileList`/`File[]`. Both return a handle with `search(query, options?)`, `autoSuggest(query, options?)`, `listTypes()`, `listDegradedDocuments()`, `ingest(input)`, and `remove(path)`. Public TypeScript types can be imported from the package root:
 
 ```ts
 import type {

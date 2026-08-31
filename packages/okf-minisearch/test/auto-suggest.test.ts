@@ -5,7 +5,11 @@ import {
   it,
 } from "vitest";
 
-import { openOkf } from "../src/index.js";
+import {
+  createOkfSearch,
+  openOkf,
+} from "../src/index.js";
+import { openOkf as openBrowserOkf } from "../src/browser.js";
 import type {
   OkfAutoSuggestOptions,
   OkfSearch,
@@ -293,6 +297,30 @@ describe("autoSuggest filters and validation", () => {
 });
 
 describe("autoSuggest grouping and lifecycle", () => {
+  it("returns equivalent suggestions through direct, Node, and browser construction", async () => {
+    const markdown = concept("type: note", "threepathsuggestionneedle");
+    const tree = await createBundle({ "parity.md": markdown });
+    bundles.push(tree);
+    const file = {
+      name: "parity.md",
+      webkitRelativePath: "",
+      arrayBuffer: async () => new TextEncoder().encode(markdown).buffer,
+    } as File;
+    const handles = [
+      createOkfSearch([{ path: "parity.md", markdown }]),
+      await openOkf(tree.root),
+      await openBrowserOkf([file]),
+    ];
+
+    expect(handles.map((okf) => okf.autoSuggest(
+      "threepathsuggestion",
+    ))).toEqual([
+      handles[0]!.autoSuggest("threepathsuggestion"),
+      handles[0]!.autoSuggest("threepathsuggestion"),
+      handles[0]!.autoSuggest("threepathsuggestion"),
+    ]);
+  });
+
   it("groups phrases across sections and records, filters before grouping, orders by score, and limits after grouping", async () => {
     const repeated = "# First\ntopic alpha\n# Second\ntopic alpha";
     const okf = await open({

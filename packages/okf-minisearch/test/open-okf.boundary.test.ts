@@ -21,6 +21,7 @@ import MiniSearch from "minisearch";
 
 import {
   OkfError,
+  createOkfSearch,
   openOkf,
 } from "../src/index.js";
 import type { OkfSearch } from "../src/index.js";
@@ -71,6 +72,23 @@ async function expectReadError(
 }
 
 describe("openOkf concept boundary", () => {
+  it("matches direct construction for equivalent documents", async () => {
+    const markdown = concept("type: parity", "nodeconstructorparityneedle");
+    const tree = await bundle({ "nested/parity.md": markdown });
+    const fromNode = await openOkf(tree.root);
+    const direct = createOkfSearch([{
+      path: "nested/parity.md",
+      markdown,
+    }]);
+
+    expect(fromNode.search("nodeconstructorparityneedle")).toEqual(
+      direct.search("nodeconstructorparityneedle"),
+    );
+    expect(fromNode.autoSuggest("nodeconstructorparity")).toEqual(
+      direct.autoSuggest("nodeconstructorparity"),
+    );
+  });
+
   it("opens type-only, empty, nested, unknown metadata, and broken links", async () => {
     const tree = await bundle({
       "type-only.md": concept(`
