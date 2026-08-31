@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v2.1.0...okf-minisearch-v2.2.0) (2026-08-31)
+
+
+### Features
+
+* **okf-minisearch:** support browser environments ([#46](https://github.com/robhowley/okf-minisearch/issues/46)) ([13770bb](https://github.com/robhowley/okf-minisearch/commit/13770bb2140d6a0a42684e98bb726f563f567636))
+
 ## [2.1.0](https://github.com/robhowley/okf-minisearch/compare/okf-minisearch-v2.0.0...okf-minisearch-v2.1.0) (2026-08-30)
 
 
