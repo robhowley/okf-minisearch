@@ -72,6 +72,15 @@ input.addEventListener("change", async () => {
 });
 ```
 
+Without a bundler, load the browser API from a CDN:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/okf-minisearch@2"></script>
+<script>
+  const { createOkfSearch, openOkf } = OkfMiniSearch;
+</script>
+```
+
 Only filenames ending in lowercase `.md` are indexed. Files named exactly `index.md` or `log.md` are ignored.
 
 ## Preloaded Markdown
