@@ -50,6 +50,8 @@ In Node.js, `openOkf(root)` recursively reads regular `.md` files. Files named e
 
 See [Accepted OKF documents](#accepted-okf-documents).
 
+Using Rollup for Node? Add `"node"` to `@rollup/plugin-node-resolve`'s `exportConditions`.
+
 ## Browser
 
 Use the package-root `openOkf` with files selected in the browser. Pass a `FileList` or `File[]`, not a local path string. For a directory selection, add `webkitdirectory`:
