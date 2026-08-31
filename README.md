@@ -47,7 +47,17 @@ console.log({
 }
 ```
 
-### Library capabilities
+## Use in a browser
+
+Load the browser API without installing or bundling:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/okf-minisearch@2"></script>
+```
+
+Use `OkfMiniSearch` in your script. See the [browser guide](packages/okf-minisearch/README.md#browser) for file selection and search examples.
+
+## Library capabilities
 
 - Loads OKF Markdown from a Node.js directory, browser-selected files, or in-memory strings.
 - Returns one ranked section per document with its title, path, heading path, line range, and snippet.

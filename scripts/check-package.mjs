@@ -19,6 +19,7 @@ import {
 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { runInNewContext } from "node:vm";
 
 import { nodeResolve } from "@rollup/plugin-node-resolve";
 import { build as esbuild } from "esbuild";
@@ -106,6 +107,7 @@ function checkLibraryPaths(paths) {
     "README.md",
     "dist/browser.d.ts",
     "dist/browser.js",
+    "dist/browser.min.js",
     "dist/create-okf-search.d.ts",
     "dist/create-okf-search.js",
     "dist/index.d.ts",
@@ -843,6 +845,8 @@ async function inspectLibraryManifest(libraryTarball, extractionRoot) {
   );
   assert.equal(manifest.main, "./dist/index.js");
   assert.equal(manifest.types, "./dist/index.d.ts");
+  assert.equal(manifest.jsdelivr, "./dist/browser.min.js");
+  assert.equal(manifest.unpkg, "./dist/browser.min.js");
   assert.deepEqual(Object.keys(manifest.exports["."]), ["node", "default"]);
   assert.deepEqual(manifest.exports["."], {
     node: {
@@ -854,6 +858,38 @@ async function inspectLibraryManifest(libraryTarball, extractionRoot) {
       import: "./dist/browser.js",
     },
   });
+
+  const browserBundle = await readFile(
+    join(extractionRoot, "package", "dist", "browser.min.js"),
+    "utf8",
+  );
+  assert.equal(
+    /["']node:/.test(browserBundle),
+    false,
+    "browser global bundle contains a node: import",
+  );
+  const context = {
+    document: {
+      createElement: () => ({
+        textContent: "",
+        set innerHTML(value) {
+          this.textContent = value;
+        },
+      }),
+    },
+  };
+  runInNewContext(browserBundle, context);
+  assert.deepEqual(Object.keys(context.OkfMiniSearch).sort(), [
+    "OkfError",
+    "createOkfSearch",
+    "openOkf",
+    "validateOkfDocument",
+  ]);
+  const okf = context.OkfMiniSearch.createOkfSearch([{
+    path: "cdn.md",
+    markdown: "---\ntype: guide\n---\ncdnsearchneedle",
+  }]);
+  assert.equal(okf.search("cdnsearchneedle").length, 1);
 }
 
 async function inspectPiManifest(

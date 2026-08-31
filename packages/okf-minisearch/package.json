@@ -14,6 +14,8 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "jsdelivr": "./dist/browser.min.js",
+  "unpkg": "./dist/browser.min.js",
   "exports": {
     ".": {
       "node": {
@@ -30,7 +32,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && pnpm run build:browser",
+    "build:browser": "esbuild src/browser.ts --bundle --platform=browser --format=iife --global-name=OkfMiniSearch --target=es2022 --minify --outfile=dist/browser.min.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "test": "vitest run"
   },
@@ -50,6 +53,7 @@
   },
   "devDependencies": {
     "@types/mdast": "^4.0.4",
-    "@types/unist": "^3.0.3"
+    "@types/unist": "^3.0.3",
+    "esbuild": "^0.28.2"
   }
 }
