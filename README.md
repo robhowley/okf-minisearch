@@ -57,25 +57,9 @@ Load the browser API without installing or bundling:
 
 Use `OkfMiniSearch` in your script. See the [browser guide](packages/okf-minisearch/README.md#browser) for file selection and search examples.
 
-## Try the autoSuggest demo
+## Demo
 
-The [autoSuggest demo](demo/) loads a 42-document OKF sample corpus and lets you try phrase completions, metadata filters, and Markdown uploads. Its browser script comes from the exact major-2 CDN source:
-
-```html
-<script src="https://cdn.jsdelivr.net/npm/okf-minisearch@2"></script>
-```
-
-Serve it over loopback HTTP instead of opening the HTML file directly:
-
-```sh
-# From the repository root; open http://127.0.0.1:8000/
-python3 -m http.server 8000 --bind 127.0.0.1 --directory demo
-
-# Or serve the repository; open http://127.0.0.1:8000/demo/
-python3 -m http.server 8000 --bind 127.0.0.1
-```
-
-The sample files and uploads are indexed in browser memory only. Uploads are not sent or saved and disappear on reload; a same-name upload replaces its in-memory document, while a failed upload leaves successful uploads intact. On pushes to `main`, CI validates the packages before deploying `demo/` to GitHub Pages; set the repository Pages source to **GitHub Actions** to enable it.
+Try [okf-minisearch in your browser](https://robhowley.github.io/okf-minisearch/). Search a sample OKF corpus and validate Markdown uploads entirely in memory.
 
 ## Library capabilities
 
