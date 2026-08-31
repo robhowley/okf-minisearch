@@ -53,7 +53,10 @@ importers:
     devDependencies:
       '@napi-rs/cli':
         specifier: ^3.8.6
-        version: 3.8.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@26.2.0)
+        version: 3.8.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@napi-rs/cross-toolchain-x64-target-x86_64@1.0.3)(@types/node@26.2.0)
+      '@napi-rs/cross-toolchain-x64-target-x86_64':
+        specifier: ^1.0.3
+        version: 1.0.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -619,6 +622,10 @@ packages:
         optional: true
       emnapi:
         optional: true
+
+  '@napi-rs/cross-toolchain-x64-target-x86_64@1.0.3':
+    resolution: {integrity: sha512-AeSHGXbk3IaKmvXxHPzbCzIcSoXZiS8+atl2w6RBVYEWrWeWVBMktbnv44ekbFKjSffLtF5LC4xq2NmTqB49zQ==, tarball: https://registry.npmjs.org/@napi-rs/cross-toolchain-x64-target-x86_64/-/cross-toolchain-x64-target-x86_64-1.0.3.tgz}
+    cpu: [x64]
 
   '@napi-rs/cross-toolchain@1.0.3':
     resolution: {integrity: sha512-ENPfLe4937bsKVTDA6zdABx4pq9w0tHqRrJHyaGxgaPq03a2Bd1unD5XSKjXJjebsABJ+MjAv1A2OvCgK9yehg==, tarball: https://registry.npmjs.org/@napi-rs/cross-toolchain/-/cross-toolchain-1.0.3.tgz}
@@ -2857,10 +2864,10 @@ snapshots:
       '@mariozechner/clipboard-win32-x64-msvc': 0.3.9
     optional: true
 
-  '@napi-rs/cli@3.8.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@26.2.0)':
+  '@napi-rs/cli@3.8.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@napi-rs/cross-toolchain-x64-target-x86_64@1.0.3)(@types/node@26.2.0)':
     dependencies:
       '@inquirer/prompts': 8.7.0(@types/node@26.2.0)
-      '@napi-rs/cross-toolchain': 1.0.3
+      '@napi-rs/cross-toolchain': 1.0.3(@napi-rs/cross-toolchain-x64-target-x86_64@1.0.3)
       '@napi-rs/wasm-tools': 1.1.0
       '@octokit/rest': 22.0.1
       clipanion: 4.0.0-rc.4(typanion@3.14.0)
@@ -2888,11 +2895,15 @@ snapshots:
       - '@types/node'
       - supports-color
 
-  '@napi-rs/cross-toolchain@1.0.3':
+  '@napi-rs/cross-toolchain-x64-target-x86_64@1.0.3': {}
+
+  '@napi-rs/cross-toolchain@1.0.3(@napi-rs/cross-toolchain-x64-target-x86_64@1.0.3)':
     dependencies:
       '@napi-rs/lzma': 1.5.1
       '@napi-rs/tar': 1.1.1
       debug: 4.4.3
+    optionalDependencies:
+      '@napi-rs/cross-toolchain-x64-target-x86_64': 1.0.3
     transitivePeerDependencies:
       - supports-color
 

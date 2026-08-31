@@ -114,7 +114,7 @@ jobs:
           fi
           pnpm --dir packages/okf-search-native exec napi build \
             --platform --release --target "${{ matrix.target }}" \
-            "${build_args[@]}" -- --locked
+            "${build_args[@]+"${build_args[@]}"}" -- --locked
 
       - name: Verify Linux glibc floor
         if: matrix.target == 'x86_64-unknown-linux-gnu'
