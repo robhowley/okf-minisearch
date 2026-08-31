@@ -57,6 +57,10 @@ Load the browser API without installing or bundling:
 
 Use `OkfMiniSearch` in your script. See the [browser guide](packages/okf-minisearch/README.md#browser) for file selection and search examples.
 
+## Demo
+
+Try [okf-minisearch in your browser](https://robhowley.github.io/okf-minisearch/). Search a sample OKF corpus and validate Markdown uploads entirely in memory.
+
 ## Library capabilities
 
 - Loads OKF Markdown from a Node.js directory, browser-selected files, or in-memory strings.

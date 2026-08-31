@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Search a sample OKF index, test phrase suggestions, and validate uploaded Markdown in your browser.">
+    <title>Search and validate OKF documents · okf-minisearch</title>
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/okf-minisearch@2"></script>
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#completion">Skip to suggestions</a>
+
+    <main class="site-shell">
+      <header class="masthead">
+        <div class="masthead-copy">
+          <p class="product-name">okf-minisearch</p>
+          <h1>Search and validate OKF documents</h1>
+          <p class="lede">Type a phrase to get suggestions and search matching documents. Upload Markdown files to validate and add them to the in-memory index.</p>
+        </div>
+        <div class="corpus-chip" id="corpus-status" role="status" aria-live="polite" data-state="loading">
+          <span class="chip-dot" aria-hidden="true"></span>
+          <span id="corpus-status-text">Loading sample bundle…</span>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <aside class="filter-drawer" aria-labelledby="filters-heading">
+          <div class="drawer-heading">
+            <h2 id="filters-heading">Filters</h2>
+            <p>Limit which documents can contribute suggestions.</p>
+          </div>
+
+          <form id="filters-form">
+            <fieldset>
+              <legend>Types</legend>
+              <div class="choice-stack" id="type-options">
+                <span class="muted-choice">Waiting for the index…</span>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Status</legend>
+              <div class="choice-grid choice-grid--three">
+                <label class="check-label"><input type="checkbox" name="statuses" value="draft"> <span>Draft</span></label>
+                <label class="check-label"><input type="checkbox" name="statuses" value="stable"> <span>Stable</span></label>
+                <label class="check-label"><input type="checkbox" name="statuses" value="deprecated"> <span>Deprecated</span></label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Trust</legend>
+              <div class="choice-stack">
+                <label class="check-label"><input type="checkbox" name="trustTiers" value="unverified"> <span>Unverified</span></label>
+                <label class="check-label"><input type="checkbox" name="trustTiers" value="machine-confirmed"> <span>Machine-confirmed</span></label>
+                <label class="check-label"><input type="checkbox" name="trustTiers" value="human-reviewed"> <span>Human-reviewed</span></label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Tags <span class="legend-note">comma-separated</span></legend>
+              <label class="sr-only" for="tag-filter">Filter by tags</label>
+              <input id="tag-filter" name="tagsAny" type="text" autocomplete="off" placeholder="kiln, safety">
+            </fieldset>
+
+            <fieldset>
+              <legend>Staleness</legend>
+              <div class="choice-stack">
+                <label class="check-label"><input type="radio" name="stale" value="any" checked> <span>Any age</span></label>
+                <label class="check-label"><input type="radio" name="stale" value="current"> <span>Current at reference time</span></label>
+                <label class="check-label"><input type="radio" name="stale" value="stale"> <span>Stale at reference time</span></label>
+              </div>
+              <label class="field-label" for="as-of">Reference time</label>
+              <input id="as-of" name="asOf" type="datetime-local">
+            </fieldset>
+
+            <fieldset>
+              <legend>Conformance</legend>
+              <div class="choice-grid choice-grid--two">
+                <label class="check-label"><input type="checkbox" name="conformance" value="strict"> <span>Strict</span></label>
+                <label class="check-label"><input type="checkbox" name="conformance" value="degraded"> <span>Degraded</span></label>
+              </div>
+            </fieldset>
+          </form>
+
+          <p class="memory-note">Uploads stay in memory and clear on reload.</p>
+        </aside>
+
+        <section class="completion-area" id="completion" aria-labelledby="completion-heading">
+          <div class="completion-intro">
+            <h2 id="completion-heading">Suggestions</h2>
+            <p>Type a phrase. Choose a suggestion or press Enter to search.</p>
+          </div>
+
+          <div class="completion-track">
+            <label class="query-label" for="query">Query</label>
+            <div class="query-shell">
+              <input
+                id="query"
+                type="text"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-controls="suggestion-list"
+                aria-expanded="false"
+                aria-haspopup="listbox"
+                aria-activedescendant=""
+                aria-describedby="completion-state"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="kiln lo"
+                disabled
+              >
+            </div>
+
+            <div class="suggestion-slipstack">
+              <ul id="suggestion-list" class="suggestion-list" role="listbox" aria-label="Phrase suggestions" hidden></ul>
+              <div class="completion-state" id="completion-state" role="status" aria-live="polite" data-state="loading">Loading the sample bundle…</div>
+            </div>
+          </div>
+
+          <section class="results-section" aria-labelledby="results-heading">
+            <div class="results-heading">
+              <h2 id="results-heading">Search results</h2>
+            </div>
+            <div
+              id="search-status"
+              class="search-status"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              data-state="blank"
+            >Search results appear after you choose a suggestion or press Enter.</div>
+            <ol id="search-results" class="search-results" aria-label="Committed document search results"></ol>
+          </section>
+
+          <div class="lower-panels">
+            <section class="panel upload-panel" aria-labelledby="upload-heading">
+              <div class="panel-heading">
+                <h2 id="upload-heading">Upload Markdown</h2>
+              </div>
+              <p>Validate one or more <code>.md</code> files, then add or replace them as <code>uploads/filename.md</code>.</p>
+              <label class="file-picker" for="upload-files">
+                <span class="file-picker-action">Choose files</span>
+                <span class="file-picker-copy">Markdown only · memory-only</span>
+              </label>
+              <input id="upload-files" class="file-input" type="file" accept=".md" multiple disabled>
+              <div id="upload-status" class="upload-status" role="status" aria-live="polite">Waiting for the index…</div>
+              <ul id="upload-outcomes" class="outcome-list" aria-live="polite"></ul>
+            </section>
+
+            <section class="panel diagnostics-panel" aria-labelledby="diagnostics-heading">
+              <div class="panel-heading">
+                <h2 id="diagnostics-heading">Diagnostics</h2>
+              </div>
+              <div id="diagnostics-status" class="diagnostics-status" role="status" aria-live="polite">Waiting for the index…</div>
+              <div id="diagnostics-list" class="diagnostics-list"></div>
+            </section>
+          </div>
+
+          <div class="app-error" id="app-error" role="alert" hidden></div>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>
