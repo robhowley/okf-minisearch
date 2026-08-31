@@ -9,14 +9,19 @@ concurrency:
   group: release-please
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
+permissions: {}
 
 jobs:
-  release:
+  release_metadata:
+    name: Release metadata
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      released_paths: ${{ steps.validate.outputs.released_paths }}
+      native_released: ${{ steps.validate.outputs.native_released }}
     steps:
       - name: Create release
         uses: googleapis/release-please-action@v4
@@ -25,37 +30,11 @@ jobs:
           config-file: .github/release-please-config.json
           manifest-file: .github/release-please-manifest.json
 
-      - name: Checkout
+      - name: Validate released paths
         if: steps.release.outputs.releases_created == 'true'
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        if: steps.release.outputs.releases_created == 'true'
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.22.0
-
-      - name: Setup Node.js
-        if: steps.release.outputs.releases_created == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22.19.0'
-          cache: pnpm
-          registry-url: https://registry.npmjs.org
-
-      - name: Install npm 11
-        if: steps.release.outputs.releases_created == 'true'
-        # npm trusted publishing requires npm 11.5.1+ on Node 22.14+.
-        run: npm install --global npm@11
-
-      - name: Validate package before publishing
-        if: steps.release.outputs.releases_created == 'true'
-        run: pnpm package:check
-
-      - name: Publish released packages
-        if: steps.release.outputs.releases_created == 'true'
+        id: validate
         env:
-          RELEASED_PATHS: ${{ steps.release.outputs.paths_released }}
+          PATHS_RELEASED_JSON: ${{ steps.release.outputs.paths_released }}
         shell: bash
         run: |
           set -euo pipefail
@@ -65,7 +44,8 @@ jobs:
               . as $released_paths
               | [
                   "packages/okf-minisearch",
-                  "packages/pi-okf-search"
+                  "packages/pi-okf-search",
+                  "packages/okf-search-native"
                 ] as $packages
               | if
                   ($released_paths | type) == "array"
@@ -78,10 +58,192 @@ jobs:
                 else
                   error("invalid paths_released")
                 end
-            ' <<<"$RELEASED_PATHS"
+            ' <<<"$PATHS_RELEASED_JSON"
           )"
 
-          package_paths="$(jq -er '.[]' <<<"$released_paths")"
+          echo "released_paths=$released_paths" >>"$GITHUB_OUTPUT"
+          echo "native_released=$(jq -r 'index("packages/okf-search-native") != null' <<<"$released_paths")" >>"$GITHUB_OUTPUT"
+
+  native_release_build:
+    needs: release_metadata
+    if: needs.release_metadata.outputs.releases_created == 'true' && needs.release_metadata.outputs.native_released == 'true'
+    permissions:
+      contents: read
+    name: Release native artifact (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            node-arch: x64
+            artifact: okf-search-native.linux-x64-gnu.node
+            napi-cross: true
+            macos-deployment-target: ''
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            node-arch: x64
+            artifact: okf-search-native.darwin-x64.node
+            napi-cross: false
+            macos-deployment-target: '10.13'
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            node-arch: arm64
+            artifact: okf-search-native.darwin-arm64.node
+            napi-cross: false
+            macos-deployment-target: '10.13'
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            node-arch: x64
+            artifact: okf-search-native.win32-x64-msvc.node
+            napi-cross: false
+            macos-deployment-target: ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+          standalone: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          architecture: ${{ matrix.node-arch }}
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.88.0
+          targets: ${{ matrix.target }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build native artifact
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos-deployment-target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_args=()
+          if [[ "${{ matrix.napi-cross }}" == "true" ]]; then
+            build_args+=(--use-napi-cross)
+          fi
+          pnpm --dir packages/okf-search-native exec napi build \
+            --platform --release --target "${{ matrix.target }}" \
+            "${build_args[@]}" -- --locked
+
+      - name: Verify Linux glibc floor
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="packages/okf-search-native/${{ matrix.artifact }}"
+          max_glibc="$(objdump -T "$artifact" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sort -Vu | tail -1)"
+          test -n "$max_glibc"
+          test "$(printf '%s\n' GLIBC_2.17 "$max_glibc" | sort -V | tail -1)" = GLIBC_2.17
+
+      - name: Runtime smoke test
+        run: pnpm --dir packages/okf-search-native run test:runtime
+
+      - name: Upload tested artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: okf-search-native-${{ matrix.target }}
+          path: packages/okf-search-native/${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [release_metadata, native_release_build]
+    if: >-
+      ${{
+        always() &&
+        needs.release_metadata.result == 'success' &&
+        needs.release_metadata.outputs.releases_created == 'true' &&
+        (
+          (needs.release_metadata.outputs.native_released == 'false' && needs.native_release_build.result == 'skipped') ||
+          (needs.release_metadata.outputs.native_released == 'true' && needs.native_release_build.result == 'success')
+        )
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+          standalone: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install npm 11
+        # npm trusted publishing requires npm 11.5.1+ on Node 22.14+.
+        run: npm install --global npm@11
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.88.0
+          components: clippy,rustfmt
+
+      - name: Check native Rust format and lints
+        run: pnpm --dir packages/okf-search-native run check:rust
+
+      - name: Validate packages before publishing
+        run: pnpm package:check
+
+      - name: Remove unportable host artifact
+        if: needs.release_metadata.outputs.native_released == 'true'
+        shell: bash
+        run: find packages/okf-search-native -maxdepth 1 -type f -name '*.node' -delete
+
+      - name: Download tested native artifacts
+        if: needs.release_metadata.outputs.native_released == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: okf-search-native-*
+          path: ${{ runner.temp }}/okf-native-artifacts
+          merge-multiple: true
+
+      - name: Assemble and verify native package
+        if: needs.release_metadata.outputs.native_released == 'true'
+        working-directory: packages/okf-search-native
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf npm
+          pnpm exec napi create-npm-dirs --npm-dir npm
+          pnpm exec napi artifacts \
+            --output-dir "$RUNNER_TEMP/okf-native-artifacts" \
+            --npm-dir npm
+          node scripts/verify-release-artifacts.mjs
+
+      - name: Publish released packages
+        env:
+          PATHS_RELEASED_JSON: ${{ needs.release_metadata.outputs.released_paths }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          package_paths="$(jq -er '.[]' <<<"$PATHS_RELEASED_JSON")"
 
           while IFS= read -r package_path; do
             (
@@ -98,6 +260,46 @@ jobs:
               )"
 
               test -f "$tarball"
+
+              if [[ "$package_path" == "packages/okf-search-native" ]]; then
+                tar_listing="$(tar -tzf "$tarball")"
+                mapfile -t native_files < <(grep -E '^package/.*\.node$' <<<"$tar_listing" | sort)
+                expected_native_files=(
+                  package/okf-search-native.darwin-arm64.node
+                  package/okf-search-native.darwin-x64.node
+                  package/okf-search-native.linux-x64-gnu.node
+                  package/okf-search-native.win32-x64-msvc.node
+                )
+                test "${#native_files[@]}" -eq "${#expected_native_files[@]}"
+                test "$(printf '%s\n' "${native_files[@]}")" = "$(printf '%s\n' "${expected_native_files[@]}")"
+
+                grep -Fxq package/index.js <<<"$tar_listing"
+                grep -Fxq package/index.d.ts <<<"$tar_listing"
+
+                manifest="$(tar -xOzf "$tarball" package/package.json)"
+                jq -e '
+                  (.scripts // {}) as $scripts
+                  | ((.optionalDependencies // {} | length) == 0
+                    and (["preinstall", "install", "postinstall"] | all(. as $name | $scripts[$name] == null)))
+                ' <<<"$manifest" >/dev/null
+
+                consumer="$RUNNER_TEMP/okf-search-native-release-consumer"
+                rm -rf "$consumer"
+                mkdir -p "$consumer"
+                npm install --prefix "$consumer" --ignore-scripts "$tarball"
+                NATIVE_CONSUMER="$consumer" node -e '
+                  const path = require("node:path")
+                  const binding = require(path.join(process.env.NATIVE_CONSUMER, "node_modules", "okf-search-native"))
+                  if (typeof binding.NativeOkfSearch?.fromPrepared !== "function") {
+                    throw new Error("NativeOkfSearch.fromPrepared is unavailable")
+                  }
+                  const index = binding.NativeOkfSearch.fromPrepared([])
+                  if (!Array.isArray(index.listTypes())) {
+                    throw new Error("native release tarball runtime smoke failed")
+                  }
+                '
+              fi
+
               npm publish "$tarball" --access public
             )
           done <<<"$package_paths"

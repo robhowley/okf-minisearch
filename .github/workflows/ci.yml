@@ -32,5 +32,107 @@ jobs:
           node-version: 22.19.0
           cache: pnpm
 
-      - name: Validate package
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.88.0
+          components: clippy,rustfmt
+
+      - name: Check native Rust format and lints
+        run: pnpm --dir packages/okf-search-native run check:rust
+
+      - name: Validate packages
         run: pnpm package:check
+
+  native-artifacts:
+    name: Native artifact (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            node-arch: x64
+            artifact: okf-search-native.linux-x64-gnu.node
+            napi-cross: true
+            macos-deployment-target: ''
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            node-arch: x64
+            artifact: okf-search-native.darwin-x64.node
+            napi-cross: false
+            macos-deployment-target: '10.13'
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            node-arch: arm64
+            artifact: okf-search-native.darwin-arm64.node
+            napi-cross: false
+            macos-deployment-target: '10.13'
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            node-arch: x64
+            artifact: okf-search-native.win32-x64-msvc.node
+            napi-cross: false
+            macos-deployment-target: ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+          standalone: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          architecture: ${{ matrix.node-arch }}
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.88.0
+          targets: ${{ matrix.target }}
+          components: clippy,rustfmt
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build native artifact
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos-deployment-target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_args=()
+          if [[ "${{ matrix.napi-cross }}" == "true" ]]; then
+            build_args+=(--use-napi-cross)
+          fi
+          pnpm --dir packages/okf-search-native exec napi build \
+            --platform --release --target "${{ matrix.target }}" \
+            "${build_args[@]}" -- --locked
+
+      - name: Verify Linux glibc floor
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="packages/okf-search-native/${{ matrix.artifact }}"
+          max_glibc="$(objdump -T "$artifact" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sort -Vu | tail -1)"
+          test -n "$max_glibc"
+          test "$(printf '%s\n' GLIBC_2.17 "$max_glibc" | sort -V | tail -1)" = GLIBC_2.17
+
+      - name: Runtime smoke test
+        run: pnpm --dir packages/okf-search-native run test:runtime
+
+      - name: Upload tested artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: okf-search-native-${{ matrix.target }}
+          path: packages/okf-search-native/${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 7

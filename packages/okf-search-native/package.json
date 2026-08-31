@@ -1,0 +1,59 @@
+{
+  "name": "okf-search-native",
+  "version": "0.1.0",
+  "description": "Prepared-document Tantivy search backend for OKF.",
+  "keywords": [
+    "open-knowledge-format",
+    "okf",
+    "tantivy",
+    "napi-rs",
+    "native-search"
+  ],
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "require": "./index.js",
+      "import": "./index.js",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "okf-search-native.*.node"
+  ],
+  "scripts": {
+    "build": "napi build --platform --release -- --locked",
+    "build:debug": "napi build --platform -- --locked",
+    "check:rust": "cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings",
+    "test:properties": "python3 tests/collapse_property.py && python3 tests/filter_pushdown_contract.py",
+    "test:types": "tsc -p tsconfig.smoke.json",
+    "test:rust": "cargo test --locked",
+    "test:runtime": "node scripts/runtime-smoke.mjs",
+    "typecheck": "pnpm run test:types",
+    "test": "pnpm run test:properties && pnpm run test:types && pnpm run test:rust && pnpm run test:runtime",
+    "verify:release-artifacts": "node scripts/verify-release-artifacts.mjs"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.8.6",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "napi": {
+    "binaryName": "okf-search-native",
+    "targets": [
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc",
+      "x86_64-unknown-linux-gnu"
+    ]
+  }
+}

@@ -8,6 +8,7 @@
 
 - **Node.js and browser users:** [`okf-minisearch`](packages/okf-minisearch/README.md) is the ESM library and TypeScript API.
 - **Pi users:** [`pi-okf-search`](packages/pi-okf-search/README.md) searches one configured local OKF tree from a Pi session.
+- **Native backend users:** [`okf-search-native`](packages/okf-search-native/README.md) is the low-level prepared-document Tantivy API. It does not expose `openOkf` or replace the Node.js facade.
 - **Contributors:** see [Development](#development) for workspace setup and checks.
 
 ## Use from Node.js
@@ -100,9 +101,11 @@ The model can call `okf_search`, inspect ranked snippets, and reopen a result's 
 - **Library:** ESM-only. Node.js usage requires Node.js 20 or newer; browser usage starts from files selected by the user.
 - **Pi package:** Node.js `>=22.19.0`. Its tests pin `@earendil-works/pi-ai` and `@earendil-works/pi-coding-agent` `0.84.3`; the peer dependency ranges do not establish a narrower supported Pi version range.
 - **Pi package loading:** the package manifest exposes `./extensions/okf-search`; Pi discovers the extension entry point from that directory.
+- **Native backend:** building `okf-search-native` requires Rust 1.88.0. Its supported prebuilt artifacts are macOS x64 and arm64, Windows x64 MSVC, and Linux x64 with glibc >=2.17; it targets Node.js >=22.19.0 and Node-API 8. Linux musl/Alpine, Linux arm64, Windows arm64, Bun, Deno, and browsers are not supported by this policy.
 
 - [Node.js package documentation](packages/okf-minisearch/README.md)
 - [Pi package documentation](packages/pi-okf-search/README.md)
+- [Native package documentation](packages/okf-search-native/README.md)
 - [Pinned OKF v0.2 specification](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/ad30107c31c06aec8a7d5636e0d1058118604e6f/SPEC.md)
 - [MiniSearch documentation](https://lucaong.github.io/minisearch/)
 
@@ -115,12 +118,18 @@ pnpm install
 pnpm package:check
 ```
 
-`pnpm package:check` performs a frozen install, builds, type-checks, tests, and packs both packages, then verifies packed Node, browser, and Pi consumers.
+`pnpm package:check` performs a frozen install, builds all packages, checks native Rust formatting and clippy, type-checks and tests the workspace, packs all three packages, and checks packed Node, browser, native, and Pi consumers.
 
 Build only the library:
 
 ```sh
 pnpm --filter okf-minisearch build
+```
+
+Build the native prepared-document backend:
+
+```sh
+pnpm --filter okf-search-native build
 ```
 
 Run the Pi extension from this checkout:
