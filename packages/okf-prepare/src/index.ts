@@ -4,6 +4,11 @@ export type {
   PrepareErrorOptions,
 } from "./errors.js";
 export { normalizeOkfDocumentIdentity } from "./identity.js";
+export {
+  prepareOkfDocument,
+  prepareOkfDocuments,
+  validateOkfDocument,
+} from "./prepare.js";
 
 export type {
   DegradedPreparedOkfFacets,

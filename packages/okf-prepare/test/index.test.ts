@@ -4,6 +4,9 @@ import {
   PrepareError,
   createPrepareBundleSentinel,
   normalizeOkfDocumentIdentity,
+  prepareOkfDocument,
+  prepareOkfDocuments,
+  validateOkfDocument,
 } from "../src/index.js";
 
 describe("private preparation package", () => {
@@ -14,8 +17,11 @@ describe("private preparation package", () => {
     });
   });
 
-  it("exports the foundation runtime contracts from its root", () => {
+  it("exports the preparation runtime contracts from its root", () => {
     expect(PrepareError).toBeTypeOf("function");
     expect(normalizeOkfDocumentIdentity).toBeTypeOf("function");
+    expect(prepareOkfDocument).toBeTypeOf("function");
+    expect(prepareOkfDocuments).toBeTypeOf("function");
+    expect(validateOkfDocument).toBeTypeOf("function");
   });
 });
