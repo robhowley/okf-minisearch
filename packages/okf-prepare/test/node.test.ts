@@ -217,11 +217,15 @@ describe("readOkfDocuments", () => {
   });
 
   it("maps nested traversal failures and preserves their cause", async () => {
-    const tree = await bundle({});
+    const tree = await bundle({ "a.md": "a" });
     const cause = new Error("nested traversal failed");
     const readdirSpy = readdirMock
-      .mockResolvedValueOnce([entry("nested", "directory")] as never)
+      .mockResolvedValueOnce([
+        entry("a.md", "file"),
+        entry("nested", "directory"),
+      ] as never)
       .mockRejectedValueOnce(cause);
+    const readFileSpy = readFileMock;
 
     await expect(readOkfDocuments(tree.root)).rejects.toMatchObject({
       code: "ERR_OKF_READ",
@@ -230,6 +234,7 @@ describe("readOkfDocuments", () => {
       cause,
     });
     expect(readdirSpy).toHaveBeenCalledTimes(2);
+    expect(readFileSpy).not.toHaveBeenCalled();
   });
 
   it("maps selected-file failures and preserves their cause", async () => {
