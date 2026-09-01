@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import * as node from "../src/node.js";
-import * as root from "../src/index.js";
+import * as node from "@okf-internal/prepare/node";
+import * as root from "@okf-internal/prepare";
 import {
   PrepareError,
   createPrepareBundleSentinel,
@@ -9,7 +9,7 @@ import {
   prepareOkfDocument,
   prepareOkfDocuments,
   validateOkfDocument,
-} from "../src/index.js";
+} from "@okf-internal/prepare";
 
 describe("private preparation package", () => {
   it("keeps root and Node runtime exports separate", () => {

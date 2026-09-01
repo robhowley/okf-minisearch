@@ -11,12 +11,12 @@ import type {
   PreparedOkfMetadata,
   PreparedOkfSection,
   StrictPreparedOkfFacets,
-} from "../src/index.js";
+} from "@okf-internal/prepare";
 
 // @ts-expect-error MiniSearch record types are not private preparation exports
-import type { OkfIndexRecord } from "../src/index.js";
+import type { OkfIndexRecord } from "@okf-internal/prepare";
 // @ts-expect-error MiniSearch projection types are not private preparation exports
-import type { OkfIndexProjection } from "../src/index.js";
+import type { OkfIndexProjection } from "@okf-internal/prepare";
 
 const diagnostic: OkfDiagnostic = {
   code: "ERR_OKF_FIELD",
