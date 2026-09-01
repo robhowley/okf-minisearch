@@ -1,3 +1,39 @@
+export { PrepareError } from "./errors.js";
+export type {
+  PrepareErrorCode,
+  PrepareErrorOptions,
+} from "./errors.js";
+export { normalizeOkfDocumentIdentity } from "./identity.js";
+
+export type {
+  DegradedPreparedOkfFacets,
+  IsoDateTime,
+  NonEmptyDiagnostics,
+  NonEmptyPreparedOkfSections,
+  OkfAttester,
+  OkfDiagnostic,
+  OkfDiagnosticCode,
+  OkfDocument,
+  OkfDocumentIdentity,
+  OkfDocumentInput,
+  OkfExecutor,
+  OkfGeneration,
+  OkfParameter,
+  OkfSource,
+  OkfStatus,
+  OkfTimeWindow,
+  OkfTrustTier,
+  OkfValidationResult,
+  OkfVerification,
+  PreparedOkfDocument,
+  PreparedOkfMetadata,
+  PreparedOkfSection,
+  PreparedOkfStalenessFacet,
+  PreparedOkfStatusFacet,
+  PreparedOkfTrustFacet,
+  StrictPreparedOkfFacets,
+} from "./types.js";
+
 export interface PrepareBundleSentinel {
   readonly marker: "okf-prepare-bundled";
   readonly value: 73;
