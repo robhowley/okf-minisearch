@@ -6,21 +6,12 @@ import {
   prepareOkfDocument,
   validateOkfDocument,
 } from "../src/index.js";
+import { concept } from "./support/bundle.js";
 
 vi.mock("mdast-util-from-markdown", async (importOriginal) => {
   const actual = await importOriginal<typeof import("mdast-util-from-markdown")>();
   return { fromMarkdown: vi.fn(actual.fromMarkdown) };
 });
-
-function concept(metadata: string, body = "body"): string {
-  const lines = metadata.split("\n");
-  while (!lines[0]?.trim()) lines.shift();
-  while (!lines.at(-1)?.trim()) lines.pop();
-  const indentation = Math.min(...lines
-    .filter((line) => line.trim())
-    .map((line) => line.match(/^\s*/)?.[0].length ?? 0));
-  return `---\n${lines.map((line) => line.slice(indentation)).join("\n")}\n---\n${body}`;
-}
 
 function input(metadata: string, body = "body") {
   return { path: "concept.md", markdown: concept(metadata, body) };

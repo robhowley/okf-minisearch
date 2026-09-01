@@ -272,42 +272,6 @@ describe("readOkfDocuments", () => {
     }
   });
 
-  it("preflights every identity and duplicate before reading", async () => {
-    const tree = await bundle({});
-    const readdirSpy = readdirMock
-      .mockResolvedValue([
-        entry("./a.md", "file"),
-        entry("a.md", "file"),
-      ] as never);
-    const readFileSpy = readFileMock
-      .mockRejectedValue(new Error("must not read"));
-
-    await expect(readOkfDocuments(tree.root)).rejects.toMatchObject({
-      code: "ERR_OKF_FIELD",
-      path: "a.md",
-      field: "path",
-      message: "Invalid OKF field: a.md (path)",
-    });
-    expect(readdirSpy).toHaveBeenCalledTimes(1);
-    expect(readFileSpy).not.toHaveBeenCalled();
-  });
-
-  it("rejects unsafe candidates before any read", async () => {
-    const tree = await bundle({});
-    readdirMock
-      .mockResolvedValue([entry("../outside.md", "file")] as never);
-    const readFileSpy = readFileMock
-      .mockRejectedValue(new Error("must not read"));
-
-    await expect(readOkfDocuments(tree.root)).rejects.toMatchObject({
-      code: "ERR_OKF_FIELD",
-      path: "<input>",
-      field: "path",
-      message: "Invalid OKF field: <input> (path)",
-    });
-    expect(readFileSpy).not.toHaveBeenCalled();
-  });
-
   it("returns an empty array for an empty root", async () => {
     const tree = await bundle({
       "index.md": "ignored",

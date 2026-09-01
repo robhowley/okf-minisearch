@@ -1,16 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { prepareOkfDocument } from "../src/index.js";
-
-function concept(metadata: string, body = "body"): string {
-  const lines = metadata.split("\n");
-  while (!lines[0]?.trim()) lines.shift();
-  while (!lines.at(-1)?.trim()) lines.pop();
-  const indentation = Math.min(...lines
-    .filter((line) => line.trim())
-    .map((line) => line.match(/^\s*/)?.[0].length ?? 0));
-  return `---\n${lines.map((line) => line.slice(indentation)).join("\n")}\n---\n${body}`;
-}
+import { concept } from "./support/bundle.js";
 
 function prepare(metadata: string, body = "body", path = "concept.md") {
   return prepareOkfDocument({ path, markdown: concept(metadata, body) });

@@ -40,7 +40,7 @@ export function concept(
   metadata: string,
   body = "boundaryneedle",
 ): string {
-  const lines = metadata.split("\\n");
+  const lines = metadata.split("\n");
 
   while (!lines[0]?.trim()) lines.shift();
   while (!lines.at(-1)?.trim()) lines.pop();
@@ -48,11 +48,11 @@ export function concept(
   const indentation = Math.min(
     ...lines
       .filter((line) => line.trim())
-      .map((line) => line.match(/^\\s*/)?.[0].length ?? 0),
+      .map((line) => line.match(/^\s*/)?.[0].length ?? 0),
   );
   const yaml = lines
     .map((line) => line.slice(indentation))
-    .join("\\n");
+    .join("\n");
 
-  return `---\\n${yaml}\\n---\\n${body}`;
+  return `---\n${yaml}\n---\n${body}`;
 }

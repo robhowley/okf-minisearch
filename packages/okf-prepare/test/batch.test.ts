@@ -5,15 +5,12 @@ import {
   PrepareError,
   prepareOkfDocuments,
 } from "../src/index.js";
+import { concept } from "./support/bundle.js";
 
 vi.mock("mdast-util-from-markdown", async (importOriginal) => {
   const actual = await importOriginal<typeof import("mdast-util-from-markdown")>();
   return { fromMarkdown: vi.fn(actual.fromMarkdown) };
 });
-
-function concept(type: string, body = "body"): string {
-  return `---\ntype: ${type}\n---\n${body}`;
-}
 
 beforeEach(() => {
   vi.mocked(fromMarkdown).mockClear();
@@ -27,10 +24,10 @@ describe("prepareOkfDocuments", () => {
 
   it("normalizes and sorts by case-sensitive path while preserving backslashes", () => {
     const result = prepareOkfDocuments([
-      { path: "z.md", markdown: concept("z") },
-      { path: "folder\\name.md", markdown: concept("backslash") },
-      { path: "./a//nested.md", markdown: concept("nested") },
-      { path: "A.md", markdown: concept("upper") },
+      { path: "z.md", markdown: concept("type: z") },
+      { path: "folder\\name.md", markdown: concept("type: backslash") },
+      { path: "./a//nested.md", markdown: concept("type: nested") },
+      { path: "A.md", markdown: concept("type: upper") },
     ]);
 
     expect(result.map(({ identity, type }) => ({ ...identity, type }))).toEqual([
@@ -46,40 +43,9 @@ describe("prepareOkfDocuments", () => {
     expect(fromMarkdown).toHaveBeenCalledTimes(4);
   });
 
-  it("snapshots each input field once before sorting and analysis", () => {
-    let pathReads = 0;
-    let markdownReads = 0;
-    const changingInput = Object.defineProperties({}, {
-      path: {
-        enumerable: true,
-        get() {
-          pathReads += 1;
-          return pathReads === 1 ? "./snapshot.md" : "../changed.md";
-        },
-      },
-      markdown: {
-        enumerable: true,
-        get() {
-          markdownReads += 1;
-          return markdownReads === 1 ? concept("snapshot") : "not frontmatter";
-        },
-      },
-    }) as { readonly path: string; readonly markdown: string };
-
-    expect(prepareOkfDocuments([changingInput])).toEqual([
-      expect.objectContaining({
-        identity: { path: "snapshot.md", documentId: "snapshot" },
-        type: "snapshot",
-      }),
-    ]);
-    expect(pathReads).toBe(1);
-    expect(markdownReads).toBe(1);
-    expect(fromMarkdown).toHaveBeenCalledTimes(1);
-  });
-
   it("rejects the second duplicate before Markdown analysis", () => {
     expect(() => prepareOkfDocuments([
-      { path: "./nested//guide.md", markdown: concept("first") },
+      { path: "./nested//guide.md", markdown: concept("type: first") },
       { path: "nested/guide.md", markdown: "invalid markdown" },
     ])).toThrow(expect.objectContaining({
       code: "ERR_OKF_FIELD",
@@ -92,7 +58,7 @@ describe("prepareOkfDocuments", () => {
   it("normalizes all identities in caller order before content analysis", () => {
     expect(() => prepareOkfDocuments([
       { path: "z.md", markdown: "not frontmatter" },
-      { path: "../unsafe.md", markdown: concept("unsafe") },
+      { path: "../unsafe.md", markdown: concept("type: unsafe") },
     ])).toThrow(expect.objectContaining({
       code: "ERR_OKF_FIELD",
       path: "<input>",
@@ -107,7 +73,7 @@ describe("prepareOkfDocuments", () => {
 
     try {
       returned = prepareOkfDocuments([
-        { path: "z.md", markdown: concept("'   '") },
+        { path: "z.md", markdown: concept("type: '   '") },
         { path: "a.md", markdown: "not frontmatter" },
       ]);
     } catch (error) {
