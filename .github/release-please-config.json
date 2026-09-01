@@ -7,6 +7,9 @@
     },
     "packages/pi-okf-search": {
       "exclude-paths": ["packages/pi-okf-search/test"]
+    },
+    "packages/okf-search-native": {
+      "exclude-paths": ["packages/okf-search-native/tests"]
     }
   },
   "separate-pull-requests": false,
