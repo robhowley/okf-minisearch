@@ -114,7 +114,7 @@ async function buildJavaScript(temporaryRoot, artifact) {
     format: artifact.format,
     target: artifact.target,
     globalName: artifact.globalName,
-    banner: artifact.platform === "node"
+    banner: artifact.platform === "node" && artifact.format === "esm"
       ? {
           js: 'import { createRequire as __okfCreateRequire } from "node:module";\nconst require = __okfCreateRequire(import.meta.url);',
         }
