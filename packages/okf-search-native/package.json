@@ -32,8 +32,9 @@
     "test:types": "tsc -p tsconfig.smoke.json",
     "test:rust": "cargo test --locked",
     "test:runtime": "node scripts/runtime-smoke.mjs",
+    "test:prepare-bundle": "node ../../scripts/check-private-bundling.mjs native",
     "typecheck": "pnpm run test:types",
-    "test": "pnpm run test:properties && pnpm run test:types && pnpm run test:rust && pnpm run test:runtime",
+    "test": "pnpm run test:prepare-bundle && pnpm run test:properties && pnpm run test:types && pnpm run test:rust && pnpm run test:runtime",
     "verify:release-artifacts": "node scripts/verify-release-artifacts.mjs"
   },
   "devDependencies": {

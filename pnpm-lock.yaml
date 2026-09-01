@@ -8,18 +8,27 @@ importers:
 
   .:
     devDependencies:
+      '@okf-internal/prepare':
+        specifier: workspace:*
+        version: link:packages/okf-prepare
       '@rollup/plugin-node-resolve':
         specifier: ^16.0.3
         version: 16.0.3(rollup@4.63.1)
       '@types/node':
         specifier: ^26.2.0
         version: 26.2.0
+      '@typescript/typescript6':
+        specifier: ^6.0.2
+        version: 6.0.2
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
       rollup:
         specifier: ^4.63.1
         version: 4.63.1
+      rollup-plugin-dts:
+        specifier: ^6.5.1
+        version: 6.5.1(@typescript/typescript6@6.0.2)(rollup@4.63.1)(typescript@7.0.2)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -48,6 +57,8 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+
+  packages/okf-prepare: {}
 
   packages/okf-search-native:
     devDependencies:
@@ -184,6 +195,14 @@ packages:
   '@aws/lambda-invoke-store@0.3.0':
     resolution: {integrity: sha512-sl4Bm6yiMNYrZKkqqDFWN0UfnWhlS8ivKxrYl+6t0gCLrqr8y3B2IqZZbFRkfaVVp7C/baApyh71P+LeE1A2sQ==, tarball: https://registry.npmjs.org/@aws/lambda-invoke-store/-/lambda-invoke-store-0.3.0.tgz}
     engines: {node: '>=18.0.0'}
+
+  '@babel/code-frame@8.0.0':
+    resolution: {integrity: sha512-dYYg153EyN2Ekbqw2zAsbd6/JR+9N2SEoC7YV2GyyqMM7x9bLDTjBD6XBhSMLH0wtIVyJj03jWNriQhaN+eoCw==, tarball: https://registry.npmjs.org/@babel/code-frame/-/code-frame-8.0.0.tgz}
+    engines: {node: ^22.18.0 || >=24.11.0}
+
+  '@babel/helper-validator-identifier@8.0.4':
+    resolution: {integrity: sha512-4wFaiLd0bVo4cIoTXI3zKI038NIWE/cr3jvBjejOVYVxV/m8Ltav1USiGzG1fmS5J2RhgEOgXNNK46cRPnRsrg==, tarball: https://registry.npmjs.org/@babel/helper-validator-identifier/-/helper-validator-identifier-8.0.4.tgz}
+    engines: {node: ^22.18.0 || >=24.11.0}
 
   '@babel/runtime@7.29.7':
     resolution: {integrity: sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==, tarball: https://registry.npmjs.org/@babel/runtime/-/runtime-7.29.7.tgz}
@@ -536,8 +555,21 @@ packages:
       '@types/node':
         optional: true
 
+  '@jridgewell/gen-mapping@0.3.13':
+    resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==, tarball: https://registry.npmjs.org/@jridgewell/gen-mapping/-/gen-mapping-0.3.13.tgz}
+
+  '@jridgewell/remapping@2.3.5':
+    resolution: {integrity: sha512-LI9u/+laYG4Ds1TDKSJW2YPrIlcVYOwi2fUC6xB43lueCjgxV4lffOCZCtYFiH6TNOX+tQKXx97T4IKHbhyHEQ==, tarball: https://registry.npmjs.org/@jridgewell/remapping/-/remapping-2.3.5.tgz}
+
+  '@jridgewell/resolve-uri@3.1.2':
+    resolution: {integrity: sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==, tarball: https://registry.npmjs.org/@jridgewell/resolve-uri/-/resolve-uri-3.1.2.tgz}
+    engines: {node: '>=6.0.0'}
+
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==, tarball: https://registry.npmjs.org/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz}
+
+  '@jridgewell/trace-mapping@0.3.31':
+    resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==, tarball: https://registry.npmjs.org/@jridgewell/trace-mapping/-/trace-mapping-0.3.31.tgz}
 
   '@mariozechner/clipboard-darwin-arm64@0.3.9':
     resolution: {integrity: sha512-BfgV7vCEWZwJwZJw03r6bP5+tf0iI/ANuQYCxi9RNn7FrWB3yzGuMKCrNLRl6V761vXRdL8+OqZ0wd4TqlsNOQ==, tarball: https://registry.npmjs.org/@mariozechner/clipboard-darwin-arm64/-/clipboard-darwin-arm64-0.3.9.tgz}
@@ -1513,6 +1545,10 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@typescript/typescript6@6.0.2':
+    resolution: {integrity: sha512-mbCddXd+jm7hfx7w2YU64/Av4/NqqeG3GoRZgxPcgoTxYjhrcfJRw9ULch71SS4G+Q3bOXFhRvPqjguN0Hyp5w==, tarball: https://registry.npmjs.org/@typescript/typescript6/-/typescript6-6.0.2.tgz}
+    hasBin: true
+
   '@vitest/expect@4.1.11':
     resolution: {integrity: sha512-VX2x5vNJXET47KAFzwERI+KRMtTTCSWTfSMKsW7JsUsXV4psq++e3DvZpuTDOpHcxytiDs6p2nhVb2tVDiiUYw==, tarball: https://registry.npmjs.org/@vitest/expect/-/expect-4.1.11.tgz}
 
@@ -1780,6 +1816,9 @@ packages:
   jiti@2.7.0:
     resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==, tarball: https://registry.npmjs.org/jiti/-/jiti-2.7.0.tgz}
     hasBin: true
+
+  js-tokens@10.0.0:
+    resolution: {integrity: sha512-lM/UBzQmfJRo9ABXbPWemivdCW8V2G8FHaHdypQaIy523snUjog0W71ayWXTjiR+ixeMyVHN2XcpnTd/liPg/Q==, tarball: https://registry.npmjs.org/js-tokens/-/js-tokens-10.0.0.tgz}
 
   js-yaml@4.3.2:
     resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==, tarball: https://registry.npmjs.org/js-yaml/-/js-yaml-4.3.2.tgz}
@@ -2054,6 +2093,17 @@ packages:
     resolution: {integrity: sha512-VD2IE5PUG4Oj8zz2VGykiYd5wbnjdIiSsNQb8Qu5B+noEp+A78mu2iVvpp27g8es14Tk9rofNs5Tku9iQCS4fA==, tarball: https://registry.npmjs.org/rolldown/-/rolldown-1.2.5.tgz}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
+
+  rollup-plugin-dts@6.5.1:
+    resolution: {integrity: sha512-jODTXp3H7MK/Ur/ErtsrQ0G1GvaCmc3du+y5pNrdBMf6d7HlL2Nd/N6TkEr+f75CkUj01zEoEd7y2elH0eHi1Q==, tarball: https://registry.npmjs.org/rollup-plugin-dts/-/rollup-plugin-dts-6.5.1.tgz}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@typescript/typescript6': ^6
+      rollup: ^3 || ^4
+      typescript: ^4.5 || ^5 || ^6 || ^7
+    peerDependenciesMeta:
+      '@typescript/typescript6':
+        optional: true
 
   rollup@4.63.1:
     resolution: {integrity: sha512-3Df9jsstwhccuEfmAMi9l8XUh/GOkVObmFTU7CCVBysEbcOZLl84jCtaAZMcPiMz2EGKsATzQcU+Xr3n/wU6cg==, tarball: https://registry.npmjs.org/rollup/-/rollup-4.63.1.tgz}
@@ -2493,6 +2543,15 @@ snapshots:
 
   '@aws/lambda-invoke-store@0.3.0': {}
 
+  '@babel/code-frame@8.0.0':
+    dependencies:
+      '@babel/helper-validator-identifier': 8.0.4
+      js-tokens: 10.0.0
+    optional: true
+
+  '@babel/helper-validator-identifier@8.0.4':
+    optional: true
+
   '@babel/runtime@7.29.7': {}
 
   '@earendil-works/pi-agent-core@0.84.3(ws@8.21.3)':
@@ -2818,7 +2877,24 @@ snapshots:
     optionalDependencies:
       '@types/node': 26.2.0
 
+  '@jridgewell/gen-mapping@0.3.13':
+    dependencies:
+      '@jridgewell/sourcemap-codec': 1.5.5
+      '@jridgewell/trace-mapping': 0.3.31
+
+  '@jridgewell/remapping@2.3.5':
+    dependencies:
+      '@jridgewell/gen-mapping': 0.3.13
+      '@jridgewell/trace-mapping': 0.3.31
+
+  '@jridgewell/resolve-uri@3.1.2': {}
+
   '@jridgewell/sourcemap-codec@1.5.5': {}
+
+  '@jridgewell/trace-mapping@0.3.31':
+    dependencies:
+      '@jridgewell/resolve-uri': 3.1.2
+      '@jridgewell/sourcemap-codec': 1.5.5
 
   '@mariozechner/clipboard-darwin-arm64@0.3.9':
     optional: true
@@ -3508,6 +3584,10 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
+  '@typescript/typescript6@6.0.2':
+    dependencies:
+      '@typescript/old': typescript@6.0.3
+
   '@vitest/expect@4.1.11':
     dependencies:
       '@standard-schema/spec': 1.1.0
@@ -3770,6 +3850,9 @@ snapshots:
   isexe@2.0.0: {}
 
   jiti@2.7.0: {}
+
+  js-tokens@10.0.0:
+    optional: true
 
   js-yaml@4.3.2:
     dependencies:
@@ -4110,6 +4193,18 @@ snapshots:
       '@rolldown/binding-openharmony-arm64': 1.2.5
       '@rolldown/binding-win32-arm64-msvc': 1.2.5
       '@rolldown/binding-win32-x64-msvc': 1.2.5
+
+  rollup-plugin-dts@6.5.1(@typescript/typescript6@6.0.2)(rollup@4.63.1)(typescript@7.0.2):
+    dependencies:
+      '@jridgewell/remapping': 2.3.5
+      '@jridgewell/sourcemap-codec': 1.5.5
+      convert-source-map: 2.0.0
+      magic-string: 0.30.21
+      rollup: 4.63.1
+      typescript: 7.0.2
+    optionalDependencies:
+      '@babel/code-frame': 8.0.0
+      '@typescript/typescript6': 6.0.2
 
   rollup@4.63.1:
     dependencies:

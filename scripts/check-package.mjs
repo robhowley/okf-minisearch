@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import {
   access,
-  copyFile,
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -42,6 +42,8 @@ const nativeArtifactSuffixes = {
   win32: { x64: "win32-x64-msvc" },
 };
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const PRIVATE_PACKAGE_NAME = "@okf-internal/prepare";
+const FORBIDDEN_PACKED_MARKERS = [PRIVATE_PACKAGE_NAME, "workspace:"];
 
 function currentNativeArtifact() {
   const suffix = nativeArtifactSuffixes[process.platform]?.[process.arch];
@@ -214,6 +216,40 @@ function assertUnder(parent, path, label) {
       !isAbsolute(fromParent),
     `${label} must be below ${parent}; received ${path}`,
   );
+}
+
+async function scanPackedPackage(extractionRoot, packageName) {
+  const packageRoot = join(extractionRoot, "package");
+  const manifestPath = join(packageRoot, "package.json");
+  const manifest = await readFile(manifestPath, "utf8");
+
+  for (const marker of FORBIDDEN_PACKED_MARKERS) {
+    assert.equal(
+      manifest.includes(marker),
+      false,
+      `${packageName}: packed manifest contains ${marker}`,
+    );
+  }
+
+  async function scan(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await scan(path);
+      } else if (/\.(?:js|mjs|cjs)$/.test(entry.name) || entry.name.endsWith(".ts")) {
+        const contents = await readFile(path, "utf8");
+        for (const marker of FORBIDDEN_PACKED_MARKERS) {
+          assert.equal(
+            contents.includes(marker),
+            false,
+            `${packageName}: packed ${relative(packageRoot, path)} contains ${marker}`,
+          );
+        }
+      }
+    }
+  }
+
+  await scan(packageRoot);
 }
 
 async function packPackage(id, tarballRoot, temporaryRoot) {
@@ -662,10 +698,43 @@ const direct = api.createOkfSearch([{
 if (direct.autoSuggest("packedbrowser").length !== 1) {
   throw new Error("browser createOkfSearch did not expose autoSuggest");
 }
+const readCause = new Error("packed browser read cause");
+try {
+  await api.openOkf([{
+    name: "failure.md",
+    webkitRelativePath: "knowledge/failure.md",
+    arrayBuffer: async () => { throw readCause; },
+  }]);
+  throw new Error("browser read failure did not reject");
+} catch (error) {
+  if (!(error instanceof api.OkfError) || !(error instanceof Error)) throw error;
+  equal(error.code, "ERR_OKF_READ", "browser read error code");
+  equal(error.path, "failure.md", "browser read error path");
+  equal(error.message, "Cannot read OKF path: failure.md", "browser read error message");
+  if (error.cause !== readCause) throw new Error("browser read error lost its cause");
+  if (Object.hasOwn(error, "field")) throw new Error("browser read error owns field");
+}
 `;
 
 const nodeBundleConsumer = `import { openOkf } from "okf-minisearch";
 if (typeof openOkf !== "function") throw new Error("missing Node openOkf");
+`;
+
+const privateResolutionConsumer = `import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+
+const privatePackage = "@okf-internal/prepare";
+const require = createRequire(import.meta.url);
+assert.throws(
+  () => require.resolve(privatePackage),
+  (error) => error?.code === "MODULE_NOT_FOUND",
+  "require.resolve unexpectedly found the private package",
+);
+assert.throws(
+  () => import.meta.resolve(privatePackage),
+  (error) => error?.code === "ERR_MODULE_NOT_FOUND",
+  "import.meta.resolve unexpectedly found the private package",
+);
 `;
 
 const nativeTypeConsumer = `import { NativeOkfSearch } from "okf-search-native";
@@ -839,6 +908,44 @@ assert.equal(typeof api.OkfError, "function");
 assert.equal(typeof api.createOkfSearch, "function");
 assert.equal(typeof api.openOkf, "function");
 assert.equal(typeof api.validateOkfDocument, "function");
+const errorCause = new Error("packed error cause");
+for (const fixture of [
+  {
+    code: "ERR_OKF_READ",
+    path: "read.md",
+    message: "Cannot read OKF path: read.md",
+  },
+  {
+    code: "ERR_OKF_PARSE",
+    path: "parse.md",
+    message: "Cannot parse OKF concept: parse.md",
+  },
+  {
+    code: "ERR_OKF_FIELD",
+    path: "field.md",
+    field: "type",
+    message: "Invalid OKF field: field.md (type)",
+  },
+  {
+    code: "ERR_OKF_INDEX_UNUSABLE",
+    path: "index.md",
+    message: "MiniSearch failed while mutating the index for index.md; this OkfSearch handle is permanently unusable and must be rebuilt",
+  },
+]) {
+  const error = new api.OkfError(fixture.code, fixture.path, {
+    ...(fixture.field === undefined ? {} : { field: fixture.field }),
+    cause: errorCause,
+  });
+  assert.equal(error instanceof Error, true);
+  assert.equal(error instanceof api.OkfError, true);
+  assert.equal(error.name, "OkfError");
+  assert.equal(error.code, fixture.code);
+  assert.equal(error.path, fixture.path);
+  assert.equal(error.message, fixture.message);
+  assert.equal(error.cause, errorCause);
+  assert.equal(Object.hasOwn(error, "field"), fixture.field !== undefined);
+  assert.equal(error.field, fixture.field);
+}
 const validationResult = api.validateOkfDocument({
   path: "consumer.md",
   markdown: "---\\ntype: note\\n---\\nbody",
@@ -874,6 +981,25 @@ const direct = api.createOkfSearch([{
 }]);
 assert.equal(direct instanceof Promise, false);
 assert.equal(direct.search("packeddirectneedle").length, 1);
+assert.throws(
+  () => direct.ingest(fatalInput),
+  (error) => {
+    assert.equal(error instanceof Error, true);
+    assert.equal(error instanceof api.OkfError, true);
+    assert.equal(error.name, "OkfError");
+    assert.equal(error.code, "ERR_OKF_FIELD");
+    assert.equal(error.path, "fatal.md");
+    assert.equal(error.field, "type");
+    assert.equal(error.message, "Invalid OKF field: fatal.md (type)");
+    assert.equal(Object.hasOwn(error, "field"), true);
+    return true;
+  },
+);
+assert.equal(
+  direct.search("packeddirectneedle").length,
+  1,
+  "preparation failure made the packed handle unusable",
+);
 
 const root = join(process.cwd(), "fixture");
 const okf = await api.openOkf(root);
@@ -1081,6 +1207,8 @@ async function inspectLibraryManifest(libraryTarball, extractionRoot) {
     false,
     "browser global bundle contains a node: import",
   );
+  await scanPackedPackage(extractionRoot, packageNames.library);
+
   const context = {
     document: {
       createElement: () => ({
@@ -1116,6 +1244,8 @@ async function inspectPiManifest(
   const manifestPath = join(extractionRoot, "package", "package.json");
   const serialized = await readFile(manifestPath, "utf8");
   const manifest = JSON.parse(serialized);
+
+  await scanPackedPackage(extractionRoot, packageNames.pi);
 
   assert.deepEqual(manifest.files, ["extensions"]);
   assert.deepEqual(manifest.scripts, {
@@ -1162,6 +1292,8 @@ async function inspectNativeManifest(nativeTarball, extractionRoot) {
   const manifest = JSON.parse(serialized);
   const hostArtifact = currentNativeArtifact();
 
+  await scanPackedPackage(extractionRoot, packageNames.native);
+
   assert.equal(manifest.name, packageNames.native);
   assert.equal(manifest.main, "./index.js");
   assert.equal(manifest.types, "./index.d.ts");
@@ -1194,54 +1326,29 @@ async function inspectNativeManifest(nativeTarball, extractionRoot) {
   await access(join(extractionRoot, "package", hostArtifact));
 }
 
-async function prepareConsumer(
-  temporaryRoot,
-  libraryTarball,
-  piTarball,
-  nativeTarball,
-  libraryVersion,
-) {
-  const consumerRoot = join(temporaryRoot, "consumer");
-  const agentDir = join(consumerRoot, "agent");
-  const fixtureDir = join(consumerRoot, "fixture");
-  const libraryFilename = basename(libraryTarball);
-  const piFilename = basename(piTarball);
-  const nativeFilename = basename(nativeTarball);
-
-  await mkdir(agentDir, { recursive: true });
-  await mkdir(fixtureDir, { recursive: true });
-  await writeJson(join(temporaryRoot, "package.json"), {
-    name: "okf-minisearch-packed-consumer-workspace",
+async function prepareConsumerRoot(consumerRoot, manifest) {
+  await mkdir(consumerRoot, { recursive: true });
+  await writeJson(join(consumerRoot, "package.json"), {
+    ...manifest,
     private: true,
+    type: "module",
     packageManager: "pnpm@11.22.0",
   });
   await writeFile(
-    join(temporaryRoot, "pnpm-workspace.yaml"),
-    [
-      "packages:",
-      "  - consumer",
-      "overrides:",
-      `  okf-minisearch: file:./tarballs/${libraryFilename}`,
-      "",
-    ].join("\n"),
+    join(consumerRoot, "private-resolution.mjs"),
+    privateResolutionConsumer,
   );
-  await copyFile(
-    join(root, "pnpm-lock.yaml"),
-    join(temporaryRoot, "pnpm-lock.yaml"),
-  );
-  await writeJson(join(consumerRoot, "package.json"), {
+}
+
+async function prepareLibraryConsumer(temporaryRoot, libraryTarball) {
+  const consumerRoot = join(temporaryRoot, "library-consumer");
+  await prepareConsumerRoot(consumerRoot, {
     name: "okf-minisearch-packed-consumer",
-    private: true,
-    type: "module",
     dependencies: {
-      "okf-minisearch": `file:../tarballs/${libraryFilename}`,
-      "pi-okf-search": `file:../tarballs/${piFilename}`,
-      "okf-search-native": `file:../tarballs/${nativeFilename}`,
-      "@earendil-works/pi-ai": "0.84.3",
-      "@earendil-works/pi-coding-agent": "0.84.3",
-      typebox: "1.3.7",
+      "okf-minisearch": `file:../tarballs/${basename(libraryTarball)}`,
     },
   });
+  await mkdir(join(consumerRoot, "fixture"));
   await writeFile(join(consumerRoot, "consumer.mts"), typeConsumer);
   await writeFile(
     join(consumerRoot, "browser-consumer.ts"),
@@ -1256,9 +1363,6 @@ async function prepareConsumer(
     nodeBundleConsumer,
   );
   await writeFile(join(consumerRoot, "runtime.mjs"), runtimeConsumer);
-  await writeFile(join(consumerRoot, "native-consumer.mts"), nativeTypeConsumer);
-  await writeFile(join(consumerRoot, "native-runtime.mjs"), nativeRuntimeConsumer);
-  await writeFile(join(consumerRoot, "smoke.mjs"), smokeConsumer(libraryVersion));
   await writeJson(join(consumerRoot, "tsconfig.json"), {
     compilerOptions: {
       target: "ES2022",
@@ -1286,6 +1390,33 @@ async function prepareConsumer(
     },
     include: ["browser-consumer.ts"],
   });
+  await writeFile(
+    join(consumerRoot, "fixture", "marker.md"),
+    [
+      "---",
+      "type: note",
+      "title: Packed source consumer",
+      "status: stable",
+      "---",
+      "# Packed source consumer",
+      "",
+      "packedsourcemarker",
+      "",
+    ].join("\n"),
+  );
+  return consumerRoot;
+}
+
+async function prepareNativeConsumer(temporaryRoot, nativeTarball) {
+  const consumerRoot = join(temporaryRoot, "native-consumer");
+  await prepareConsumerRoot(consumerRoot, {
+    name: "okf-search-native-packed-consumer",
+    dependencies: {
+      "okf-search-native": `file:../tarballs/${basename(nativeTarball)}`,
+    },
+  });
+  await writeFile(join(consumerRoot, "native-consumer.mts"), nativeTypeConsumer);
+  await writeFile(join(consumerRoot, "native-runtime.mjs"), nativeRuntimeConsumer);
   await writeJson(join(consumerRoot, "native-tsconfig.json"), {
     compilerOptions: {
       target: "ES2022",
@@ -1299,6 +1430,36 @@ async function prepareConsumer(
     },
     include: ["native-consumer.mts"],
   });
+  return consumerRoot;
+}
+
+async function preparePiConsumer(
+  temporaryRoot,
+  libraryTarball,
+  piTarball,
+  libraryVersion,
+) {
+  const consumerRoot = join(temporaryRoot, "pi-consumer");
+  const librarySpecifier = `file:../tarballs/${basename(libraryTarball)}`;
+  await prepareConsumerRoot(consumerRoot, {
+    name: "pi-okf-search-packed-consumer",
+    dependencies: {
+      "okf-minisearch": librarySpecifier,
+      "pi-okf-search": `file:../tarballs/${basename(piTarball)}`,
+      "@earendil-works/pi-ai": "0.84.3",
+      "@earendil-works/pi-coding-agent": "0.84.3",
+      typebox: "1.3.7",
+    },
+  });
+  await writeFile(
+    join(consumerRoot, "pnpm-workspace.yaml"),
+    ["overrides:", `  okf-minisearch: ${librarySpecifier}`, ""].join("\n"),
+  );
+  const agentDir = join(consumerRoot, "agent");
+  const fixtureDir = join(consumerRoot, "fixture");
+  await mkdir(agentDir);
+  await mkdir(fixtureDir);
+  await writeFile(join(consumerRoot, "smoke.mjs"), smokeConsumer(libraryVersion));
   await writeFile(
     join(fixtureDir, "marker.md"),
     [
@@ -1317,8 +1478,29 @@ async function prepareConsumer(
     packages: [join(consumerRoot, "node_modules", "pi-okf-search")],
     "pi-okf-search": { root: "../fixture" },
   });
-
   return consumerRoot;
+}
+
+async function checkPrivatePackageBoundary(consumerRoot) {
+  await assert.rejects(
+    access(join(consumerRoot, "node_modules", PRIVATE_PACKAGE_NAME)),
+    (error) => error?.code === "ENOENT",
+    `${PRIVATE_PACKAGE_NAME} exists in ${basename(consumerRoot)} dependency tree`,
+  );
+
+  run(process.execPath, ["private-resolution.mjs"], { cwd: consumerRoot });
+  const productionTree = run(
+    pnpm,
+    ["list", "--prod", "--depth", "Infinity", "--json"],
+    { cwd: consumerRoot, capture: true },
+  );
+  for (const marker of FORBIDDEN_PACKED_MARKERS) {
+    assert.equal(
+      productionTree.includes(marker),
+      false,
+      `${basename(consumerRoot)} production dependency tree contains ${marker}`,
+    );
+  }
 }
 
 function checkLibraryConsumer(consumerRoot) {
@@ -1519,24 +1701,39 @@ async function main() {
       nativePackage.tarball,
       join(temporaryRoot, "extracted", "native"),
     );
-    const consumerRoot = await prepareConsumer(
+    const libraryConsumerRoot = await prepareLibraryConsumer(
+      temporaryRoot,
+      libraryPackage.tarball,
+    );
+    const nativeConsumerRoot = await prepareNativeConsumer(
+      temporaryRoot,
+      nativePackage.tarball,
+    );
+    const piConsumerRoot = await preparePiConsumer(
       temporaryRoot,
       libraryPackage.tarball,
       piPackage.tarball,
-      nativePackage.tarball,
       libraryVersion,
     );
 
-    run(
-      pnpm,
-      ["install", "--ignore-scripts", "--no-frozen-lockfile"],
-      { cwd: temporaryRoot },
-    );
-    checkLibraryConsumer(consumerRoot);
-    await checkEsbuildConsumers(consumerRoot);
-    await checkRollupConsumers(consumerRoot);
-    checkNativeConsumer(consumerRoot);
-    run(process.execPath, ["consumer/smoke.mjs"], { cwd: temporaryRoot });
+    for (const consumerRoot of [
+      libraryConsumerRoot,
+      nativeConsumerRoot,
+      piConsumerRoot,
+    ]) {
+      run(
+        pnpm,
+        ["install", "--ignore-scripts", "--no-frozen-lockfile"],
+        { cwd: consumerRoot },
+      );
+      await checkPrivatePackageBoundary(consumerRoot);
+    }
+
+    checkLibraryConsumer(libraryConsumerRoot);
+    await checkEsbuildConsumers(libraryConsumerRoot);
+    await checkRollupConsumers(libraryConsumerRoot);
+    checkNativeConsumer(nativeConsumerRoot);
+    run(process.execPath, ["smoke.mjs"], { cwd: piConsumerRoot });
 
     console.log(
       `\nPacked packages passed manifest, install, Node/browser TypeScript, runtime, esbuild, Rollup, and Pi loader checks: ${relative(root, packageRoots.library)}, ${relative(root, packageRoots.pi)}, ${relative(root, packageRoots.native)}`,
