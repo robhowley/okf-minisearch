@@ -11,10 +11,13 @@
     "typecheck": "pnpm build && pnpm -r typecheck"
   },
   "devDependencies": {
+    "@okf-internal/prepare": "workspace:*",
     "@rollup/plugin-node-resolve": "^16.0.3",
     "@types/node": "^26.2.0",
+    "@typescript/typescript6": "^6.0.2",
     "esbuild": "^0.28.2",
     "rollup": "^4.63.1",
+    "rollup-plugin-dts": "^6.5.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   }
