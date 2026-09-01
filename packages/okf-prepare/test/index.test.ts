@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import * as node from "../src/node.js";
+import * as root from "../src/index.js";
 import {
   PrepareError,
   createPrepareBundleSentinel,
@@ -10,6 +12,19 @@ import {
 } from "../src/index.js";
 
 describe("private preparation package", () => {
+  it("keeps root and Node runtime exports separate", () => {
+    expect(Object.keys(root).sort()).toEqual([
+      "PrepareError",
+      "createPrepareBundleSentinel",
+      "normalizeOkfDocumentIdentity",
+      "prepareOkfDocument",
+      "prepareOkfDocuments",
+      "validateOkfDocument",
+    ]);
+    expect(root).not.toHaveProperty("readOkfDocuments");
+    expect(Object.keys(node).sort()).toEqual(["readOkfDocuments"]);
+  });
+
   it("retains its exact standalone bundle marker", () => {
     expect(createPrepareBundleSentinel()).toEqual({
       marker: "okf-prepare-bundled",

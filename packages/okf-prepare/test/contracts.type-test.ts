@@ -13,6 +13,11 @@ import type {
   StrictPreparedOkfFacets,
 } from "../src/index.js";
 
+// @ts-expect-error MiniSearch record types are not private preparation exports
+import type { OkfIndexRecord } from "../src/index.js";
+// @ts-expect-error MiniSearch projection types are not private preparation exports
+import type { OkfIndexProjection } from "../src/index.js";
+
 const diagnostic: OkfDiagnostic = {
   code: "ERR_OKF_FIELD",
   path: "note.md",
@@ -77,6 +82,20 @@ const validStrict: PreparedOkfDocument = {
 };
 void validStrict;
 
+const strictWithRecords: PreparedOkfDocument = {
+  conformance: "strict",
+  identity,
+  type: "note",
+  metadata,
+  facets: strictFacets,
+  sections,
+  diagnostics: [],
+  document,
+  // @ts-expect-error prepared values do not expose backend records
+  records: [],
+};
+void strictWithRecords;
+
 const validDegraded: PreparedOkfDocument = {
   conformance: "degraded",
   identity,
@@ -128,6 +147,14 @@ const strictWithUnclassifiedTrust: StrictPreparedOkfFacets = {
   staleness: { classified: true },
 };
 void strictWithUnclassifiedTrust;
+
+const strictWithUnclassifiedStaleness: StrictPreparedOkfFacets = {
+  status: { classified: true, value: "stable" },
+  trust: { classified: true, value: "unverified" },
+  // @ts-expect-error strict staleness must be classified
+  staleness: { classified: false },
+};
+void strictWithUnclassifiedStaleness;
 
 const strictWithHalfStaleTimestamp: StrictPreparedOkfFacets = {
   status: { classified: true, value: "stable" },
