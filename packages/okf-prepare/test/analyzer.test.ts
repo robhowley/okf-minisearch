@@ -49,6 +49,7 @@ describe("OKF document analysis", () => {
       { path: "concept.md", markdown: "---\ntype: [\n---\n" },
       input("scalar"),
       input("title: missing"),
+      input("type: []"),
       input("type: '   '"),
     ]) {
       expect(() => validateOkfDocument(fatal)).not.toThrow();
@@ -58,6 +59,10 @@ describe("OKF document analysis", () => {
         errors: [expect.any(Object)],
       });
     }
+
+    expect(() => prepareOkfDocument(input("type: []"))).toThrow(
+      expect.objectContaining({ code: "ERR_OKF_FIELD", field: "type" }),
+    );
   });
 
   it.each([
@@ -236,6 +241,26 @@ describe("OKF document analysis", () => {
     if (first.conformance !== "degraded" || second.conformance !== "degraded") {
       expect.unreachable();
     }
+    const originalValues = {
+      isValid: validation.isValid,
+      isIndexable: validation.isIndexable,
+      errors: validation.errors.map((error) => ({ ...error })),
+    };
+    const mutableErrors = validation.errors as unknown as Array<{
+      field?: string;
+      [key: string]: unknown;
+    }>;
+    mutableErrors[0]!.field = "mutated";
+    mutableErrors.push({ ...mutableErrors[0]!, field: "extra" });
+    const revalidated = validateOkfDocument(source);
+
+    expect(revalidated).toMatchObject({
+      isValid: originalValues.isValid,
+      isIndexable: originalValues.isIndexable,
+    });
+    expect(revalidated.errors).toEqual(originalValues.errors);
+    expect(revalidated.errors).not.toBe(validation.errors);
+    expect(revalidated.errors[0]).not.toBe(validation.errors[0]);
     expect(first.diagnostics).not.toBe(second.diagnostics);
     expect(first.diagnostics[0]).not.toBe(second.diagnostics[0]);
     expect(first.diagnostics).not.toBe(validation.errors);
