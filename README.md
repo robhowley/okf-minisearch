@@ -3,6 +3,8 @@
 `okf-minisearch` searches [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown loaded from a Node.js directory, files selected in a browser, or Markdown already in memory. The companion `pi-okf-search` package lets Pi search a configured local OKF directory through one read-only `okf_search` tool.
 
 [![Package validation](https://github.com/robhowley/okf-minisearch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/robhowley/okf-minisearch/actions/workflows/ci.yml)
+[![okf-minisearch on npm](https://img.shields.io/npm/v/okf-minisearch?logo=npm&label=okf-minisearch)](https://www.npmjs.com/package/okf-minisearch)
+[![pi-okf-search on npm](https://img.shields.io/npm/v/pi-okf-search?logo=npm&label=pi-okf-search)](https://www.npmjs.com/package/pi-okf-search)
 
 ## Choose an entry point
 
