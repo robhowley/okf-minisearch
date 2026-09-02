@@ -13,15 +13,15 @@ use napi_derive::napi;
 use parking_lot::Mutex;
 use tantivy::collector::{Count, TopDocs};
 use tantivy::query::{
-    BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, FastFieldRangeQuery,
-    FuzzyTermQuery, Occur, Query, TermQuery, TermSetQuery,
+    BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EnableScoring,
+    FastFieldRangeQuery, FuzzyTermQuery, Occur, Query, TermQuery, TermSetQuery,
 };
 use tantivy::schema::{
     FAST, Field, INDEXED, IndexRecordOption, STORED, STRING, Schema, TantivyDocument,
     TextFieldIndexing, TextOptions, Value,
 };
 use tantivy::tokenizer::{LowerCaser, SimpleTokenizer, TextAnalyzer, TokenStream};
-use tantivy::{DocAddress, Index, IndexReader, IndexWriter, ReloadPolicy, Score, Term};
+use tantivy::{DocAddress, DocSet, Index, IndexReader, IndexWriter, ReloadPolicy, Score, Term};
 use thiserror::Error as ThisError;
 
 const TOKENIZER: &str = "okf";
@@ -802,6 +802,8 @@ fn field_probe(plan: &QueryPlan, fields: &Fields, field: SearchField) -> Box<dyn
 enum EngineError {
     #[error("[ERR_OKF_INVALID_PREPARED_DOCUMENT] {0}")]
     Invalid(String),
+    #[error("stored index invariant failed: {0}")]
+    StoredInvariant(String),
     #[error("[ERR_OKF_INDEX_UNUSABLE] {0}")]
     Poisoned(String),
     #[error("[ERR_OKF_NATIVE] {0}")]
@@ -863,9 +865,11 @@ struct Engine {
     writer: IndexWriter,
     fields: Fields,
     documents: BTreeMap<String, DocumentState>,
-    poisoned: Option<String>,
+    poisoned: Mutex<Option<String>>,
     #[cfg(test)]
     count_results: std::collections::VecDeque<Result<usize, tantivy::TantivyError>>,
+    #[cfg(test)]
+    query_results: Mutex<std::collections::VecDeque<Result<(), tantivy::TantivyError>>>,
 }
 
 impl Engine {
@@ -892,21 +896,24 @@ impl Engine {
             writer,
             fields,
             documents: states,
-            poisoned: None,
+            poisoned: Mutex::new(None),
             #[cfg(test)]
             count_results: std::collections::VecDeque::new(),
+            #[cfg(test)]
+            query_results: Mutex::new(std::collections::VecDeque::new()),
         })
     }
 
     fn usable(&self) -> Result<(), EngineError> {
         self.poisoned
+            .lock()
             .as_ref()
             .map_or(Ok(()), |cause| Err(EngineError::Poisoned(cause.clone())))
     }
 
-    fn poison<T>(&mut self, cause: impl Into<String>) -> Result<T, EngineError> {
+    fn poison<T>(&self, cause: impl Into<String>) -> Result<T, EngineError> {
         let cause = cause.into();
-        self.poisoned = Some(cause.clone());
+        *self.poisoned.lock() = Some(cause.clone());
         Err(EngineError::Poisoned(cause))
     }
 
@@ -1090,6 +1097,10 @@ impl Engine {
             .min(live);
         let selected = loop {
             let requested = fetch.saturating_add(1).min(live);
+            #[cfg(test)]
+            if let Some(result) = self.query_results.lock().pop_front() {
+                result.map_err(|error| native_error(error.into()))?;
+            }
             let top = searcher
                 .search(
                     query.as_ref(),
@@ -1099,7 +1110,13 @@ impl Engine {
             let has_more = top.len() > fetch;
             let mut candidates = Vec::with_capacity(fetch.min(top.len()));
             for (score, address) in top.iter().take(fetch).copied() {
-                let record = read_record(&searcher, &self.fields, address).map_err(native_error)?;
+                let record = match read_record(&searcher, &self.fields, address) {
+                    Ok(record) => record,
+                    Err(EngineError::StoredInvariant(cause)) => {
+                        return self.poison(cause).map_err(native_error);
+                    }
+                    Err(error) => return Err(native_error(error)),
+                };
                 candidates.push(Candidate { score, record });
             }
             let ranked = collapse(candidates);
@@ -1118,12 +1135,16 @@ impl Engine {
             fetch = next;
         };
 
-        selected
+        match selected
             .into_iter()
             .take(plan.options.limit)
             .map(|candidate| to_hit(&searcher, &self.fields, &plan, candidate))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(native_error)
+        {
+            Ok(hits) => Ok(hits),
+            Err(EngineError::StoredInvariant(cause)) => self.poison(cause).map_err(native_error),
+            Err(error) => Err(native_error(error)),
+        }
     }
 }
 
@@ -1363,8 +1384,8 @@ fn required_text(doc: &TantivyDocument, field: Field, name: &str) -> Result<Stri
         .and_then(|value| value.as_value().as_str())
         .map(str::to_owned)
         .ok_or_else(|| {
-            EngineError::Invalid(format!(
-                "stored Tantivy document is missing text field `{name}`"
+            EngineError::StoredInvariant(format!(
+                "stored Tantivy document is missing or has wrong type for text field `{name}`"
             ))
         })
 }
@@ -1373,8 +1394,8 @@ fn required_u64(doc: &TantivyDocument, field: Field, name: &str) -> Result<u64, 
     doc.get_first(field)
         .and_then(|value| value.as_value().as_u64())
         .ok_or_else(|| {
-            EngineError::Invalid(format!(
-                "stored Tantivy document is missing u64 field `{name}`"
+            EngineError::StoredInvariant(format!(
+                "stored Tantivy document is missing or has wrong type for u64 field `{name}`"
             ))
         })
 }
@@ -1396,9 +1417,9 @@ fn read_record(
         heading_path: required_text(&doc, fields.heading, "heading")?,
         path: required_text(&doc, fields.path, "path")?,
         start_line: u32::try_from(start_line)
-            .map_err(|_| EngineError::Invalid("stored start_line exceeds u32".into()))?,
+            .map_err(|_| EngineError::StoredInvariant("stored start_line exceeds u32".into()))?,
         end_line: u32::try_from(end_line)
-            .map_err(|_| EngineError::Invalid("stored end_line exceeds u32".into()))?,
+            .map_err(|_| EngineError::StoredInvariant("stored end_line exceeds u32".into()))?,
         text: required_text(&doc, fields.body, "body")?,
     })
 }
@@ -1469,10 +1490,26 @@ fn matched_fields(
         .copied()
         .filter(|field| {
             let probe = field_probe(plan, fields, *field);
-            probe.explain(searcher, address).is_ok()
+            query_matches_address(searcher, probe.as_ref(), address)
         })
         .map(|field| field.name().to_owned())
         .collect()
+}
+
+fn query_matches_address(
+    searcher: &tantivy::Searcher,
+    query: &dyn Query,
+    address: DocAddress,
+) -> bool {
+    let Ok(weight) = query.weight(EnableScoring::disabled_from_searcher(searcher)) else {
+        return false;
+    };
+    let reader = searcher.segment_reader(address.segment_ord);
+    let Ok(mut scorer) = weight.scorer(reader, 1.0) else {
+        return false;
+    };
+    let current = scorer.doc();
+    current <= address.doc_id && scorer.seek(address.doc_id) == address.doc_id
 }
 
 fn to_hit(
@@ -1501,7 +1538,9 @@ fn to_hit(
 fn native_error(error: EngineError) -> Error {
     let status = match &error {
         EngineError::Invalid(_) => Status::InvalidArg,
-        EngineError::Poisoned(_) | EngineError::Tantivy(_) => Status::GenericFailure,
+        EngineError::StoredInvariant(_) | EngineError::Poisoned(_) | EngineError::Tantivy(_) => {
+            Status::GenericFailure
+        }
     };
     Error::new(status, error.to_string())
 }
@@ -1540,9 +1579,10 @@ impl NativeOkfSearch {
         query: String,
         #[napi(ts_arg_type = "SearchOptions | undefined | null")] options: Option<Object<'_>>,
     ) -> Result<Vec<SearchHit>, Error> {
-        self.inner
-            .lock()
-            .search(&query, parse_search_options(options)?)
+        let engine = self.inner.lock();
+        engine.usable().map_err(native_error)?;
+        let options = parse_search_options(options)?;
+        engine.search(&query, options)
     }
 
     #[napi(js_name = "listTypes")]
@@ -2322,6 +2362,108 @@ mod tests {
         }
     }
 
+    fn assert_napi_unusable<T>(result: NapiResult<T>) {
+        let error = match result {
+            Ok(_) => panic!("operation unexpectedly succeeded"),
+            Err(error) => error,
+        };
+        assert!(
+            error.reason.starts_with("[ERR_OKF_INDEX_UNUSABLE]"),
+            "unexpected error: {}",
+            error.reason
+        );
+    }
+
+    fn add_record_without_title(engine: &mut Engine) {
+        let mut doc = TantivyDocument::default();
+        doc.add_text(engine.fields.section_id, "corrupt#root");
+        doc.add_text(engine.fields.document_id, "corrupt");
+        doc.add_text(engine.fields.conformance, "strict");
+        doc.add_text(engine.fields.path, "corrupt.md");
+        doc.add_text(engine.fields.heading, "Corrupt");
+        doc.add_text(engine.fields.body, "corruptneedle");
+        doc.add_u64(engine.fields.start_line, 1);
+        doc.add_u64(engine.fields.end_line, 1);
+        engine
+            .writer
+            .add_document(doc)
+            .expect("corrupt fixture should stage");
+        engine.commit("corrupt fixture").expect("fixture commit");
+    }
+
+    #[test]
+    fn missing_or_wrong_stored_fields_are_private_invariant_errors() {
+        let (_, fields) = schema();
+        let mut doc = TantivyDocument::default();
+
+        assert!(matches!(
+            required_text(&doc, fields.title, "title"),
+            Err(EngineError::StoredInvariant(_))
+        ));
+
+        doc.add_u64(fields.title, 1);
+        assert!(matches!(
+            required_text(&doc, fields.title, "title"),
+            Err(EngineError::StoredInvariant(_))
+        ));
+    }
+
+    #[test]
+    fn stored_record_invariant_failure_poisons_every_later_native_operation() {
+        let native = NativeOkfSearch::from_prepared(vec![document(strict_section(
+            "first",
+            "healthy needle",
+        ))])
+        .expect("baseline");
+        add_record_without_title(&mut native.inner.lock());
+
+        assert_napi_unusable(native.search("corruptneedle".to_owned(), None));
+        assert_napi_unusable(native.search("healthy".to_owned(), None));
+        assert_napi_unusable(native.list_types());
+        assert_napi_unusable(native.list_degraded_documents());
+        assert_napi_unusable(native.auto_suggest("healthy".to_owned(), None));
+        assert_napi_unusable(native.ingest_prepared(document(strict_section("second", "healthy"))));
+        assert_napi_unusable(native.remove_document(RemoveIdentity {
+            document_id: "first".to_owned(),
+            path: "first.md".to_owned(),
+        }));
+    }
+
+    #[test]
+    fn search_option_and_query_failures_do_not_poison_the_engine() {
+        let engine = Engine::new(vec![document(strict_section("first", "healthy needle"))])
+            .expect("baseline");
+
+        let mut invalid = search_options(&["body"], "any");
+        invalid.match_mode = Some("invalid".to_owned());
+        let error = engine
+            .search("healthy", Some(invalid))
+            .expect_err("invalid options");
+        assert!(error.reason.starts_with("[ERR_OKF_INVALID_SEARCH_OPTIONS]"));
+        assert!(engine.poisoned.lock().is_none());
+
+        engine
+            .query_results
+            .lock()
+            .push_back(Err(tantivy::TantivyError::InvalidArgument(
+                "query failed".to_owned(),
+            )));
+        let error = engine
+            .search("healthy", Some(search_options(&["body"], "any")))
+            .expect_err("query failure");
+        assert!(error.reason.starts_with("[ERR_OKF_NATIVE]"));
+        assert!(engine.poisoned.lock().is_none());
+
+        assert_eq!(engine.list_types().expect("still usable"), ["Note"]);
+        assert_eq!(
+            engine
+                .search("healthy", Some(search_options(&["body"], "any")))
+                .expect("later search")
+                .len(),
+            1
+        );
+    }
+
     #[test]
     fn count_verification_errors_follow_the_mutation_lifecycle() {
         let count_error = || tantivy::TantivyError::InvalidArgument("count failed".to_owned());
@@ -2333,7 +2475,7 @@ mod tests {
             .ingest(document(strict_section("second", "needle")))
             .expect_err("precommit count error");
         assert!(matches!(error, EngineError::Tantivy(_)));
-        assert!(precommit.poisoned.is_none());
+        assert!(precommit.poisoned.lock().is_none());
         assert_eq!(precommit.list_types().expect("still usable"), ["Note"]);
         assert!(
             precommit
@@ -2448,6 +2590,45 @@ mod tests {
             .search("rankneedle", Some(boosted))
             .expect("boosted ranking");
         assert_eq!(boosted[0].document_id, "body-rank");
+    }
+
+    #[test]
+    fn matched_fields_handles_nonmatching_probes_after_removal() {
+        let mut kept = strict_section("kept", "a md inventoryneedle");
+        kept.title = "kept".to_owned();
+        let removed = strict_section("removed", "nested removedneedle");
+        let mut engine = Engine::new(vec![document(kept), document(removed)]).expect("engine");
+
+        assert!(
+            engine
+                .remove(RemoveIdentity {
+                    document_id: "removed".to_owned(),
+                    path: "removed.md".to_owned(),
+                })
+                .expect("remove")
+        );
+
+        let hits = engine
+            .search(
+                "a nested md",
+                Some(search_options(
+                    &[
+                        "resource",
+                        "title",
+                        "heading",
+                        "description",
+                        "tags",
+                        "type",
+                        "sources",
+                        "body",
+                    ],
+                    "any",
+                )),
+            )
+            .expect("search after removal");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].document_id, "kept");
+        assert_eq!(hits[0].matched_fields, vec!["body"]);
     }
 
     #[test]

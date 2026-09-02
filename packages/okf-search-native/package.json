@@ -1,7 +1,7 @@
 {
   "name": "okf-search-native",
   "version": "0.1.0",
-  "description": "Prepared-document Tantivy search backend for OKF.",
+  "description": "Node-native OKF search with raw Markdown and prepared-document APIs.",
   "keywords": [
     "open-knowledge-format",
     "okf",
@@ -9,36 +9,57 @@
     "napi-rs",
     "native-search"
   ],
-  "main": "./index.js",
-  "types": "./index.d.ts",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./index.d.ts",
-      "require": "./index.js",
-      "import": "./index.js",
-      "default": "./index.js"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      },
+      "default": "./dist/index.mjs"
+    },
+    "./prepared": {
+      "types": "./native.d.cts",
+      "import": "./native.cjs",
+      "require": "./native.cjs",
+      "default": "./native.cjs"
     }
   },
   "files": [
-    "index.js",
-    "index.d.ts",
+    "dist",
+    "native.cjs",
+    "native.d.cts",
     "okf-search-native.*.node"
   ],
   "scripts": {
-    "build": "napi build --platform --release -- --locked",
-    "build:debug": "napi build --platform -- --locked",
+    "build": "pnpm run build:native && pnpm run build:facade",
+    "build:native": "napi build --platform --release --js native.cjs --dts native.d.cts -- --locked",
+    "build:debug": "napi build --platform --js native.cjs --dts native.d.cts -- --locked && pnpm run build:facade",
+    "build:facade": "node scripts/build-facade.mjs",
     "check:rust": "cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings",
     "test:types": "tsc -p tsconfig.smoke.json",
+    "test:package-api": "node --test tests/package-api.test.mjs",
+    "test:facade": "vitest run tests/*.test.ts --no-file-parallelism",
     "test:rust": "cargo test --locked",
     "test:runtime": "node scripts/runtime-smoke.mjs",
     "test:prepare-bundle": "node ../../scripts/check-private-bundling.mjs native",
     "typecheck": "pnpm run test:types",
-    "test": "pnpm run test:prepare-bundle && pnpm run test:types && pnpm run test:rust && pnpm run test:runtime",
+    "test": "pnpm run test:prepare-bundle && pnpm run test:types && pnpm run test:package-api && pnpm run test:facade && pnpm run test:rust && pnpm run test:runtime",
     "verify:release-artifacts": "node scripts/verify-release-artifacts.mjs"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.8.6",
     "@napi-rs/cross-toolchain-x64-target-x86_64": "^1.0.3",
+    "@okf-internal/prepare": "workspace:*",
+    "esbuild": "^0.28.2",
+    "rollup": "^4.63.1",
+    "rollup-plugin-dts": "^6.5.1",
     "typescript": "^7.0.2"
   },
   "engines": {
