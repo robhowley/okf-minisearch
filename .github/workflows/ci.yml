@@ -101,7 +101,7 @@ jobs:
           components: clippy,rustfmt
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --cpu=${{ matrix.node-arch }}
 
       - name: Build native artifact
         env:

@@ -70,6 +70,12 @@ test("source native CI builds and exercises the renamed package output", async (
   assert.match(workflow, /node-version: 22\.19\.0/);
   assert.match(workflow, /node-version: 22\.20\.0/);
   assert.match(workflow, /toolchain: 1\.88\.0/);
+
+  const nativeArtifacts = workflow.slice(workflow.indexOf("  native-artifacts:"));
+  assert.match(
+    nativeArtifacts,
+    /- name: Install dependencies\n\s+run: pnpm install --frozen-lockfile --cpu=\$\{\{ matrix\.node-arch \}\}/,
+  );
   assert.match(workflow, /MACOSX_DEPLOYMENT_TARGET/);
   assert.match(workflow, /macos-deployment-target: '10\.13'/);
   assert.ok(workflow.includes('${build_args[@]+"${build_args[@]}"}'));
