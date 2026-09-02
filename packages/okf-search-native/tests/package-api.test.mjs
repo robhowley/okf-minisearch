@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -10,6 +11,40 @@ const require = createRequire(import.meta.url);
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, "utf8"));
+}
+
+function markdown(type, marker) {
+  return `---\ntype: ${type}\n---\n${marker}\n`;
+}
+
+function preparedDocument(documentId, marker) {
+  return {
+    documentId,
+    path: `${documentId}.md`,
+    type: "note",
+    conformance: "strict",
+    diagnostics: [],
+    sections: [{
+      sectionId: `${documentId}#root`,
+      documentId,
+      conformance: "strict",
+      title: `Prepared ${marker}`,
+      path: `${documentId}.md`,
+      type: "note",
+      tags: ["native"],
+      status: "stable",
+      staleAfterEpoch: undefined,
+      stalenessClassified: true,
+      trustTier: "human-reviewed",
+      resource: documentId,
+      headingPath: "Overview",
+      description: "Prepared native package API fixture",
+      sourceText: marker,
+      text: marker,
+      startLine: 1,
+      endLine: 3,
+    }],
+  };
 }
 
 test("manifest exposes only the friendly root and prepared binding", async () => {
@@ -102,6 +137,67 @@ test("ESM and CommonJS resolve the root and prepared subpath", async () => {
     assert.equal(typeof prepared.NativeOkfSearch.fromPrepared, "function");
     const index = prepared.NativeOkfSearch.fromPrepared([]);
     assert.deepEqual(index.listTypes(), []);
+  }
+  assert.deepEqual(Object.keys(cjsPrepared), ["NativeOkfSearch"]);
+
+  const index = cjsRoot.createOkfSearch([
+    { path: "smoke.md", markdown: markdown("note", "friendly-runtime-marker") },
+  ]);
+  assert.equal(index.ingest({
+    path: "nested/added.md",
+    markdown: markdown("guide", "friendly-ingest-marker"),
+  }).conformance, "strict");
+  assert.deepEqual(index.listTypes(), ["guide", "note"]);
+  assert.equal(index.remove("./nested//added.md"), true);
+  assert.deepEqual(index.search("friendly-ingest-marker", { match: "all" }), []);
+  assert.throws(
+    () => index.autoSuggest("friendly"),
+    (error) => error instanceof cjsRoot.OkfError &&
+      error.code === "ERR_OKF_UNSUPPORTED" &&
+      error.path === "autoSuggest",
+  );
+
+  const prepared = cjsPrepared.NativeOkfSearch.fromPrepared([
+    preparedDocument("prepared", "prepared-runtime-marker"),
+  ]);
+  assert.equal(prepared.search("prepared-runtime-marker")[0]?.documentId, "prepared");
+  prepared.ingestPrepared(preparedDocument("prepared-added", "prepared-ingest-marker"));
+  assert.equal(prepared.search("prepared-ingest-marker", { match: "all" }).length, 1);
+  assert.equal(prepared.removeDocument({
+    documentId: "prepared-added",
+    path: "prepared-added.md",
+  }), true);
+  assert.deepEqual(prepared.search("prepared-ingest-marker", { match: "all" }), []);
+
+  const directoryRoot = await mkdtemp(join(tmpdir(), "okf-search-native-package-api-"));
+  try {
+    const nestedRoot = join(directoryRoot, "nested");
+    await mkdir(nestedRoot, { recursive: true });
+    await writeFile(
+      join(nestedRoot, "directory.md"),
+      markdown("guide", "friendly-directory-marker"),
+    );
+
+    const directoryIndex = await cjsRoot.openOkf(directoryRoot);
+    assert.equal(
+      directoryIndex.search("friendly-directory-marker")[0]?.documentId,
+      "nested/directory",
+    );
+    assert.deepEqual(directoryIndex.listTypes(), ["guide"]);
+    assert.equal(directoryIndex.ingest({
+      path: "added.md",
+      markdown: markdown("note", "friendly-directory-ingest-marker"),
+    }).conformance, "strict");
+    assert.deepEqual(directoryIndex.listTypes(), ["guide", "note"]);
+    assert.equal(directoryIndex.remove("./added.md"), true);
+    assert.equal(directoryIndex.remove("nested/directory.md"), true);
+    assert.deepEqual(directoryIndex.listTypes(), []);
+    assert.deepEqual(
+      directoryIndex.search("friendly-directory-marker", { match: "all" }),
+      [],
+    );
+  } finally {
+    await rm(directoryRoot, { recursive: true, force: true });
   }
 });
 

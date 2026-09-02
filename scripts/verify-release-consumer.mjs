@@ -5,12 +5,13 @@ import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, join, resolve, sep } from "node:path"
+import { basename, isAbsolute, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { verifyPublicationPlan } from "./release-publication.mjs"
 
 const JS_PACKAGES = new Set(["okf-minisearch", "pi-okf-search"])
+const NATIVE_PACKAGE = "okf-search-native"
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 const REGISTRY = "https://registry.npmjs.org"
 
@@ -200,7 +201,7 @@ async function installConsumer(entry, entries, directory, onCommand, runCommand)
   }
 }
 
-export async function verifyLocalPlanConsumers({ directory, plan, expectedCommit = plan.releaseCommit, onCommand, runCommand = spawnSync } = {}) {
+export async function verifyLocalJsConsumers({ directory, plan, expectedCommit = plan.releaseCommit, onCommand, runCommand = spawnSync } = {}) {
   await verifyPublicationPlan({ directory, plan, expectedCommit })
   const entries = plan.packages.filter(({ name }) => JS_PACKAGES.has(name))
   for (const entry of entries) await installConsumer(entry, entries, directory, onCommand, runCommand)
@@ -230,32 +231,174 @@ export async function verifyRegistryConsumer(name, version, selectedMini, { onCo
   }
 }
 
-export async function verifyRegistryPlanConsumer(plan, name, { verifyConsumer = verifyRegistryConsumer } = {}) {
+export async function verifyNativeConsumer(dependency, { typescript = null, onCommand, runCommand = spawnSync } = {}) {
+  assert.ok(
+    (isAbsolute(dependency) && dependency.endsWith(".tgz")) ||
+      (dependency.startsWith(`${NATIVE_PACKAGE}@`) &&
+        SEMVER.test(dependency.slice(`${NATIVE_PACKAGE}@`.length))),
+    "native dependency must be an absolute tarball or exact planned version",
+  )
+  const root = await mkdtemp(join(tmpdir(), "okf-native-release-consumer-"))
+  try {
+    await writeFile(join(root, "package.json"), `${JSON.stringify({
+      name: "okf-native-release-consumer",
+      private: true,
+      type: "module",
+    }, null, 2)}\n`)
+    await mkdir(join(root, "fixture", "nested"), { recursive: true })
+    await writeFile(join(root, "fixture", "nested", "directory.md"), "---\ntype: guide\n---\nrelease-directory-needle\n")
+
+    const npm = process.platform === "win32" ? "npm.cmd" : "npm"
+    run(npm, [
+      "install",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      "--no-package-lock",
+      "--save-exact",
+      dependency,
+    ], root, process.env, false, onCommand, runCommand)
+
+    const entries = {
+      "root.mjs": `import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import * as api from "okf-search-native";
+assert.deepEqual(Object.keys(api).sort(), ["OkfError", "createOkfSearch", "openOkf", "validateOkfDocument"]);
+await assert.rejects(import("okf-search-native/native.cjs"), (error) => error?.code === "ERR_PACKAGE_PATH_NOT_EXPORTED");
+const raw = { path: "raw.md", markdown: "---\\ntype: note\\n---\\nrelease-raw-needle\\n" };
+assert.deepEqual(api.validateOkfDocument(raw), { isValid: true, isIndexable: true, errors: [] });
+const index = api.createOkfSearch([raw]);
+assert.equal(index.search("release-raw-needle")[0]?.documentId, "raw");
+assert.equal(index.ingest({ path: "added.md", markdown: "---\\ntype: added\\n---\\nrelease-added-needle\\n" }).conformance, "strict");
+assert.deepEqual(index.listTypes(), ["added", "note"]);
+assert.equal(index.remove("./added.md"), true);
+assert.deepEqual(index.search("release-added-needle"), []);
+assert.throws(() => index.autoSuggest("release"), (error) => error instanceof api.OkfError && error.code === "ERR_OKF_UNSUPPORTED");
+const fixture = join(process.cwd(), "fixture");
+const source = join(fixture, "nested", "directory.md");
+const before = await readFile(source, "utf8");
+const opened = await api.openOkf(fixture);
+assert.equal(opened.search("release-directory-needle")[0]?.path, "nested/directory.md");
+assert.equal(opened.remove("nested/directory.md"), true);
+assert.deepEqual(opened.search("release-directory-needle"), []);
+assert.equal(await readFile(source, "utf8"), before);
+`,
+      "root.cjs": `const assert = require("node:assert/strict");
+const api = require("okf-search-native");
+assert.deepEqual(Object.keys(api).sort(), ["OkfError", "createOkfSearch", "openOkf", "validateOkfDocument"]);
+const index = api.createOkfSearch([{ path: "cjs.md", markdown: "---\\ntype: cjs\\n---\\nrelease-cjs-needle\\n" }]);
+assert.equal(index.search("release-cjs-needle").length, 1);
+`,
+      "prepared.mjs": `import assert from "node:assert/strict";
+import { NativeOkfSearch } from "okf-search-native/prepared";
+const section = { sectionId: "prepared#root", documentId: "prepared", conformance: "strict", title: "Prepared", path: "prepared.md", type: "note", tags: ["release"], status: "stable", stalenessClassified: true, trustTier: "human-reviewed", resource: "prepared", headingPath: "Prepared", description: "release fixture", sourceText: "", text: "release-prepared-needle", startLine: 1, endLine: 3 };
+const document = { documentId: "prepared", path: "prepared.md", type: "note", conformance: "strict", diagnostics: [], sections: [section] };
+const index = NativeOkfSearch.fromPrepared([document]);
+assert.equal(index.search("release-prepared-needle")[0]?.documentId, "prepared");
+index.ingestPrepared({ ...document, type: "guide", sections: [{ ...section, type: "guide", text: "release-prepared-replacement" }] });
+assert.deepEqual(index.listTypes(), ["guide"]);
+assert.equal(index.removeDocument({ documentId: "prepared", path: "prepared.md" }), true);
+assert.deepEqual(index.listTypes(), []);
+`,
+      "prepared.cjs": `const assert = require("node:assert/strict");
+const { NativeOkfSearch } = require("okf-search-native/prepared");
+assert.deepEqual(NativeOkfSearch.fromPrepared([]).search("empty"), []);
+`,
+    }
+    for (const [file, source] of Object.entries(entries)) await writeFile(join(root, file), source)
+    for (const file of Object.keys(entries)) {
+      run(process.execPath, [file], root, process.env, false, onCommand, runCommand)
+    }
+
+    if (typescript) {
+      const types = `import { createOkfSearch, openOkf, type OkfSearch } from "okf-search-native";
+import { NativeOkfSearch, type PreparedDocument } from "okf-search-native/prepared";
+const handle: OkfSearch = createOkfSearch([]);
+const opened: Promise<OkfSearch> = openOkf(".");
+const prepared: PreparedDocument[] = [];
+const native = NativeOkfSearch.fromPrepared(prepared);
+void [handle, opened, native];
+`
+      await writeFile(join(root, "types.mts"), types)
+      await writeFile(join(root, "types.cts"), types)
+      await writeFile(join(root, "tsconfig.json"), `${JSON.stringify({
+        compilerOptions: {
+          target: "ES2022",
+          module: "NodeNext",
+          moduleResolution: "NodeNext",
+          strict: true,
+          noEmit: true,
+          skipLibCheck: false,
+          types: [],
+        },
+        include: ["types.mts", "types.cts"],
+      }, null, 2)}\n`)
+      run(process.execPath, [resolve(typescript), "--project", "tsconfig.json", "--pretty", "false"], root, process.env, false, onCommand, runCommand)
+    }
+
+    console.log(`verified clean scripts-disabled native consumer for ${dependency}`)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+}
+
+export async function verifyLocalNativeConsumer({ directory, plan, expectedCommit = plan.releaseCommit, typescript, onCommand, runCommand = spawnSync } = {}) {
+  await verifyPublicationPlan({ directory, plan, expectedCommit })
+  const entry = plan.packages.find(({ name }) => name === NATIVE_PACKAGE)
+  assert.ok(entry, "native package is not selected in the publication plan")
+  await verifyNativeConsumer(resolve(directory, entry.tarball), { typescript, onCommand, runCommand })
+  return { name: entry.name, version: entry.version }
+}
+
+export async function verifyRegistryPlanConsumer(plan, name, {
+  typescript,
+  verifyJsConsumer = verifyRegistryConsumer,
+  verifyNative = verifyNativeConsumer,
+} = {}) {
   const entry = plan?.packages?.find((candidate) => candidate.name === name)
-  assert.ok(entry && JS_PACKAGES.has(name), "package is not a selected JS plan entry")
-  const selectedMini = plan.packages.find((candidate) => candidate.name === "okf-minisearch")
-  return verifyConsumer(name, entry.version, selectedMini)
+  assert.ok(entry, "package is not selected in the publication plan")
+  if (JS_PACKAGES.has(name)) {
+    const selectedMini = plan.packages.find((candidate) => candidate.name === "okf-minisearch")
+    return verifyJsConsumer(name, entry.version, selectedMini)
+  }
+  assert.equal(name, NATIVE_PACKAGE, "unsupported selected package")
+  assert.match(entry.version ?? "", SEMVER, "exact native package version")
+  return verifyNative(`${name}@${entry.version}`, { typescript })
+}
+
+function parseTypescript(args) {
+  if (args.length === 0) return null
+  if (args.length === 2 && args[0] === "--typescript" && args[1]) return args[1]
+  fail("--typescript requires one compiler entry path")
 }
 
 async function main() {
-  const args = process.argv.slice(2)
-  if (args[0] === "--plan" && args.length === 4) {
-    const directory = resolve(args[1])
-    const plan = JSON.parse(await readFile(resolve(args[2]), "utf8"))
-    const verified = await verifyLocalPlanConsumers({ directory, plan, expectedCommit: args[3] })
+  const [mode, first, second, third, ...extra] = process.argv.slice(2)
+  if (mode === "local-js" && first && second && third && extra.length === 0) {
+    const directory = resolve(first)
+    const plan = JSON.parse(await readFile(resolve(second), "utf8"))
+    const verified = await verifyLocalJsConsumers({ directory, plan, expectedCommit: third })
     console.log(`verified ${verified.length} local scripts-disabled JS artifact(s)`)
     return
   }
-  if (args[0] === "registry" && args[1] === "--plan" && args.length === 4) {
-    const plan = JSON.parse(await readFile(resolve(args[2]), "utf8"))
-    await verifyRegistryPlanConsumer(plan, args[3])
+  if (mode === "local-native" && first && second && third) {
+    const directory = resolve(first)
+    const plan = JSON.parse(await readFile(resolve(second), "utf8"))
+    await verifyLocalNativeConsumer({
+      directory,
+      plan,
+      expectedCommit: third,
+      typescript: parseTypescript(extra),
+    })
     return
   }
-  const [name, version, ...extra] = args[0] === "registry" ? args.slice(1) : args
-  if (extra.length || !JS_PACKAGES.has(name) || !SEMVER.test(version ?? "")) {
-    fail("usage: verify-js-consumer.mjs --plan <artifact-directory> <plan.json> <release-commit> | registry --plan <plan.json> <name> | [registry] <okf-minisearch|pi-okf-search> <exact-version>")
+  if (mode === "registry" && first && second) {
+    const plan = JSON.parse(await readFile(resolve(first), "utf8"))
+    await verifyRegistryPlanConsumer(plan, second, { typescript: parseTypescript([third, ...extra].filter((value) => value !== undefined)) })
+    return
   }
-  await verifyRegistryConsumer(name, version)
+  fail("usage: verify-release-consumer.mjs local-js <artifact-directory> <plan.json> <release-commit> | local-native <artifact-directory> <plan.json> <release-commit> [--typescript <tsc-entry>] | registry <plan.json> <okf-minisearch|pi-okf-search|okf-search-native> [--typescript <tsc-entry>]")
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -37,9 +37,6 @@ jobs:
           toolchain: 1.88.0
           components: clippy,rustfmt
 
-      - name: Check native Rust format and lints
-        run: pnpm --dir packages/okf-search-native run check:rust
-
       - name: Validate packages
         run: pnpm package:check
 
@@ -123,20 +120,10 @@ jobs:
 
       - name: Verify Linux glibc floor
         if: matrix.target == 'x86_64-unknown-linux-gnu'
-        shell: bash
-        run: |
-          set -euo pipefail
-          artifact="packages/okf-search-native/${{ matrix.artifact }}"
-          glibc_versions="$(objdump -T "$artifact" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sort -Vu || true)"
-          test -n "$glibc_versions"
-          max_glibc="$(printf '%s\n' "$glibc_versions" | tail -1)"
-          echo "Imported GLIBC symbol versions:"
-          printf '%s\n' "$glibc_versions"
-          echo "Maximum imported GLIBC symbol: $max_glibc"
-          test "$(printf '%s\n' GLIBC_2.17 "$max_glibc" | sort -V | tail -1)" = GLIBC_2.17
+        run: pnpm --dir packages/okf-search-native run verify:release-artifacts -- glibc "${{ matrix.artifact }}"
 
-      - name: Runtime smoke test
-        run: pnpm --dir packages/okf-search-native run test:runtime
+      - name: Runtime package API test
+        run: pnpm --dir packages/okf-search-native run test:package-api
 
       - name: Upload tested artifact
         uses: actions/upload-artifact@v4

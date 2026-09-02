@@ -150,17 +150,9 @@ jobs:
         run: pnpm --dir packages/okf-search-native run build:facade
       - name: Verify Linux glibc floor
         if: matrix.target == 'x86_64-unknown-linux-gnu'
-        shell: bash
-        run: |
-          set -euo pipefail
-          artifact="packages/okf-search-native/${{ matrix.artifact }}"
-          glibc_versions="$(objdump -T "$artifact" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sort -Vu || true)"
-          test -n "$glibc_versions"
-          max_glibc="$(printf '%s\n' "$glibc_versions" | tail -1)"
-          echo "Maximum imported GLIBC symbol: $max_glibc"
-          test "$(printf '%s\n' GLIBC_2.17 "$max_glibc" | sort -V | tail -1)" = GLIBC_2.17
-      - name: Runtime smoke root and prepared
-        run: pnpm --dir packages/okf-search-native run test:runtime
+        run: pnpm --dir packages/okf-search-native run verify:release-artifacts -- glibc "${{ matrix.artifact }}"
+      - name: Runtime package API test
+        run: pnpm --dir packages/okf-search-native run test:package-api
       - name: Verify exact nonempty artifact
         shell: bash
         run: test -s "packages/okf-search-native/${{ matrix.artifact }}"
@@ -274,7 +266,7 @@ jobs:
 
           node scripts/release-publication.mjs create "$destination" "$selection" "$RELEASE_COMMIT" "$destination/plan.json"
           node scripts/release-publication.mjs verify "$destination" "$destination/plan.json" "$selection" "$RELEASE_COMMIT"
-          node scripts/verify-js-consumer.mjs --plan "$destination" "$destination/plan.json" "$RELEASE_COMMIT"
+          node scripts/verify-release-consumer.mjs local-js "$destination" "$destination/plan.json" "$RELEASE_COMMIT"
       - name: Upload immutable plan and its exact tarballs
         uses: actions/upload-artifact@v4
         with:
@@ -343,8 +335,8 @@ jobs:
             '{commit: $commit, packages: $packages}' >"$selection"
           node scripts/release-publication.mjs verify \
             "$RUNNER_TEMP/publication-plan" "$RUNNER_TEMP/publication-plan/plan.json" "$selection" "$RELEASE_COMMIT"
-          tarball="$(jq -er '.packages[] | select(.name == "okf-search-native") | .tarball' "$RUNNER_TEMP/publication-plan/plan.json")"
-          node scripts/verify-native-consumer.mjs "$RUNNER_TEMP/publication-plan/$tarball" \
+          node scripts/verify-release-consumer.mjs local-native \
+            "$RUNNER_TEMP/publication-plan" "$RUNNER_TEMP/publication-plan/plan.json" "$RELEASE_COMMIT" \
             --typescript "$GITHUB_WORKSPACE/node_modules/typescript/bin/tsc"
 
   publication_transaction:
@@ -424,7 +416,7 @@ jobs:
           path: ${{ runner.temp }}/publication-plan
       - name: Install exact registry versions scripts-disabled and run package smoke
         shell: bash
-        run: node scripts/verify-js-consumer.mjs registry --plan "$RUNNER_TEMP/publication-plan/plan.json" "${{ matrix.package.name }}"
+        run: node scripts/verify-release-consumer.mjs registry "$RUNNER_TEMP/publication-plan/plan.json" "${{ matrix.package.name }}"
 
   native_post_publish_test:
     name: Exact native registry install (${{ matrix.target }})
@@ -478,6 +470,6 @@ jobs:
       - name: Install exact registry version scripts-disabled and run shared native journey
         shell: bash
         run: |
-          version="$(jq -er '.packages[] | select(.name == "okf-search-native") | .version' "$RUNNER_TEMP/publication-plan/plan.json")"
-          node scripts/verify-native-consumer.mjs "okf-search-native@$version" \
+          node scripts/verify-release-consumer.mjs registry \
+            "$RUNNER_TEMP/publication-plan/plan.json" okf-search-native \
             --typescript "$GITHUB_WORKSPACE/node_modules/typescript/bin/tsc"

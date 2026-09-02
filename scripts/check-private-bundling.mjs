@@ -19,6 +19,8 @@ import { build } from "esbuild";
 import { rollup } from "rollup";
 import { dts } from "rollup-plugin-dts";
 
+import { buildNativeFacade } from "../packages/okf-search-native/scripts/build-facade.mjs";
+
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const privateSpecifier = "@okf-internal/prepare";
 const privateSource = join(repoRoot, "packages", "okf-prepare", "src", "index.ts");
@@ -50,22 +52,11 @@ const targets = {
     ],
   },
   native: {
-    entrypoint: join(
-      repoRoot,
-      "packages",
-      "okf-search-native",
-      "src",
-      "index.ts",
-    ),
     privateSources: [
       { label: privateSpecifier, paths: [privateSource, privatePrepareSource] },
       { label: `${privateSpecifier}/node`, paths: [privateNodeSource] },
     ],
     external: [nativeSpecifier],
-    artifacts: [
-      { name: "index", platform: "node", format: "esm", target: "node22", extension: "mjs" },
-      { name: "index", platform: "node", format: "cjs", target: "node22", extension: "cjs" },
-    ],
   },
 };
 
@@ -172,7 +163,7 @@ async function assertPrivateBytes(metafile, sources, label) {
   }
 }
 
-async function buildJavaScript(temporaryRoot, artifact) {
+async function buildMinisearchJavaScript(temporaryRoot, artifact) {
   const output = join(
     temporaryRoot,
     `${artifact.name}-${artifact.format}.${artifact.extension}`,
@@ -192,7 +183,6 @@ async function buildJavaScript(temporaryRoot, artifact) {
     target: artifact.target,
     globalName: artifact.globalName,
     plugins: [privateSourcePlugin()],
-    ...(selected.external === undefined ? {} : { external: selected.external }),
     banner: artifact.platform === "node" && artifact.format === "esm"
       ? {
           js: 'import { createRequire as __okfCreateRequire } from "node:module";\nconst require = __okfCreateRequire(import.meta.url);',
@@ -203,23 +193,18 @@ async function buildJavaScript(temporaryRoot, artifact) {
 
   const label = `${targetName} ${artifact.name} ${artifact.format}`;
   await assertPrivateBytes(result.metafile, selected.privateSources, label);
-  if (selected.external) {
-    assertExternalRuntimeModules(result.metafile, selected.external, label);
-  }
 
   const code = await readFile(output, "utf8");
   assertNoPrivateReference(code, label);
 
-  if (targetName !== "native") {
-    if (artifact.format === "iife") {
-      const context = {};
-      runInNewContext(code, context);
-      assertSentinel(context.OkfPrepareBundleProof, label);
-    } else if (artifact.format === "cjs") {
-      assertSentinel(createRequire(import.meta.url)(output), label);
-    } else {
-      assertSentinel(await import(pathToFileURL(output).href), label);
-    }
+  if (artifact.format === "iife") {
+    const context = {};
+    runInNewContext(code, context);
+    assertSentinel(context.OkfPrepareBundleProof, label);
+  } else if (artifact.format === "cjs") {
+    assertSentinel(createRequire(import.meta.url)(output), label);
+  } else {
+    assertSentinel(await import(pathToFileURL(output).href), label);
   }
 }
 
@@ -232,38 +217,32 @@ async function buildDeclarations(temporaryRoot) {
     outputDirectory,
     targetName === "native" ? "index.d.ts" : `${targetName}.d.ts`,
   );
-  const bundle = await rollup({
-    input: selected.entrypoint,
-    ...(selected.external === undefined
-      ? {}
-      : { external: (id) => selected.external.includes(id) }),
-    plugins: [
-      privateDeclarationSourcePlugin(),
-      dts({ respectExternal: false }),
-    ],
-    onwarn(warning) {
-      throw new Error(`Rollup warning: ${warning.message}`);
-    },
-  });
-
-  let declaration;
-  try {
-    const generated = await bundle.generate({ format: "es" });
-    const chunk = generated.output.find((item) => item.type === "chunk");
-    if (!chunk) {
-      throw new Error("Declaration bundling produced no output");
-    }
-    declaration = chunk.code;
-  } finally {
-    await bundle.close();
-  }
-
   const filenames = targetName === "native"
     ? ["index.d.mts", "index.d.cts", "index.d.ts"]
     : [basename(output)];
-  await Promise.all(
-    filenames.map((filename) => writeFile(join(outputDirectory, filename), declaration)),
-  );
+
+  if (targetName !== "native") {
+    const bundle = await rollup({
+      input: selected.entrypoint,
+      plugins: [privateDeclarationSourcePlugin(), dts({ respectExternal: false })],
+      onwarn(warning) {
+        throw new Error(`Rollup warning: ${warning.message}`);
+      },
+    });
+
+    let declaration;
+    try {
+      const generated = await bundle.generate({ format: "es" });
+      const chunk = generated.output.find((item) => item.type === "chunk");
+      if (!chunk) {
+        throw new Error("Declaration bundling produced no output");
+      }
+      declaration = chunk.code;
+    } finally {
+      await bundle.close();
+    }
+    await writeFile(output, declaration);
+  }
 
   for (const filename of filenames) {
     const contents = await readFile(join(outputDirectory, filename), "utf8");
@@ -369,9 +348,25 @@ const temporaryRoot = await mkdtemp(join(tmpdir(), "okf-prepare-bundle-"));
 try {
   if (targetName === "native") {
     await assertNativePackageManifest();
-  }
-  for (const artifact of selected.artifacts) {
-    await buildJavaScript(temporaryRoot, artifact);
+    const outputDirectory = join(temporaryRoot, "native-facade", "dist");
+    const { javascriptBuilds } = await buildNativeFacade({
+      outputDirectory,
+      metafile: true,
+    });
+    for (const artifact of javascriptBuilds) {
+      const label = `native index ${artifact.format}`;
+      assert.ok(artifact.metafile, `${label}: facade builder returned no metafile`);
+      await assertPrivateBytes(artifact.metafile, selected.privateSources, label);
+      assertExternalRuntimeModules(artifact.metafile, selected.external, label);
+      assertNoPrivateReference(
+        await readFile(join(outputDirectory, artifact.filename), "utf8"),
+        label,
+      );
+    }
+  } else {
+    for (const artifact of selected.artifacts) {
+      await buildMinisearchJavaScript(temporaryRoot, artifact);
+    }
   }
   await buildDeclarations(temporaryRoot);
   console.log(`${targetName}: private JS and declaration bundling proof passed`);

@@ -47,10 +47,9 @@
     "test:package-api": "node --test tests/package-api.test.mjs",
     "test:facade": "vitest run tests/*.test.ts --no-file-parallelism",
     "test:rust": "cargo test --locked",
-    "test:runtime": "node scripts/runtime-smoke.mjs",
     "test:prepare-bundle": "node ../../scripts/check-private-bundling.mjs native",
     "typecheck": "pnpm run test:types",
-    "test": "pnpm run test:prepare-bundle && pnpm run test:types && pnpm run test:package-api && pnpm run test:facade && pnpm run test:rust && pnpm run test:runtime",
+    "test": "pnpm run test:prepare-bundle && pnpm run test:types && pnpm run test:package-api && pnpm run test:facade && pnpm run test:rust",
     "verify:release-artifacts": "node scripts/verify-release-artifacts.mjs"
   },
   "devDependencies": {

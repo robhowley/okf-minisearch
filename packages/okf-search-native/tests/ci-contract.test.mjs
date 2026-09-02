@@ -72,16 +72,27 @@ for (const [label, spec] of Object.entries(workflows)) {
   });
 }
 
-test("native workflows preserve build, runtime, GLIBC, and upload gates", async () => {
+test("native workflows preserve build, package API, GLIBC, and upload gates", async () => {
   for (const { path, job } of Object.values(workflows)) {
     const source = await readFile(path, "utf8");
     const parsed = await parseWorkflow(path);
-    const commands = parsed.jobs[job].steps.map(({ run }) => run ?? "").join("\n");
+    const steps = parsed.jobs[job].steps;
+    const commands = steps.map(({ run }) => run ?? "").join("\n");
     assert.match(commands, /--platform --release --js native\.cjs --dts native\.d\.cts/);
     assert.match(commands, /-- --locked/);
     assert.match(commands, /--use-napi-cross/);
-    assert.match(commands, /GLIBC_2\.17/);
     assert.ok(source.includes('${build_args[@]+"${build_args[@]}"}'));
-    assert.ok(parsed.jobs[job].steps.findIndex(({ name }) => name.startsWith("Runtime smoke")) < parsed.jobs[job].steps.findIndex(({ name }) => name === "Upload tested artifact"));
+
+    const glibc = steps.find(({ name }) => name === "Verify Linux glibc floor");
+    assert.equal(glibc.if, "matrix.target == 'x86_64-unknown-linux-gnu'");
+    assert.equal(
+      glibc.run,
+      'pnpm --dir packages/okf-search-native run verify:release-artifacts -- glibc "${{ matrix.artifact }}"',
+    );
+    const runtime = steps.findIndex(({ run }) =>
+      run === "pnpm --dir packages/okf-search-native run test:package-api"
+    );
+    assert.ok(runtime >= 0);
+    assert.ok(runtime < steps.findIndex(({ name }) => name === "Upload tested artifact"));
   }
 });

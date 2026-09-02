@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { verifyReleaseArtifacts } from "../scripts/verify-release-artifacts.mjs";
+import {
+  verifyGlibcFloor,
+  verifyReleaseArtifacts,
+} from "../scripts/verify-release-artifacts.mjs";
 
 const targets = [
   "x86_64-apple-darwin",
@@ -67,4 +70,49 @@ test("rejects an extra native artifact", async () => {
       /native release artifacts must be exactly/,
     );
   });
+});
+
+function objdump(stdout, { status = 0, stderr = "" } = {}) {
+  return (command, args, options) => {
+    assert.equal(command, "objdump");
+    assert.deepEqual(args, ["-T", "native.node"]);
+    assert.deepEqual(options, { encoding: "utf8" });
+    return { status, stdout, stderr };
+  };
+}
+
+test("accepts and numerically orders imported GLIBC symbols through 2.17", () => {
+  assert.deepEqual(
+    verifyGlibcFloor("native.node", {
+      runCommand: objdump("symbol GLIBC_2.9\nother GLIBC_2.17\nduplicate GLIBC_2.9\n"),
+    }),
+    { versions: ["GLIBC_2.9", "GLIBC_2.17"], maximum: "GLIBC_2.17" },
+  );
+});
+
+test("rejects imported GLIBC symbols newer than 2.17", () => {
+  for (const version of ["GLIBC_2.18", "GLIBC_2.17.0"]) {
+    assert.throws(
+      () => verifyGlibcFloor("native.node", {
+        runCommand: objdump(`symbol ${version}\nother GLIBC_2.9\n`),
+      }),
+      new RegExp(`${version.replaceAll(".", "\\.")}, newer than GLIBC_2\\.17`),
+    );
+  }
+});
+
+test("rejects native artifacts with no imported GLIBC symbols", () => {
+  assert.throws(
+    () => verifyGlibcFloor("native.node", { runCommand: objdump("no versions\n") }),
+    /imports no GLIBC symbols/,
+  );
+});
+
+test("rejects objdump failure", () => {
+  assert.throws(
+    () => verifyGlibcFloor("native.node", {
+      runCommand: objdump("", { status: 1, stderr: "not an object" }),
+    }),
+    /objdump failed.*not an object/,
+  );
 });

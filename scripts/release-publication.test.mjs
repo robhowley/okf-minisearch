@@ -20,7 +20,11 @@ import {
   verifyNpmPublication,
   verifyPublicationPlan,
 } from "./release-publication.mjs"
-import { verifyLocalPlanConsumers, verifyRegistryPlanConsumer } from "./verify-js-consumer.mjs"
+import {
+  verifyLocalJsConsumers,
+  verifyLocalNativeConsumer,
+  verifyRegistryPlanConsumer,
+} from "./verify-release-consumer.mjs"
 
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/release-publication.json", import.meta.url)))
 const releaseCommit = "a".repeat(40)
@@ -493,7 +497,7 @@ test("real selected JS packages run both production smokes from exact local byte
     const specs = packWorkspaceJs(directory)
     const plan = await createPublicationPlan({ directory, selection: selection(specs), registry: { policy: async () => ({ state: "unpublished", distTag: "latest" }) } })
     const commands = []
-    const result = await verifyLocalPlanConsumers({
+    const result = await verifyLocalJsConsumers({
       directory,
       plan,
       expectedCommit: releaseCommit,
@@ -516,7 +520,7 @@ test("a real Pi-only local plan runs the Pi smoke without inventing a selected M
     const specs = packWorkspaceJs(directory, { mini: false })
     const plan = await createPublicationPlan({ directory, selection: selection(specs), registry: { policy: async () => ({ state: "unpublished", distTag: "latest" }) } })
     assert.deepEqual(
-      await verifyLocalPlanConsumers({ directory, plan, expectedCommit: releaseCommit }),
+      await verifyLocalJsConsumers({ directory, plan, expectedCommit: releaseCommit }),
       specs.map(({ name, version }) => ({ name, version })),
     )
   } finally {
@@ -536,7 +540,7 @@ test("a selected MiniSearch version outside Pi's packed range is rejected", asyn
     mini.version = "3.0.0"
     const plan = await createPublicationPlan({ directory, selection: selection(specs), registry: { policy: async () => ({ state: "unpublished", distTag: "latest" }) } })
     await assert.rejects(
-      verifyLocalPlanConsumers({ directory, plan, expectedCommit: releaseCommit }),
+      verifyLocalJsConsumers({ directory, plan, expectedCommit: releaseCommit }),
       /different okf-minisearch instance|another okf-minisearch version|ELSPROBLEMS/,
     )
   } finally {
@@ -565,7 +569,7 @@ test("local JS consumer fails closed for wrong, missing, and mutated selected ta
         if (mode === "missing") rmSync(tarball)
         else writeFileSync(tarball, "mutated selected bytes")
         await assert.rejects(
-          verifyLocalPlanConsumers({ directory, plan, expectedCommit: releaseCommit }),
+          verifyLocalJsConsumers({ directory, plan, expectedCommit: releaseCommit }),
           mode === "missing" ? /ENOENT/ : /tar|artifact|exited/,
         )
       } finally {
@@ -584,9 +588,62 @@ test("registry plan mode forwards exact selected versions without executing on i
     ],
   }
   await verifyRegistryPlanConsumer(plan, "pi-okf-search", {
-    verifyConsumer: async (...args) => { calls.push(args) },
+    verifyJsConsumer: async (...args) => { calls.push(args) },
   })
   assert.deepEqual(calls, [["pi-okf-search", "0.4.0", plan.packages[0]]])
+})
+
+test("local native mode selects the planned tarball and runs all package consumers scripts-disabled", async () => {
+  const spec = packageSpec("okf-search-native", "0.1.0")
+  const data = await makePlan([spec], (directory) => packNative(directory))
+  const commands = []
+  const consumerSources = new Map()
+  try {
+    assert.deepEqual(
+      await verifyLocalNativeConsumer({
+        directory: data.directory,
+        plan: data.plan,
+        expectedCommit: releaseCommit,
+        typescript: "/typescript/tsc",
+        onCommand: ({ command, args, cwd, ...details }) => {
+          commands.push({ command, args, cwd, ...details })
+          if (command === process.execPath && /^(?:root|prepared)\.(?:mjs|cjs)$/.test(args[0])) {
+            consumerSources.set(args[0], readFileSync(join(cwd, args[0]), "utf8"))
+          }
+        },
+        runCommand: () => ({ status: 0, stdout: "", stderr: "" }),
+      }),
+      { name: "okf-search-native", version: "0.1.0" },
+    )
+
+    const install = commands.find(({ args }) => args[0] === "install")
+    assert.ok(install)
+    assert.equal(install.args.includes("--ignore-scripts"), true)
+    assert.equal(install.args.at(-1), resolve(data.directory, data.plan.packages[0].tarball))
+    assert.deepEqual([...consumerSources.keys()], ["root.mjs", "root.cjs", "prepared.mjs", "prepared.cjs"])
+    assert.match(consumerSources.get("root.mjs"), /openOkf/)
+    assert.match(consumerSources.get("prepared.mjs"), /ingestPrepared/)
+    assert.equal(commands.some(({ args }) => args.includes("--project") && args.includes("tsconfig.json")), true)
+  } finally {
+    rmSync(data.directory, { recursive: true, force: true })
+  }
+})
+
+test("registry mode derives the exact native version from the selected plan", async () => {
+  const calls = []
+  const plan = { packages: [{ name: "okf-search-native", version: "0.1.0" }] }
+  await verifyRegistryPlanConsumer(plan, "okf-search-native", {
+    typescript: "/typescript/tsc",
+    verifyNative: async (...args) => { calls.push(args) },
+  })
+  assert.deepEqual(calls, [[
+    "okf-search-native@0.1.0",
+    { typescript: "/typescript/tsc" },
+  ]])
+  await assert.rejects(
+    verifyRegistryPlanConsumer(plan, "pi-okf-search"),
+    /not selected/,
+  )
 })
 
 function oidcToken(commit = releaseCommit) {
@@ -1185,7 +1242,27 @@ test("release workflow keeps the eight-job transaction DAG and native target CPU
   assert.equal(releaseSteps.find(({ name }) => name === "Install dependencies for target CPU").run, "pnpm install --frozen-lockfile --cpu=${{ matrix.node-arch }}")
   assert.equal(parsed.jobs.native_release_build.strategy.matrix.include.length, 4)
   assert.equal(parsed.jobs.native_candidate_test.strategy.matrix.include.length, 4)
+  assert.equal(parsed.jobs.native_post_publish_test.strategy.matrix.include.length, 4)
+  for (const job of ["native_candidate_test", "native_post_publish_test"]) {
+    assert.equal(
+      parsed.jobs[job].steps.find(({ name }) =>
+        name === "Install proof dependencies without scripts for target CPU"
+      ).run,
+      "pnpm install --frozen-lockfile --ignore-scripts --cpu=${{ matrix.node-arch }}",
+    )
+  }
   const transactionCommands = parsed.jobs.publication_transaction.steps.map(({ run }) => run ?? "").join("\n")
   assert.doesNotMatch(transactionCommands, /npm pack|napi build|build:facade/)
   assert.match(transactionCommands, /release-publication\.mjs transact/)
+
+  const workflowSource = readFileSync(path, "utf8")
+  assert.doesNotMatch(workflowSource, /verify-(?:js|native)-consumer\.mjs/)
+  assert.match(workflowSource, /verify-release-consumer\.mjs local-js/)
+  assert.match(workflowSource, /verify-release-consumer\.mjs local-native/)
+  assert.match(workflowSource, /verify-release-consumer\.mjs registry [^\n]*plan\.json[^\n]*matrix\.package\.name/)
+  assert.match(workflowSource, /verify-release-consumer\.mjs registry[\s\S]*plan\.json" okf-search-native/)
+  const nativeConsumerCommands = ["native_candidate_test", "native_post_publish_test"]
+    .flatMap((job) => parsed.jobs[job].steps.map(({ run }) => run ?? ""))
+    .join("\n")
+  assert.doesNotMatch(nativeConsumerCommands, /jq .*okf-search-native/)
 })
