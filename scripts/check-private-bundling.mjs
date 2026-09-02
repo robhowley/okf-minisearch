@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createRequire } from "node:module";
+import { builtinModules, createRequire } from "node:module";
 import {
   copyFile,
   mkdir,
@@ -11,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 
@@ -20,9 +20,18 @@ import { rollup } from "rollup";
 import { dts } from "rollup-plugin-dts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const privateSource = join(repoRoot, "packages", "okf-prepare", "src", "index.ts");
 const privateSpecifier = "@okf-internal/prepare";
+const privateSource = join(repoRoot, "packages", "okf-prepare", "src", "index.ts");
+const privatePrepareSource = join(repoRoot, "packages", "okf-prepare", "src", "prepare.ts");
+const privateNodeSource = join(repoRoot, "packages", "okf-prepare", "src", "node.ts");
 const expectedExports = ["createPrepareBundleSentinel"];
+const nativeFacadeExports = [
+  "OkfError",
+  "createOkfSearch",
+  "openOkf",
+  "validateOkfDocument",
+];
+const nativeSpecifier = "../native.cjs";
 const targets = {
   minisearch: {
     entrypoint: join(
@@ -33,6 +42,7 @@ const targets = {
       "support",
       "prepare-bundle-entry.ts",
     ),
+    privateSources: [{ label: privateSpecifier, paths: [privateSource] }],
     artifacts: [
       { name: "node", platform: "node", format: "esm", target: "node20", extension: "mjs" },
       { name: "browser", platform: "browser", format: "esm", target: "es2022", extension: "mjs" },
@@ -44,12 +54,17 @@ const targets = {
       repoRoot,
       "packages",
       "okf-search-native",
-      "tests",
-      "prepare-bundle-entry.ts",
+      "src",
+      "index.ts",
     ),
+    privateSources: [
+      { label: privateSpecifier, paths: [privateSource, privatePrepareSource] },
+      { label: `${privateSpecifier}/node`, paths: [privateNodeSource] },
+    ],
+    external: [nativeSpecifier],
     artifacts: [
-      { name: "native", platform: "node", format: "esm", target: "node22", extension: "mjs" },
-      { name: "native", platform: "node", format: "cjs", target: "node22", extension: "cjs" },
+      { name: "index", platform: "node", format: "esm", target: "node22", extension: "mjs" },
+      { name: "index", platform: "node", format: "cjs", target: "node22", extension: "cjs" },
     ],
   },
 };
@@ -71,28 +86,90 @@ function assertNoPrivateReference(contents, label) {
   assert.equal(contents.includes("workspace:"), false, `${label}: workspace protocol leaked`);
 }
 
-async function assertPrivateBytes(metafile, label) {
-  const expectedPath = await realpath(privateSource);
-  let privateInput;
+const privateEntries = new Map([
+  [privateSpecifier, privateSource],
+  [`${privateSpecifier}/node`, privateNodeSource],
+]);
+const builtinModuleNames = new Set(builtinModules);
+function privateSourcePlugin() {
+  return {
+    name: "resolve-private-prepare-source",
+    setup(build) {
+      build.onResolve(
+        { filter: new RegExp("^@okf-internal/prepare(?:/node)?$") },
+        (args) => {
+          const path = privateEntries.get(args.path);
+          return path ? { path } : undefined;
+        },
+      );
+    },
+  };
+}
 
-  for (const input of Object.keys(metafile.inputs)) {
-    const inputPath = resolve(repoRoot, input);
-    try {
-      if (await realpath(inputPath) === expectedPath) {
-        privateInput = input;
-        break;
-      }
-    } catch {
-      // Ignore virtual inputs.
+function assertExternalRuntimeModules(metafile, expected, label) {
+  const external = new Set();
+  for (const input of Object.values(metafile.inputs)) {
+    for (const item of input.imports ?? []) {
+      if (item.external) external.add(item.path);
     }
   }
 
-  assert.ok(privateInput, `${label}: private source is absent from the esbuild metafile`);
-  const bytes = Object.values(metafile.outputs).reduce(
-    (total, output) => total + (output.inputs[privateInput]?.bytesInOutput ?? 0),
-    0,
+  const runtime = [...external]
+    .filter((specifier) => !isBuiltinModule(specifier))
+    .sort();
+  assert.deepEqual(
+    runtime,
+    [...new Set(expected)].sort(),
+    `${label}: unexpected external runtime modules`,
   );
-  assert.ok(bytes > 0, `${label}: private source contributed no emitted bytes`);
+}
+
+function isBuiltinModule(specifier) {
+  const name = specifier.startsWith("node:")
+    ? specifier.slice("node:".length)
+    : specifier;
+  return builtinModuleNames.has(name);
+}
+
+async function assertPrivateBytes(metafile, sources, label) {
+  for (const source of sources) {
+    const privateInputs = [];
+    for (const sourcePath of source.paths) {
+      const expectedPath = await realpath(sourcePath);
+      let privateInput;
+
+      for (const input of Object.keys(metafile.inputs)) {
+        const inputPath = resolve(repoRoot, input);
+        try {
+          if (await realpath(inputPath) === expectedPath) {
+            privateInput = input;
+            break;
+          }
+        } catch {
+          // Ignore virtual inputs.
+        }
+      }
+
+      assert.ok(
+        privateInput,
+        `${label}: ${source.label} source is absent from the esbuild metafile`,
+      );
+      privateInputs.push(privateInput);
+    }
+
+    const bytes = Object.values(metafile.outputs).reduce(
+      (total, output) => total + privateInputs.reduce(
+        (sourceBytes, input) =>
+          sourceBytes + (output.inputs[input]?.bytesInOutput ?? 0),
+        0,
+      ),
+      0,
+    );
+    assert.ok(
+      bytes > 0,
+      `${label}: ${source.label} source contributed no emitted bytes`,
+    );
+  }
 }
 
 async function buildJavaScript(temporaryRoot, artifact) {
@@ -114,6 +191,8 @@ async function buildJavaScript(temporaryRoot, artifact) {
     format: artifact.format,
     target: artifact.target,
     globalName: artifact.globalName,
+    plugins: [privateSourcePlugin()],
+    ...(selected.external === undefined ? {} : { external: selected.external }),
     banner: artifact.platform === "node" && artifact.format === "esm"
       ? {
           js: 'import { createRequire as __okfCreateRequire } from "node:module";\nconst require = __okfCreateRequire(import.meta.url);',
@@ -123,32 +202,43 @@ async function buildJavaScript(temporaryRoot, artifact) {
   });
 
   const label = `${targetName} ${artifact.name} ${artifact.format}`;
-  await assertPrivateBytes(result.metafile, label);
+  await assertPrivateBytes(result.metafile, selected.privateSources, label);
+  if (selected.external) {
+    assertExternalRuntimeModules(result.metafile, selected.external, label);
+  }
+
   const code = await readFile(output, "utf8");
   assertNoPrivateReference(code, label);
 
-  if (artifact.format === "iife") {
-    const context = {};
-    runInNewContext(code, context);
-    assertSentinel(context.OkfPrepareBundleProof, label);
-  } else if (artifact.format === "cjs") {
-    assertSentinel(createRequire(import.meta.url)(output), label);
-  } else {
-    assertSentinel(await import(pathToFileURL(output).href), label);
+  if (targetName !== "native") {
+    if (artifact.format === "iife") {
+      const context = {};
+      runInNewContext(code, context);
+      assertSentinel(context.OkfPrepareBundleProof, label);
+    } else if (artifact.format === "cjs") {
+      assertSentinel(createRequire(import.meta.url)(output), label);
+    } else {
+      assertSentinel(await import(pathToFileURL(output).href), label);
+    }
   }
 }
 
 async function buildDeclarations(temporaryRoot) {
-  const output = join(temporaryRoot, `${targetName}.d.ts`);
+  const outputDirectory = targetName === "native"
+    ? join(temporaryRoot, "native-facade", "dist")
+    : temporaryRoot;
+  await mkdir(outputDirectory, { recursive: true });
+  const output = join(
+    outputDirectory,
+    targetName === "native" ? "index.d.ts" : `${targetName}.d.ts`,
+  );
   const bundle = await rollup({
     input: selected.entrypoint,
+    ...(selected.external === undefined
+      ? {}
+      : { external: (id) => selected.external.includes(id) }),
     plugins: [
-      {
-        name: "resolve-private-prepare-source",
-        resolveId(id) {
-          return id === privateSpecifier ? privateSource : null;
-        },
-      },
+      privateDeclarationSourcePlugin(),
       dts({ respectExternal: false }),
     ],
     onwarn(warning) {
@@ -156,30 +246,55 @@ async function buildDeclarations(temporaryRoot) {
     },
   });
 
+  let declaration;
   try {
-    await bundle.write({ file: output, format: "es" });
+    const generated = await bundle.generate({ format: "es" });
+    const chunk = generated.output.find((item) => item.type === "chunk");
+    if (!chunk) {
+      throw new Error("Declaration bundling produced no output");
+    }
+    declaration = chunk.code;
   } finally {
     await bundle.close();
   }
 
-  const declaration = await readFile(output, "utf8");
-  assert.match(declaration, /createPrepareBundleSentinel/);
-  assert.match(declaration, /readonly marker: ["']okf-prepare-bundled["']/);
-  assert.match(declaration, /readonly value: 73/);
-  assertNoPrivateReference(declaration, `${targetName} declarations`);
+  const filenames = targetName === "native"
+    ? ["index.d.mts", "index.d.cts", "index.d.ts"]
+    : [basename(output)];
+  await Promise.all(
+    filenames.map((filename) => writeFile(join(outputDirectory, filename), declaration)),
+  );
+
+  for (const filename of filenames) {
+    const contents = await readFile(join(outputDirectory, filename), "utf8");
+    assertNoPrivateReference(contents, `${targetName} ${filename}`);
+    if (targetName === "native") {
+      assertNativeDeclaration(contents, `${targetName} ${filename}`);
+    } else {
+      assert.match(contents, /createPrepareBundleSentinel/);
+      assert.match(contents, /readonly marker: ["']okf-prepare-bundled["']/);
+      assert.match(contents, /readonly value: 73/);
+    }
+  }
 
   const consumerRoot = await mkdtemp(join(tmpdir(), "okf-prepare-declaration-consumer-"));
   try {
-    const packageRoot = join(consumerRoot, "node_modules", "prepare-bundle-proof");
+    const packageName = targetName === "native"
+      ? "okf-search-native"
+      : "prepare-bundle-proof";
+    const packageRoot = join(consumerRoot, "node_modules", packageName);
     await mkdir(packageRoot, { recursive: true });
     await copyFile(output, join(packageRoot, "index.d.ts"));
     await writeFile(join(packageRoot, "package.json"), `${JSON.stringify({
-      name: "prepare-bundle-proof",
+      name: packageName,
       private: true,
       type: "module",
       types: "./index.d.ts",
     }, null, 2)}\n`);
-    await writeFile(join(consumerRoot, "consumer.ts"), `import { createPrepareBundleSentinel } from "prepare-bundle-proof";\nconst sentinel = createPrepareBundleSentinel();\nconst marker: "okf-prepare-bundled" = sentinel.marker;\nconst value: 73 = sentinel.value;\nvoid [marker, value];\n`);
+    const consumer = targetName === "native"
+      ? `import { OkfError, createOkfSearch, openOkf, validateOkfDocument } from "okf-search-native";\nimport type { OkfDocumentInput, OkfSearch, OkfValidationResult } from "okf-search-native";\n\nconst input: OkfDocumentInput = { path: "types.md", markdown: "" };\nconst index: OkfSearch = createOkfSearch([input]);\nconst validation: OkfValidationResult = validateOkfDocument(input);\nconst opened: Promise<OkfSearch> = openOkf("knowledge");\nconst error = new OkfError("ERR_OKF_UNSUPPORTED", "autoSuggest");\nvoid [index, validation, opened, error];\n`
+      : `import { createPrepareBundleSentinel } from "prepare-bundle-proof";\nconst sentinel = createPrepareBundleSentinel();\nconst marker: "okf-prepare-bundled" = sentinel.marker;\nconst value: 73 = sentinel.value;\nvoid [marker, value];\n`;
+    await writeFile(join(consumerRoot, "consumer.ts"), consumer);
     await writeFile(join(consumerRoot, "tsconfig.json"), `${JSON.stringify({
       compilerOptions: {
         target: "ES2022",
@@ -214,8 +329,47 @@ async function buildDeclarations(temporaryRoot) {
   }
 }
 
+function privateDeclarationSourcePlugin() {
+  return {
+    name: "resolve-private-prepare-declarations",
+    resolveId(id) {
+      return privateEntries.get(id) ?? null;
+    },
+  };
+}
+
+function assertNativeDeclaration(declaration, label) {
+  for (const exportName of nativeFacadeExports) {
+    assert.ok(
+      declaration.includes(exportName),
+      `${label}: missing ${exportName} declaration`,
+    );
+  }
+  assert.doesNotMatch(
+    declaration,
+    /NativeOkfSearch|PreparedDocument|createPrepareBundleSentinel/,
+    `${label}: prepared implementation declaration leaked`,
+  );
+}
+
+async function assertNativePackageManifest() {
+  const manifest = JSON.parse(await readFile(
+    join(repoRoot, "packages", "okf-search-native", "package.json"),
+    "utf8",
+  ));
+  // The private workspace link is build metadata; scan the production-facing manifest.
+  const emittedManifest = Object.fromEntries(
+    Object.entries(manifest).filter(([key]) =>
+      key !== "devDependencies" && key !== "scripts"),
+  );
+  assertNoPrivateReference(JSON.stringify(emittedManifest), "native package manifest");
+}
+
 const temporaryRoot = await mkdtemp(join(tmpdir(), "okf-prepare-bundle-"));
 try {
+  if (targetName === "native") {
+    await assertNativePackageManifest();
+  }
   for (const artifact of selected.artifacts) {
     await buildJavaScript(temporaryRoot, artifact);
   }

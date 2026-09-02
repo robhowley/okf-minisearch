@@ -114,8 +114,12 @@ jobs:
             build_args+=(--use-napi-cross)
           fi
           pnpm --dir packages/okf-search-native exec napi build \
-            --platform --release --target "${{ matrix.target }}" \
+            --platform --release --js native.cjs --dts native.d.cts \
+            --target "${{ matrix.target }}" \
             "${build_args[@]+"${build_args[@]}"}" -- --locked
+
+      - name: Build source package facade
+        run: pnpm --dir packages/okf-search-native run build:facade
 
       - name: Verify Linux glibc floor
         if: matrix.target == 'x86_64-unknown-linux-gnu'
@@ -123,8 +127,12 @@ jobs:
         run: |
           set -euo pipefail
           artifact="packages/okf-search-native/${{ matrix.artifact }}"
-          max_glibc="$(objdump -T "$artifact" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sort -Vu | tail -1)"
-          test -n "$max_glibc"
+          glibc_versions="$(objdump -T "$artifact" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sort -Vu || true)"
+          test -n "$glibc_versions"
+          max_glibc="$(printf '%s\n' "$glibc_versions" | tail -1)"
+          echo "Imported GLIBC symbol versions:"
+          printf '%s\n' "$glibc_versions"
+          echo "Maximum imported GLIBC symbol: $max_glibc"
           test "$(printf '%s\n' GLIBC_2.17 "$max_glibc" | sort -V | tail -1)" = GLIBC_2.17
 
       - name: Runtime smoke test

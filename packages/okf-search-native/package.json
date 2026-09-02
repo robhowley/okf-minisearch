@@ -56,7 +56,6 @@
   "devDependencies": {
     "@napi-rs/cli": "^3.8.6",
     "@napi-rs/cross-toolchain-x64-target-x86_64": "^1.0.3",
-    "@okf-internal/prepare": "workspace:*",
     "esbuild": "^0.28.2",
     "rollup": "^4.63.1",
     "rollup-plugin-dts": "^6.5.1",
