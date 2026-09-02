@@ -87,7 +87,7 @@ test("native workflows preserve build, package API, GLIBC, and upload gates", as
     assert.equal(glibc.if, "matrix.target == 'x86_64-unknown-linux-gnu'");
     assert.equal(
       glibc.run,
-      'pnpm --dir packages/okf-search-native run verify:release-artifacts -- glibc "${{ matrix.artifact }}"',
+      'pnpm --dir packages/okf-search-native run verify:release-artifacts glibc "${{ matrix.artifact }}"',
     );
     const runtime = steps.findIndex(({ run }) =>
       run === "pnpm --dir packages/okf-search-native run test:package-api"

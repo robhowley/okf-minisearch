@@ -150,7 +150,7 @@ jobs:
         run: pnpm --dir packages/okf-search-native run build:facade
       - name: Verify Linux glibc floor
         if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: pnpm --dir packages/okf-search-native run verify:release-artifacts -- glibc "${{ matrix.artifact }}"
+        run: pnpm --dir packages/okf-search-native run verify:release-artifacts glibc "${{ matrix.artifact }}"
       - name: Runtime package API test
         run: pnpm --dir packages/okf-search-native run test:package-api
       - name: Verify exact nonempty artifact
