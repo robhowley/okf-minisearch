@@ -21,7 +21,7 @@ function section(documentId, marker, conformance = "strict") {
     tags: ["native"],
     status: "stable",
     staleAfterEpoch: undefined,
-    stalenessClassified: false,
+    stalenessClassified: true,
     trustTier: "human-reviewed",
     resource: documentId,
     headingPath: "Overview",
@@ -64,6 +64,26 @@ const initialHits = native.search("native-boundary-marker", {
 assert.equal(initialHits.length, 1);
 assert.equal(initialHits[0].documentId, "first");
 assert.equal(initialHits[0].sectionId, "first#root");
+assert.deepEqual(native.search("native", null), native.search("native"));
+
+for (const [name, options] of [
+  ["unknown top-level only", { typo: true }],
+  ["unknown top-level mixed", { limit: 1, typo: true }],
+  ["unknown where only", { where: { typo: ["note"] } }],
+  ["unknown where mixed", { where: { types: ["note"], typo: true } }],
+  ["unknown where before value conversion", { where: { stale: "invalid", typo: true } }],
+  ["unknown boost only", { boost: { typo: 2 } }],
+  ["unknown boost mixed", { boost: { body: 2, typo: 2 } }],
+  ["unknown boost before value conversion", { boost: { body: "invalid", typo: 2 } }],
+]) {
+  assert.throws(
+    () => native.search("native", options),
+    (error) => error instanceof Error &&
+      error.message.includes("[ERR_OKF_INVALID_SEARCH_OPTIONS]") &&
+      error.message.includes("typo"),
+    `${name} must reject through the N-API binding`,
+  );
+}
 
 native.ingestPrepared(document("second", "native-mutation-marker"));
 assert.equal(

@@ -4,7 +4,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Bound;
 
 use chrono::{DateTime, Utc};
-use napi::bindgen_prelude::Either;
+use napi::bindgen_prelude::{
+    Either, FromNapiValue, JsObjectValue, JsValue, KeyCollectionMode, KeyConversion, KeyFilter,
+    Object, Unknown, ValueType,
+};
 use napi::{Error, Result as NapiResult, Status};
 use napi_derive::napi;
 use parking_lot::Mutex;
@@ -440,6 +443,88 @@ fn boost_value(boost: &Option<SearchBoost>, field: SearchField) -> Option<f64> {
     })
 }
 
+fn validate_option_keys(object: &Object<'_>, location: &str, allowed: &[&str]) -> NapiResult<()> {
+    let names = object
+        .get_all_property_names(
+            KeyCollectionMode::OwnOnly,
+            KeyFilter::Enumerable,
+            KeyConversion::NumbersToStrings,
+        )
+        .map_err(|error| invalid_options(format!("could not inspect {location}: {error}")))?;
+    let length = names
+        .get_array_length()
+        .map_err(|error| invalid_options(format!("could not inspect {location}: {error}")))?;
+    for index in 0..length {
+        let key = names
+            .get_element::<String>(index)
+            .map_err(|_| invalid_options(format!("unknown {location} symbol key")))?;
+        if !allowed.contains(&key.as_str()) {
+            return Err(invalid_options(format!("unknown {location} key `{key}`")));
+        }
+    }
+    Ok(())
+}
+
+fn validate_nested_option_keys(
+    object: &Object<'_>,
+    property: &str,
+    location: &str,
+    allowed: &[&str],
+) -> NapiResult<()> {
+    let Some(value) = object.get::<Unknown<'_>>(property)? else {
+        return Ok(());
+    };
+    if value.get_type()? == ValueType::Object {
+        let nested = unsafe { value.cast::<Object<'_>>() }?;
+        validate_option_keys(&nested, location, allowed)?;
+    }
+    Ok(())
+}
+
+fn parse_search_options(options: Option<Object<'_>>) -> NapiResult<Option<SearchOptions>> {
+    let Some(object) = options else {
+        return Ok(None);
+    };
+    validate_option_keys(
+        &object,
+        "search option",
+        &[
+            "limit", "where", "asOf", "match", "fields", "boost", "fuzzy",
+        ],
+    )?;
+    validate_nested_option_keys(
+        &object,
+        "where",
+        "where",
+        &[
+            "types",
+            "tagsAny",
+            "statuses",
+            "trustTiers",
+            "stale",
+            "conformance",
+        ],
+    )?;
+    validate_nested_option_keys(
+        &object,
+        "boost",
+        "boost",
+        &[
+            "resource",
+            "title",
+            "heading",
+            "description",
+            "tags",
+            "type",
+            "sources",
+            "body",
+        ],
+    )?;
+    Ok(Some(unsafe {
+        SearchOptions::from_napi_value(object.value().env, object.raw())?
+    }))
+}
+
 fn resolve_options(options: Option<SearchOptions>) -> NapiResult<ResolvedOptions> {
     let options = options.unwrap_or(SearchOptions {
         limit: None,
@@ -779,6 +864,8 @@ struct Engine {
     fields: Fields,
     documents: BTreeMap<String, DocumentState>,
     poisoned: Option<String>,
+    #[cfg(test)]
+    count_results: std::collections::VecDeque<Result<usize, tantivy::TantivyError>>,
 }
 
 impl Engine {
@@ -806,6 +893,8 @@ impl Engine {
             fields,
             documents: states,
             poisoned: None,
+            #[cfg(test)]
+            count_results: std::collections::VecDeque::new(),
         })
     }
 
@@ -821,7 +910,12 @@ impl Engine {
         Err(EngineError::Poisoned(cause))
     }
 
-    fn count(&self, document_id: &str) -> Result<usize, EngineError> {
+    fn count(&mut self, document_id: &str) -> Result<usize, EngineError> {
+        #[cfg(test)]
+        if let Some(result) = self.count_results.pop_front() {
+            return result.map_err(EngineError::Tantivy);
+        }
+
         let query = TermQuery::new(
             Term::from_field_text(self.fields.document_id, document_id),
             IndexRecordOption::Basic,
@@ -839,6 +933,22 @@ impl Engine {
         ))
     }
 
+    fn verify_post_commit_count(
+        &mut self,
+        document_id: &str,
+        expected: usize,
+    ) -> Result<(), EngineError> {
+        match self.count(document_id) {
+            Ok(actual) if actual == expected => Ok(()),
+            Ok(actual) => self.poison(format!(
+                "post-commit verification found {actual} sections for document `{document_id}`; expected {expected}"
+            )),
+            Err(error) => self.poison(format!(
+                "post-commit verification failed for document `{document_id}`: {error}"
+            )),
+        }
+    }
+
     fn commit(&mut self, operation: &str) -> Result<(), EngineError> {
         if let Err(error) = self.writer.commit() {
             return self.poison(format!("{operation} commit failed: {error}"));
@@ -853,13 +963,13 @@ impl Engine {
         self.usable()?;
         validate_document(&document)?;
 
-        if let Some(existing) = self.documents.get(&document.document_id) {
-            if existing.path != document.path {
-                return Err(EngineError::Invalid(format!(
-                    "replacement documentId `{}` changed path from `{}` to `{}`",
-                    document.document_id, existing.path, document.path
-                )));
-            }
+        if let Some(existing) = self.documents.get(&document.document_id)
+            && existing.path != document.path
+        {
+            return Err(EngineError::Invalid(format!(
+                "replacement documentId `{}` changed path from `{}` to `{}`",
+                document.document_id, existing.path, document.path
+            )));
         }
         if let Some(conflict) = self
             .documents
@@ -903,7 +1013,7 @@ impl Engine {
         let count = document.sections.len();
         self.documents
             .insert(document.document_id.clone(), DocumentState::from(&document));
-        self.verify_count(&document.document_id, count)
+        self.verify_post_commit_count(&document.document_id, count)
     }
 
     fn remove(&mut self, identity: RemoveIdentity) -> Result<bool, EngineError> {
@@ -925,7 +1035,7 @@ impl Engine {
         ));
         self.commit(&format!("remove `{}`", identity.document_id))?;
         self.documents.remove(&identity.document_id);
-        self.verify_count(&identity.document_id, 0)?;
+        self.verify_post_commit_count(&identity.document_id, 0)?;
         Ok(true)
     }
 
@@ -1131,29 +1241,64 @@ fn validate_document(document: &PreparedDocument) -> Result<(), EngineError> {
                 section.section_id, section.start_line, section.end_line
             )));
         }
-        if let Some(value) = section.stale_after_epoch {
-            if !value.is_finite() || value < i64::MIN as f64 || value > i64::MAX as f64 {
-                return Err(EngineError::Invalid(format!(
-                    "section `{}` has an invalid staleAfterEpoch",
-                    section.section_id
-                )));
-            }
+        if let Some(value) = section.stale_after_epoch
+            && (!value.is_finite() || value < i64::MIN as f64 || value > i64::MAX as f64)
+        {
+            return Err(EngineError::Invalid(format!(
+                "section `{}` has an invalid staleAfterEpoch",
+                section.section_id
+            )));
         }
-        if let Some(status) = section.status.as_deref() {
-            if !matches!(status, "draft" | "stable" | "deprecated") {
-                return Err(EngineError::Invalid(format!(
-                    "section `{}` has invalid status `{status}`",
-                    section.section_id
-                )));
-            }
+        if !section.staleness_classified && section.stale_after_epoch.is_some() {
+            return Err(EngineError::Invalid(format!(
+                "section `{}` has an unclassified staleAfterEpoch",
+                section.section_id
+            )));
         }
-        if let Some(tier) = section.trust_tier.as_deref() {
-            if !matches!(tier, "unverified" | "machine-confirmed" | "human-reviewed") {
-                return Err(EngineError::Invalid(format!(
-                    "section `{}` has invalid trustTier `{tier}`",
-                    section.section_id
-                )));
-            }
+        if section.conformance == "strict"
+            && (section.status.is_none()
+                || section.trust_tier.is_none()
+                || !section.staleness_classified)
+        {
+            return Err(EngineError::Invalid(format!(
+                "strict section `{}` requires classified status, trustTier, and staleness",
+                section.section_id
+            )));
+        }
+        if let Some(status) = section.status.as_deref()
+            && !matches!(status, "draft" | "stable" | "deprecated")
+        {
+            return Err(EngineError::Invalid(format!(
+                "section `{}` has invalid status `{status}`",
+                section.section_id
+            )));
+        }
+        if let Some(tier) = section.trust_tier.as_deref()
+            && !matches!(tier, "unverified" | "machine-confirmed" | "human-reviewed")
+        {
+            return Err(EngineError::Invalid(format!(
+                "section `{}` has invalid trustTier `{tier}`",
+                section.section_id
+            )));
+        }
+    }
+
+    let first = &document.sections[0];
+    for section in &document.sections[1..] {
+        if section.title != first.title
+            || section.tags != first.tags
+            || section.status != first.status
+            || section.stale_after_epoch != first.stale_after_epoch
+            || section.staleness_classified != first.staleness_classified
+            || section.trust_tier != first.trust_tier
+            || section.resource != first.resource
+            || section.description != first.description
+            || section.source_text != first.source_text
+        {
+            return Err(EngineError::Invalid(format!(
+                "section `{}` disagrees with document-wide metadata",
+                section.section_id
+            )));
         }
     }
     Ok(())
@@ -1393,9 +1538,11 @@ impl NativeOkfSearch {
     pub fn search(
         &self,
         query: String,
-        options: Option<SearchOptions>,
+        #[napi(ts_arg_type = "SearchOptions | undefined | null")] options: Option<Object<'_>>,
     ) -> Result<Vec<SearchHit>, Error> {
-        self.inner.lock().search(&query, options)
+        self.inner
+            .lock()
+            .search(&query, parse_search_options(options)?)
     }
 
     #[napi(js_name = "listTypes")]
@@ -1825,5 +1972,630 @@ mod tests {
         assert!(doc.get_first(engine.fields.staleness_classified).is_none());
         assert!(doc.get_first(engine.fields.trust_tier).is_none());
         assert!(doc.get_first(engine.fields.conformance).is_some());
+    }
+
+    fn strict_section(document_id: &str, text: &str) -> PreparedSection {
+        let mut value = section(
+            document_id,
+            "Note",
+            "strict",
+            &["search"],
+            Some("stable"),
+            None,
+            true,
+            Some("human-reviewed"),
+        );
+        value.text = text.to_owned();
+        value
+    }
+
+    fn search_options(fields: &[&str], match_mode: &str) -> SearchOptions {
+        SearchOptions {
+            limit: Some(50.0),
+            where_filter: None,
+            as_of: Some(DateTime::<Utc>::UNIX_EPOCH),
+            match_mode: Some(match_mode.to_owned()),
+            fields: Some(fields.iter().map(|field| (*field).to_owned()).collect()),
+            boost: None,
+            fuzzy: None,
+        }
+    }
+
+    fn assert_invalid(error: EngineError) {
+        assert!(
+            error
+                .to_string()
+                .contains("[ERR_OKF_INVALID_PREPARED_DOCUMENT]"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn strict_and_unclassified_staleness_contracts_are_enforced() {
+        let mut cases = Vec::new();
+        let mut missing_status = strict_section("missing-status", "needle");
+        missing_status.status = None;
+        cases.push(("missing status", document(missing_status)));
+        let mut missing_trust = strict_section("missing-trust", "needle");
+        missing_trust.trust_tier = None;
+        cases.push(("missing trust", document(missing_trust)));
+        let mut unclassified = strict_section("unclassified-strict", "needle");
+        unclassified.staleness_classified = false;
+        cases.push(("unclassified strict staleness", document(unclassified)));
+        let mut deadline = section(
+            "unclassified-deadline",
+            "Note",
+            "degraded",
+            &[],
+            None,
+            Some(FIRST_DEADLINE),
+            false,
+            None,
+        );
+        deadline.text = "needle".to_owned();
+        cases.push(("unclassified deadline", document(deadline)));
+
+        for (name, invalid) in cases {
+            let error = Engine::new(vec![invalid]).err().expect(name);
+            assert_invalid(error);
+        }
+
+        let classified_degraded = document(section(
+            "classified-degraded",
+            "Note",
+            "degraded",
+            &[],
+            Some("draft"),
+            Some(FIRST_DEADLINE),
+            true,
+            Some("unverified"),
+        ));
+        let unclassified_degraded = document(section(
+            "unclassified-degraded",
+            "Note",
+            "degraded",
+            &[],
+            None,
+            None,
+            false,
+            None,
+        ));
+        Engine::new(vec![classified_degraded, unclassified_degraded])
+            .expect("valid degraded classifications should remain indexable");
+    }
+
+    #[test]
+    fn repeated_document_metadata_must_agree() {
+        let base = strict_section("metadata", "first section text");
+        let second = |section_id: &str| {
+            let mut value = base.clone();
+            value.section_id = section_id.to_owned();
+            value.heading_path = "Different heading".to_owned();
+            value.text = "different section text".to_owned();
+            value.start_line = 4;
+            value.end_line = 6;
+            value
+        };
+        let document_with = |changed: PreparedSection| {
+            let mut value = document(base.clone());
+            value.sections.push(changed);
+            value
+        };
+
+        let mut cases = Vec::new();
+        let mut changed = second("metadata#title");
+        changed.title = "Different title".to_owned();
+        cases.push(("title", document_with(changed)));
+        let mut changed = second("metadata#tags");
+        changed.tags.push("different".to_owned());
+        cases.push(("tags", document_with(changed)));
+        let mut changed = second("metadata#status");
+        changed.status = Some("draft".to_owned());
+        cases.push(("status", document_with(changed)));
+        let mut changed = second("metadata#deadline");
+        changed.stale_after_epoch = Some(FIRST_DEADLINE as f64);
+        cases.push(("staleAfterEpoch", document_with(changed)));
+        let classified = section(
+            "classified-metadata",
+            "Note",
+            "degraded",
+            &[],
+            Some("stable"),
+            None,
+            true,
+            Some("human-reviewed"),
+        );
+        let mut unclassified = classified.clone();
+        unclassified.section_id = "classified-metadata#other".to_owned();
+        unclassified.staleness_classified = false;
+        let mut classification_disagreement = document(classified);
+        classification_disagreement.sections.push(unclassified);
+        cases.push(("stalenessClassified", classification_disagreement));
+        let mut changed = second("metadata#trust");
+        changed.trust_tier = Some("unverified".to_owned());
+        cases.push(("trustTier", document_with(changed)));
+        let mut changed = second("metadata#resource");
+        changed.resource = "different".to_owned();
+        cases.push(("resource", document_with(changed)));
+        let mut changed = second("metadata#description");
+        changed.description = "different".to_owned();
+        cases.push(("description", document_with(changed)));
+        let mut changed = second("metadata#source");
+        changed.source_text = "different".to_owned();
+        cases.push(("sourceText", document_with(changed)));
+
+        for (name, invalid) in cases {
+            let error = Engine::new(vec![invalid]).err().expect(name);
+            assert_invalid(error);
+        }
+
+        Engine::new(vec![document_with(second("metadata#valid"))])
+            .expect("section-local fields may differ");
+    }
+
+    #[test]
+    fn invalid_initial_sets_are_rejected_at_the_prepared_boundary() {
+        let valid = document(strict_section("valid", "state needle"));
+        let mut cases = Vec::new();
+
+        for (name, change) in [
+            ("documentId envelope", 0),
+            ("path envelope", 1),
+            ("type envelope", 2),
+            ("conformance envelope", 3),
+        ] {
+            let mut invalid = valid.clone();
+            match change {
+                0 => invalid.sections[0].document_id = "other".to_owned(),
+                1 => invalid.sections[0].path = "other.md".to_owned(),
+                2 => invalid.sections[0].document_type = "Guide".to_owned(),
+                3 => invalid.sections[0].conformance = "degraded".to_owned(),
+                _ => unreachable!(),
+            }
+            cases.push((name, vec![invalid]));
+        }
+
+        let mut strict_diagnostic = valid.clone();
+        strict_diagnostic.diagnostics.push(Diagnostic {
+            code: "ERR_OKF_FIELD".to_owned(),
+            message: "not allowed on strict".to_owned(),
+            field: None,
+            path: strict_diagnostic.path.clone(),
+        });
+        cases.push(("strict diagnostics", vec![strict_diagnostic]));
+
+        let mut degraded_without_diagnostics = document(section(
+            "degraded",
+            "Note",
+            "degraded",
+            &[],
+            None,
+            None,
+            false,
+            None,
+        ));
+        degraded_without_diagnostics.diagnostics.clear();
+        cases.push((
+            "missing degraded diagnostics",
+            vec![degraded_without_diagnostics],
+        ));
+
+        for (name, change) in [("diagnostic code", 0), ("diagnostic path", 1)] {
+            let mut invalid = document(section(
+                "diagnostic",
+                "Note",
+                "degraded",
+                &[],
+                None,
+                None,
+                false,
+                None,
+            ));
+            if change == 0 {
+                invalid.diagnostics[0].code = "ERR_OTHER".to_owned();
+            } else {
+                invalid.diagnostics[0].path = "other.md".to_owned();
+            }
+            cases.push((name, vec![invalid]));
+        }
+
+        let mut zero_start = valid.clone();
+        zero_start.sections[0].start_line = 0;
+        cases.push(("zero start line", vec![zero_start]));
+        let mut reversed_bounds = valid.clone();
+        reversed_bounds.sections[0].start_line = 3;
+        reversed_bounds.sections[0].end_line = 2;
+        cases.push(("reversed line bounds", vec![reversed_bounds]));
+        let mut repeated = valid.clone();
+        repeated.sections.push(repeated.sections[0].clone());
+        cases.push(("repeated section id", vec![repeated]));
+
+        let duplicate_document = {
+            let mut other = valid.clone();
+            other.path = "other.md".to_owned();
+            other.sections[0].path = other.path.clone();
+            vec![valid.clone(), other]
+        };
+        cases.push(("duplicate document ownership", duplicate_document));
+        let duplicate_path = {
+            let mut other = document(strict_section("other", "state needle"));
+            other.path = valid.path.clone();
+            other.sections[0].path = valid.path.clone();
+            vec![valid.clone(), other]
+        };
+        cases.push(("duplicate path ownership", duplicate_path));
+        let duplicate_section = {
+            let mut other = document(strict_section("other", "state needle"));
+            other.sections[0].section_id = valid.sections[0].section_id.clone();
+            vec![valid.clone(), other]
+        };
+        cases.push(("duplicate section ownership", duplicate_section));
+
+        for (name, documents) in cases {
+            let error = Engine::new(documents).err().expect(name);
+            assert_invalid(error);
+        }
+    }
+
+    #[test]
+    fn rejected_ingest_keeps_search_and_inventory_unchanged() {
+        let baseline = vec![
+            document(strict_section("first", "baseline needle")),
+            document(strict_section("second", "baseline needle")),
+        ];
+        let baseline_ids = BTreeSet::from(["first".to_owned(), "second".to_owned()]);
+
+        let mut envelope = document(strict_section("new-envelope", "new needle"));
+        envelope.sections[0].document_type = "Guide".to_owned();
+        let mut diagnostics = document(strict_section("new-diagnostic", "new needle"));
+        diagnostics.diagnostics.push(Diagnostic {
+            code: "ERR_OKF_FIELD".to_owned(),
+            message: "invalid strict diagnostic".to_owned(),
+            field: None,
+            path: diagnostics.path.clone(),
+        });
+        let mut bounds = document(strict_section("new-bounds", "new needle"));
+        bounds.sections[0].end_line = 0;
+        let mut repeated = document(strict_section("new-repeat", "new needle"));
+        repeated.sections.push(repeated.sections[0].clone());
+        let mut missing_status = document(strict_section("new-status", "new needle"));
+        missing_status.sections[0].status = None;
+        let mut missing_trust = document(strict_section("new-trust", "new needle"));
+        missing_trust.sections[0].trust_tier = None;
+        let mut unclassified = document(strict_section("new-staleness", "new needle"));
+        unclassified.sections[0].staleness_classified = false;
+        let unclassified_deadline = document(section(
+            "new-deadline",
+            "Note",
+            "degraded",
+            &[],
+            None,
+            Some(FIRST_DEADLINE),
+            false,
+            None,
+        ));
+        let mut metadata = document(strict_section("new-metadata", "new needle"));
+        let mut second_section = metadata.sections[0].clone();
+        second_section.section_id = "new-metadata#second".to_owned();
+        second_section.title = "conflicting title".to_owned();
+        metadata.sections.push(second_section);
+        let mut path_conflict = document(strict_section("new-path", "new needle"));
+        path_conflict.path = "first.md".to_owned();
+        path_conflict.sections[0].path = path_conflict.path.clone();
+        let mut section_conflict = document(strict_section("new-section", "new needle"));
+        section_conflict.sections[0].section_id = "first#root".to_owned();
+        let mut replacement_conflict = document(strict_section("first", "new needle"));
+        replacement_conflict.path = "changed.md".to_owned();
+        replacement_conflict.sections[0].path = replacement_conflict.path.clone();
+
+        for (name, invalid) in [
+            ("envelope disagreement", envelope),
+            ("diagnostics", diagnostics),
+            ("line bounds", bounds),
+            ("repeated section id", repeated),
+            ("missing strict status", missing_status),
+            ("missing strict trust", missing_trust),
+            ("unclassified strict staleness", unclassified),
+            ("unclassified staleAfterEpoch", unclassified_deadline),
+            ("repeated metadata disagreement", metadata),
+            ("path ownership", path_conflict),
+            ("section ownership", section_conflict),
+            ("replacement ownership", replacement_conflict),
+        ] {
+            let mut engine = Engine::new(baseline.clone()).expect("baseline");
+            let error = engine.ingest(invalid).expect_err(name);
+            assert_invalid(error);
+            let ids: BTreeSet<String> = engine
+                .search("baseline", Some(search_options(&["body"], "any")))
+                .expect("baseline search")
+                .into_iter()
+                .map(|hit| hit.document_id)
+                .collect();
+            assert_eq!(ids, baseline_ids, "search state changed after {name}");
+            assert_eq!(engine.list_types().expect("inventory"), vec!["Note"]);
+            assert!(
+                engine
+                    .list_degraded()
+                    .expect("degraded inventory")
+                    .is_empty()
+            );
+        }
+    }
+
+    #[test]
+    fn count_verification_errors_follow_the_mutation_lifecycle() {
+        let count_error = || tantivy::TantivyError::InvalidArgument("count failed".to_owned());
+
+        let mut precommit = Engine::new(vec![document(strict_section("first", "needle"))])
+            .expect("precommit baseline");
+        precommit.count_results.push_back(Err(count_error()));
+        let error = precommit
+            .ingest(document(strict_section("second", "needle")))
+            .expect_err("precommit count error");
+        assert!(matches!(error, EngineError::Tantivy(_)));
+        assert!(precommit.poisoned.is_none());
+        assert_eq!(precommit.list_types().expect("still usable"), ["Note"]);
+        assert!(
+            precommit
+                .search("needle", Some(search_options(&["body"], "any")))
+                .expect("unchanged search")
+                .iter()
+                .all(|hit| hit.document_id == "first")
+        );
+
+        let mut ingest = Engine::new(vec![document(strict_section("first", "needle"))])
+            .expect("ingest baseline");
+        ingest.count_results.push_back(Ok(0));
+        ingest.count_results.push_back(Err(count_error()));
+        let error = ingest
+            .ingest(document(strict_section("second", "needle")))
+            .expect_err("post-commit count error");
+        assert!(matches!(error, EngineError::Poisoned(_)));
+        assert!(matches!(ingest.list_types(), Err(EngineError::Poisoned(_))));
+
+        let mut remove = Engine::new(vec![document(strict_section("first", "needle"))])
+            .expect("remove baseline");
+        remove.count_results.push_back(Ok(1));
+        remove.count_results.push_back(Ok(1));
+        let error = remove
+            .remove(RemoveIdentity {
+                document_id: "first".to_owned(),
+                path: "first.md".to_owned(),
+            })
+            .expect_err("post-commit count mismatch");
+        assert!(matches!(error, EngineError::Poisoned(_)));
+        assert!(matches!(remove.list_types(), Err(EngineError::Poisoned(_))));
+    }
+
+    #[test]
+    fn text_options_change_retrieval_and_ranking() {
+        let mut both = strict_section("both", "alpha beta");
+        both.title = "plain".to_owned();
+        let mut alpha = strict_section("alpha", "alpha");
+        alpha.title = "plain".to_owned();
+        let engine = Engine::new(vec![document(both), document(alpha)]).expect("engine");
+        assert_eq!(
+            engine
+                .search("alpha beta", Some(search_options(&["body"], "any")))
+                .expect("any")
+                .len(),
+            2
+        );
+        assert_eq!(
+            engine
+                .search("alpha beta", Some(search_options(&["body"], "all")))
+                .expect("all")[0]
+                .document_id,
+            "both"
+        );
+
+        let mut cross_field = strict_section("cross-field", "beta");
+        cross_field.title = "alpha".to_owned();
+        let cross_field = Engine::new(vec![document(cross_field)]).expect("cross-field engine");
+        assert_eq!(
+            cross_field
+                .search(
+                    "alpha beta",
+                    Some(search_options(&["title", "body"], "all")),
+                )
+                .expect("cross-field all")
+                .len(),
+            1
+        );
+
+        let mut title_hit = strict_section("title-hit", "plain body");
+        title_hit.title = "exclusive needle".to_owned();
+        let fields = Engine::new(vec![document(title_hit)]).expect("fields engine");
+        assert_eq!(
+            fields
+                .search("exclusive", Some(search_options(&["title"], "any")))
+                .expect("included field")
+                .len(),
+            1
+        );
+        assert!(
+            fields
+                .search("exclusive", Some(search_options(&["body"], "any")))
+                .expect("excluded field")
+                .is_empty()
+        );
+
+        let mut title_rank = strict_section("title-rank", "plain");
+        title_rank.title = "rankneedle".to_owned();
+        let mut body_rank = strict_section("body-rank", "rankneedle");
+        body_rank.title = "plain".to_owned();
+        let ranking =
+            Engine::new(vec![document(title_rank), document(body_rank)]).expect("ranking");
+        let default = ranking
+            .search(
+                "rankneedle",
+                Some(search_options(&["title", "body"], "any")),
+            )
+            .expect("default ranking");
+        assert_eq!(default[0].document_id, "title-rank");
+        let mut boosted = search_options(&["title", "body"], "any");
+        boosted.boost = Some(SearchBoost {
+            resource: None,
+            title: Some(0.1),
+            heading: None,
+            description: None,
+            tags: None,
+            document_type: None,
+            sources: None,
+            body: Some(10.0),
+        });
+        let boosted = ranking
+            .search("rankneedle", Some(boosted))
+            .expect("boosted ranking");
+        assert_eq!(boosted[0].document_id, "body-rank");
+    }
+
+    #[test]
+    fn prefix_fuzzy_matched_fields_and_snippets_use_production_search() {
+        let mut value = strict_section("search-contract", "alpha architecture retrieval");
+        value.title = "alpha architecture retrieval".to_owned();
+        value.description = "alpha architecture retrieval".to_owned();
+        let engine = Engine::new(vec![document(value)]).expect("engine");
+
+        assert_eq!(
+            engine
+                .search("arc", Some(search_options(&["body"], "any")))
+                .expect("three character prefix")
+                .len(),
+            1
+        );
+        assert!(
+            engine
+                .search("ar", Some(search_options(&["body"], "any")))
+                .expect("short prefix guard")
+                .is_empty()
+        );
+        assert!(
+            engine
+                .search("arc alpha", Some(search_options(&["body"], "all")))
+                .expect("non-final prefix guard")
+                .is_empty()
+        );
+
+        let mut fuzzy = search_options(&["body"], "any");
+        fuzzy.fuzzy = Some(Either::A(false));
+        assert!(
+            engine
+                .search("rexxieval", Some(fuzzy))
+                .expect("fuzzy off")
+                .is_empty()
+        );
+        let mut fuzzy = search_options(&["body"], "any");
+        fuzzy.fuzzy = Some(Either::A(true));
+        assert_eq!(
+            engine
+                .search("rexrieval", Some(fuzzy))
+                .expect("fuzzy on")
+                .len(),
+            1
+        );
+        let mut fuzzy = search_options(&["body"], "any");
+        fuzzy.fuzzy = Some(Either::B(0.1));
+        assert!(
+            engine
+                .search("rexxieval", Some(fuzzy))
+                .expect("distance one")
+                .is_empty()
+        );
+        let mut fuzzy = search_options(&["body"], "any");
+        fuzzy.fuzzy = Some(Either::B(0.2));
+        assert_eq!(
+            engine
+                .search("rexxieval", Some(fuzzy))
+                .expect("distance two")
+                .len(),
+            1
+        );
+
+        let hit = engine
+            .search(
+                "retrieval",
+                Some(search_options(&["title", "description", "body"], "any")),
+            )
+            .expect("matched fields")
+            .remove(0);
+        assert_eq!(hit.matched_fields, ["title", "description", "body"]);
+
+        let long_text = format!("{} exactsnippet {}", "x".repeat(190), "y".repeat(190));
+        let snippet_engine = Engine::new(vec![document(strict_section("snippet", &long_text))])
+            .expect("snippet engine");
+        let snippet = &snippet_engine
+            .search("exactsnippet", Some(search_options(&["body"], "any")))
+            .expect("snippet search")[0]
+            .snippet;
+        assert!(snippet.contains("exactsnippet"));
+        assert!(snippet.starts_with('…') && snippet.ends_with('…'));
+        assert!(snippet.len() <= 246, "snippet was {} bytes", snippet.len());
+    }
+
+    #[test]
+    fn collapse_ties_and_adaptive_overfetch_use_production_code() {
+        let record = |document_id: &str, section_id: &str, conformance: &str| Record {
+            address: DocAddress::new(0, 0),
+            document_id: document_id.to_owned(),
+            title: String::new(),
+            section_id: section_id.to_owned(),
+            conformance: conformance.to_owned(),
+            heading_path: String::new(),
+            path: String::new(),
+            start_line: 1,
+            end_line: 1,
+            text: String::new(),
+        };
+        let collapsed = collapse(vec![
+            Candidate {
+                score: 1.0,
+                record: record("same", "z", "degraded"),
+            },
+            Candidate {
+                score: 1.0,
+                record: record("same", "y", "strict"),
+            },
+            Candidate {
+                score: 1.0,
+                record: record("same", "a", "strict"),
+            },
+            Candidate {
+                score: 2.0,
+                record: record("higher", "higher", "degraded"),
+            },
+        ]);
+        assert_eq!(
+            collapsed
+                .iter()
+                .map(|candidate| candidate.record.section_id.as_str())
+                .collect::<Vec<_>>(),
+            ["higher", "a"]
+        );
+
+        let mut crowded = document(strict_section("crowded", "crowdterm crowdterm"));
+        crowded.sections = (0..40)
+            .map(|index| {
+                let mut section = crowded.sections[0].clone();
+                section.section_id = format!("crowded#{index:02}");
+                section.heading_path = format!("Section {index}");
+                section.start_line = index + 1;
+                section.end_line = index + 1;
+                section
+            })
+            .collect();
+        let other = document(strict_section("other", "crowdterm"));
+        let engine = Engine::new(vec![crowded, other]).expect("crowded engine");
+        let mut options = search_options(&["body"], "any");
+        options.limit = Some(2.0);
+        let hits = engine
+            .search("crowdterm", Some(options))
+            .expect("adaptive search");
+        assert_eq!(
+            hits.iter()
+                .map(|hit| hit.document_id.as_str())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["crowded", "other"])
+        );
     }
 }

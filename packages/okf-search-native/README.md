@@ -49,7 +49,6 @@ pnpm install
 pnpm --filter okf-search-native run build
 pnpm --filter okf-search-native run check:rust
 pnpm --filter okf-search-native run test:rust
-pnpm --filter okf-search-native run test:properties
 pnpm --filter okf-search-native run test:types
 pnpm --filter okf-search-native run test:runtime
 pnpm --filter okf-search-native run test
