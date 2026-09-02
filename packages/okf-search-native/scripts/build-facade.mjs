@@ -101,7 +101,7 @@ export async function buildNativeFacade({
   return { javascriptBuilds };
 }
 
-function privateSourcePlugin() {
+export function privateSourcePlugin() {
   return {
     name: "resolve-private-prepare-source",
     setup(build) {
@@ -113,7 +113,7 @@ function privateSourcePlugin() {
   };
 }
 
-function privateDeclarationSourcePlugin() {
+export function privateDeclarationSourcePlugin() {
   return {
     name: "resolve-private-prepare-declarations",
     resolveId(id) {

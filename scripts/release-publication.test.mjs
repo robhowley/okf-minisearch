@@ -1256,6 +1256,7 @@ test("release workflow keeps the eight-job transaction DAG and native target CPU
   assert.match(transactionCommands, /release-publication\.mjs transact/)
 
   const workflowSource = readFileSync(path, "utf8")
+  assert.doesNotMatch(workflowSource, /release-publication\.mjs verify/)
   assert.doesNotMatch(workflowSource, /verify-(?:js|native)-consumer\.mjs/)
   assert.match(workflowSource, /verify-release-consumer\.mjs local-js/)
   assert.match(workflowSource, /verify-release-consumer\.mjs local-native/)

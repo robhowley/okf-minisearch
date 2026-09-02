@@ -6,6 +6,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import {
+  buildNativePackage,
+  parseBuildArguments,
+} from "../scripts/build.mjs";
+
 const execFileAsync = promisify(execFile);
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const workflows = {
@@ -72,16 +77,90 @@ for (const [label, spec] of Object.entries(workflows)) {
   });
 }
 
+test("the build owner applies common flags, target options, and facade sequencing", async () => {
+  const events = [];
+  await buildNativePackage(
+    parseBuildArguments([
+      "--release",
+      "--target",
+      "x86_64-unknown-linux-gnu",
+      "--use-napi-cross=true",
+    ]),
+    {
+      runCommand: (command, args, options) => {
+        events.push({ command, args, options });
+        return { status: 0 };
+      },
+      buildFacade: async () => { events.push("facade"); },
+    },
+  );
+
+  assert.equal(events[0].command, process.execPath);
+  assert.match(events[0].args[0], /@napi-rs[/\\]cli[/\\]dist[/\\]cli\.js$/);
+  assert.deepEqual(events[0].args.slice(1), [
+    "build",
+    "--platform",
+    "--release",
+    "--js",
+    "native.cjs",
+    "--dts",
+    "native.d.cts",
+    "--target",
+    "x86_64-unknown-linux-gnu",
+    "--use-napi-cross",
+    "--",
+    "--locked",
+  ]);
+  assert.equal(events[0].options.stdio, "inherit");
+  assert.equal(events[1], "facade");
+  assert.deepEqual(
+    parseBuildArguments(["--target", "x86_64-pc-windows-msvc", "--use-napi-cross=false"]),
+    { release: false, target: "x86_64-pc-windows-msvc", useNapiCross: false },
+  );
+});
+
+test("native package exposes one complete build boundary and portable facade test selection", async () => {
+  const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
+  assert.deepEqual(Object.keys(manifest.scripts), [
+    "build",
+    "build:debug",
+    "build:facade",
+    "check:rust",
+    "test:types",
+    "test:package-api",
+    "test:rust",
+    "test:prepare-bundle",
+    "typecheck",
+    "test",
+    "verify:release-artifacts",
+  ]);
+  assert.equal(manifest.scripts.build, "node scripts/build.mjs --release");
+  assert.equal(manifest.scripts["build:debug"], "node scripts/build.mjs");
+  assert.doesNotMatch(manifest.scripts.test, /\*/);
+  assert.match(manifest.scripts.test, /--no-file-parallelism/);
+  for (const filename of [
+    "directory.test.ts",
+    "lifecycle.test.ts",
+    "prepared-to-native.test.ts",
+    "root-contract.test.ts",
+    "search-options.test.ts",
+  ]) {
+    assert.match(manifest.scripts.test, new RegExp(`tests/${filename.replaceAll(".", "\\.")}`));
+  }
+});
+
 test("native workflows preserve build, package API, GLIBC, and upload gates", async () => {
   for (const { path, job } of Object.values(workflows)) {
-    const source = await readFile(path, "utf8");
     const parsed = await parseWorkflow(path);
     const steps = parsed.jobs[job].steps;
     const commands = steps.map(({ run }) => run ?? "").join("\n");
-    assert.match(commands, /--platform --release --js native\.cjs --dts native\.d\.cts/);
-    assert.match(commands, /-- --locked/);
-    assert.match(commands, /--use-napi-cross/);
-    assert.ok(source.includes('${build_args[@]+"${build_args[@]}"}'));
+    const build = steps.find(({ name }) => name === "Build native package");
+    assert.equal(
+      build.run,
+      'pnpm --dir packages/okf-search-native run build --target "${{ matrix.target }}" --use-napi-cross=${{ matrix.napi-cross }}',
+    );
+    assert.equal(build.shell, undefined);
+    assert.doesNotMatch(commands, /napi build|run build:facade/);
 
     const glibc = steps.find(({ name }) => name === "Verify Linux glibc floor");
     assert.equal(glibc.if, "matrix.target == 'x86_64-unknown-linux-gnu'");

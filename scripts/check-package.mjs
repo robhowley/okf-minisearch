@@ -75,14 +75,6 @@ const nativeRootTypeExports = [
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const PRIVATE_PACKAGE_NAME = "@okf-internal/prepare";
 const FORBIDDEN_PACKED_MARKERS = [PRIVATE_PACKAGE_NAME, "workspace:"];
-const requestedChecks = process.argv.slice(2);
-assert.ok(
-  requestedChecks.length === 0 ||
-    (requestedChecks.length === 1 && requestedChecks[0] === "native"),
-  "usage: node scripts/check-package.mjs [native]",
-);
-const nativeOnly = requestedChecks[0] === "native";
-
 function currentNativeArtifact() {
   const suffix = nativeArtifactSuffixes[process.platform]?.[process.arch];
   assert.ok(
@@ -2062,14 +2054,6 @@ async function main() {
   try {
     const tarballRoot = join(temporaryRoot, "tarballs");
     await mkdir(tarballRoot);
-
-    if (nativeOnly) {
-      await checkNativePackage(temporaryRoot, tarballRoot);
-      console.log(
-        `\nPacked native package passed exact manifest/files, scripts-disabled install, root/prepared ESM/CJS/NodeNext, and external runtime journey checks: ${relative(root, packageRoots.native)}`,
-      );
-      return;
-    }
 
     const libraryPackage = await packPackage(
       "library",

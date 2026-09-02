@@ -9,11 +9,11 @@ import { basename, isAbsolute, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { verifyPublicationPlan } from "./release-publication.mjs"
+import { NPM_REGISTRY } from "./npm-registry-state.mjs"
 
 const JS_PACKAGES = new Set(["okf-minisearch", "pi-okf-search"])
 const NATIVE_PACKAGE = "okf-search-native"
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
-const REGISTRY = "https://registry.npmjs.org"
 
 function fail(message) {
   throw new Error(message)
@@ -190,7 +190,7 @@ async function installConsumer(entry, entries, directory, onCommand, runCommand)
       dependencies,
     }, null, 2)}\n`)
     const npm = process.platform === "win32" ? "npm.cmd" : "npm"
-    run(npm, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock", "--registry", REGISTRY], root, process.env, false, onCommand, runCommand)
+    run(npm, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock", "--registry", NPM_REGISTRY], root, process.env, false, onCommand, runCommand)
     await validateInstalledPackage(root, entry, join(directory, entry.tarball), onCommand, runCommand)
     if (entry.name === "pi-okf-search" && selectedMini) {
       await assertInstalledBytes(join(directory, selectedMini.tarball), join(root, "node_modules", selectedMini.name), onCommand, runCommand)
@@ -218,7 +218,7 @@ export async function verifyRegistryConsumer(name, version, selectedMini, { onCo
     if (name === "pi-okf-search" && selectedMini) dependencies["okf-minisearch"] = selectedMini.version
     await writeFile(join(root, "package.json"), `${JSON.stringify({ name: "okf-js-release-consumer", version: "1.0.0", private: true, type: "module", dependencies }, null, 2)}\n`)
     const npm = process.platform === "win32" ? "npm.cmd" : "npm"
-    run(npm, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock", "--registry", REGISTRY, "--save-exact"], root, process.env, false, onCommand, runCommand)
+    run(npm, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock", "--registry", NPM_REGISTRY, "--save-exact"], root, process.env, false, onCommand, runCommand)
     await validateInstalledPackage(root, { name, version }, "", onCommand, runCommand)
     if (name === "pi-okf-search" && selectedMini) {
       const manifest = JSON.parse(await readFile(join(root, "node_modules", "okf-minisearch", "package.json"), "utf8"))

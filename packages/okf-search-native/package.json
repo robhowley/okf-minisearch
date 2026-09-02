@@ -38,18 +38,16 @@
     "okf-search-native.*.node"
   ],
   "scripts": {
-    "build": "pnpm run build:native && pnpm run build:facade",
-    "build:native": "napi build --platform --release --js native.cjs --dts native.d.cts -- --locked",
-    "build:debug": "napi build --platform --js native.cjs --dts native.d.cts -- --locked && pnpm run build:facade",
+    "build": "node scripts/build.mjs --release",
+    "build:debug": "node scripts/build.mjs",
     "build:facade": "node scripts/build-facade.mjs",
     "check:rust": "cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings",
     "test:types": "tsc -p tsconfig.smoke.json",
     "test:package-api": "node --test tests/package-api.test.mjs",
-    "test:facade": "vitest run tests/*.test.ts --no-file-parallelism",
     "test:rust": "cargo test --locked",
     "test:prepare-bundle": "node ../../scripts/check-private-bundling.mjs native",
     "typecheck": "pnpm run test:types",
-    "test": "pnpm run test:prepare-bundle && pnpm run test:types && pnpm run test:package-api && pnpm run test:facade && pnpm run test:rust",
+    "test": "pnpm run test:prepare-bundle && pnpm run test:types && pnpm run test:package-api && vitest run tests/directory.test.ts tests/lifecycle.test.ts tests/prepared-to-native.test.ts tests/root-contract.test.ts tests/search-options.test.ts --no-file-parallelism && pnpm run test:rust",
     "verify:release-artifacts": "node scripts/verify-release-artifacts.mjs"
   },
   "devDependencies": {

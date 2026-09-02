@@ -100,23 +100,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --cpu=${{ matrix.node-arch }}
 
-      - name: Build native artifact
+      - name: Build native package
         env:
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos-deployment-target }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          build_args=()
-          if [[ "${{ matrix.napi-cross }}" == "true" ]]; then
-            build_args+=(--use-napi-cross)
-          fi
-          pnpm --dir packages/okf-search-native exec napi build \
-            --platform --release --js native.cjs --dts native.d.cts \
-            --target "${{ matrix.target }}" \
-            "${build_args[@]+"${build_args[@]}"}" -- --locked
-
-      - name: Build source package facade
-        run: pnpm --dir packages/okf-search-native run build:facade
+        run: pnpm --dir packages/okf-search-native run build --target "${{ matrix.target }}" --use-napi-cross=${{ matrix.napi-cross }}
 
       - name: Verify Linux glibc floor
         if: matrix.target == 'x86_64-unknown-linux-gnu'

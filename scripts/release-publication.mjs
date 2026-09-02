@@ -8,8 +8,16 @@ import { tmpdir } from "node:os"
 import { basename, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { expectedArtifactNames } from "../packages/okf-search-native/scripts/verify-release-artifacts.mjs"
 import { NPM_REGISTRY, packagePublicationPolicy } from "./npm-registry-state.mjs"
 import { PUBLIC_PACKAGES } from "./release-candidates.mjs"
+
+const TARGETS = [
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+  "x86_64-unknown-linux-gnu",
+]
 
 export const COMPRESSED_LIMIT = 12_000_000
 export const UNPACKED_LIMIT = 32_000_000
@@ -17,12 +25,7 @@ export const NPM_OWNER = "robhowley"
 export const SOURCE_REPOSITORY = "https://github.com/robhowley/okf-minisearch"
 export const PUBLICATION_WORKFLOW = ".github/workflows/release-please.yml"
 export const PROVENANCE_PREDICATE = "https://slsa.dev/provenance/v1"
-export const NATIVE_ARTIFACTS = Object.freeze([
-  "okf-search-native.darwin-arm64.node",
-  "okf-search-native.darwin-x64.node",
-  "okf-search-native.linux-x64-gnu.node",
-  "okf-search-native.win32-x64-msvc.node",
-])
+export const NATIVE_ARTIFACTS = Object.freeze(expectedArtifactNames({ napi: { targets: TARGETS } }))
 export const NATIVE_PACKAGE_FILES = Object.freeze([
   "LICENSE",
   "README.md",
@@ -42,12 +45,6 @@ const SHA256 = /^[0-9a-f]{64}$/
 const SRI = /^sha512-[A-Za-z0-9+/]{86}==$/
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 const PACKAGE_BY_PATH = new Map(PUBLIC_PACKAGES.map((entry) => [entry.path, entry.name]))
-const TARGETS = [
-  "x86_64-apple-darwin",
-  "aarch64-apple-darwin",
-  "x86_64-pc-windows-msvc",
-  "x86_64-unknown-linux-gnu",
-]
 const STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 const WORKFLOW_BUILD_TYPE = "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1"
 const BUNDLE_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json"
@@ -523,31 +520,28 @@ export async function runPublicationTransaction({
 }
 
 async function main() {
-  const [mode, directoryArgument, selectionArgument, commitOrPlanArgument, maybePlanArgument, ...extra] = process.argv.slice(2)
-  if (extra.length || !["create", "verify", "transact"].includes(mode)) {
-    fail("usage: release-publication.mjs create <directory> <selection.json> <release-commit> <plan.json> | verify <directory> <plan.json> <selection.json> <expected-commit> | transact <directory> <plan.json> <selection.json>")
-  }
-  const directory = resolve(directoryArgument ?? "")
+  const [mode, directoryArgument, firstArgument, secondArgument, thirdArgument, ...extra] = process.argv.slice(2)
+  const usage = "usage: release-publication.mjs create <directory> <selection.json> <release-commit> <plan.json> | transact <directory> <plan.json> <selection.json>"
   if (mode === "create") {
-    const selection = JSON.parse(await readFile(resolve(selectionArgument), "utf8"))
-    const output = resolve(maybePlanArgument)
+    if (!directoryArgument || !firstArgument || !secondArgument || !thirdArgument || extra.length) fail(usage)
+    const directory = resolve(directoryArgument)
+    const selection = JSON.parse(await readFile(resolve(firstArgument), "utf8"))
+    const output = resolve(thirdArgument)
     assert.equal(output, join(directory, "plan.json"), "publication plan must be plan.json in the artifact directory")
-    const plan = await createPublicationPlan({ directory, selection, releaseCommit: commitOrPlanArgument })
+    const plan = await createPublicationPlan({ directory, selection, releaseCommit: secondArgument })
     console.log(`created one immutable publication plan for ${plan.packages.length} package(s)`)
     return
   }
-  if (mode === "verify") {
-    const plan = JSON.parse(await readFile(resolve(selectionArgument), "utf8"))
-    const selection = JSON.parse(await readFile(resolve(commitOrPlanArgument), "utf8"))
-    await verifyPublicationPlan({ directory, plan, expectedSelection: selection, expectedCommit: maybePlanArgument })
-    console.log(`verified ${plan.packages.length} immutable publication artifact(s)`)
+  if (mode === "transact") {
+    if (!directoryArgument || !firstArgument || !secondArgument || thirdArgument !== undefined || extra.length) fail(usage)
+    const directory = resolve(directoryArgument)
+    const plan = JSON.parse(await readFile(resolve(firstArgument), "utf8"))
+    const selection = JSON.parse(await readFile(resolve(secondArgument), "utf8"))
+    await runPublicationTransaction({ directory, plan, expectedSelection: selection })
+    console.log(`published/proved ${plan.packages.length} immutable publication artifact(s)`)
     return
   }
-  if (maybePlanArgument !== undefined) fail("transact accepts exactly three arguments")
-  const plan = JSON.parse(await readFile(resolve(selectionArgument), "utf8"))
-  const selection = JSON.parse(await readFile(resolve(commitOrPlanArgument), "utf8"))
-  await runPublicationTransaction({ directory, plan, expectedSelection: selection })
-  console.log(`published/proved ${plan.packages.length} immutable publication artifact(s)`)
+  fail(usage)
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -19,7 +19,11 @@ import { build } from "esbuild";
 import { rollup } from "rollup";
 import { dts } from "rollup-plugin-dts";
 
-import { buildNativeFacade } from "../packages/okf-search-native/scripts/build-facade.mjs";
+import {
+  buildNativeFacade,
+  privateDeclarationSourcePlugin,
+  privateSourcePlugin,
+} from "../packages/okf-search-native/scripts/build-facade.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const privateSpecifier = "@okf-internal/prepare";
@@ -77,25 +81,7 @@ function assertNoPrivateReference(contents, label) {
   assert.equal(contents.includes("workspace:"), false, `${label}: workspace protocol leaked`);
 }
 
-const privateEntries = new Map([
-  [privateSpecifier, privateSource],
-  [`${privateSpecifier}/node`, privateNodeSource],
-]);
 const builtinModuleNames = new Set(builtinModules);
-function privateSourcePlugin() {
-  return {
-    name: "resolve-private-prepare-source",
-    setup(build) {
-      build.onResolve(
-        { filter: new RegExp("^@okf-internal/prepare(?:/node)?$") },
-        (args) => {
-          const path = privateEntries.get(args.path);
-          return path ? { path } : undefined;
-        },
-      );
-    },
-  };
-}
 
 function assertExternalRuntimeModules(metafile, expected, label) {
   const external = new Set();
@@ -306,15 +292,6 @@ async function buildDeclarations(temporaryRoot) {
   } finally {
     await rm(consumerRoot, { recursive: true, force: true });
   }
-}
-
-function privateDeclarationSourcePlugin() {
-  return {
-    name: "resolve-private-prepare-declarations",
-    resolveId(id) {
-      return privateEntries.get(id) ?? null;
-    },
-  };
 }
 
 function assertNativeDeclaration(declaration, label) {

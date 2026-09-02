@@ -132,22 +132,10 @@ jobs:
           targets: ${{ matrix.target }}
       - name: Install dependencies for target CPU
         run: pnpm install --frozen-lockfile --cpu=${{ matrix.node-arch }}
-      - name: Build native artifact
+      - name: Build native package
         env:
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos-deployment-target }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          build_args=()
-          if [[ "${{ matrix.napi-cross }}" == "true" ]]; then
-            build_args+=(--use-napi-cross)
-          fi
-          pnpm --dir packages/okf-search-native exec napi build \
-            --platform --release --js native.cjs --dts native.d.cts \
-            --target "${{ matrix.target }}" \
-            "${build_args[@]+"${build_args[@]}"}" -- --locked
-      - name: Build source package facade
-        run: pnpm --dir packages/okf-search-native run build:facade
+        run: pnpm --dir packages/okf-search-native run build --target "${{ matrix.target }}" --use-napi-cross=${{ matrix.napi-cross }}
       - name: Verify Linux glibc floor
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: pnpm --dir packages/okf-search-native run verify:release-artifacts glibc "${{ matrix.artifact }}"
@@ -265,7 +253,6 @@ jobs:
           done < <(jq -c '.[]' <<<"$RELEASED_PACKAGES_JSON")
 
           node scripts/release-publication.mjs create "$destination" "$selection" "$RELEASE_COMMIT" "$destination/plan.json"
-          node scripts/release-publication.mjs verify "$destination" "$destination/plan.json" "$selection" "$RELEASE_COMMIT"
           node scripts/verify-release-consumer.mjs local-js "$destination" "$destination/plan.json" "$RELEASE_COMMIT"
       - name: Upload immutable plan and its exact tarballs
         uses: actions/upload-artifact@v4
@@ -325,16 +312,9 @@ jobs:
           path: ${{ runner.temp }}/publication-plan
       - name: Verify the whole plan and test the native tarball
         env:
-          RELEASED_PACKAGES_JSON: ${{ needs.release_metadata.outputs.released_packages }}
           RELEASE_COMMIT: ${{ needs.release_metadata.outputs.release_commit }}
         shell: bash
         run: |
-          set -euo pipefail
-          selection="$RUNNER_TEMP/selection.json"
-          jq -cn --arg commit "$RELEASE_COMMIT" --argjson packages "$RELEASED_PACKAGES_JSON" \
-            '{commit: $commit, packages: $packages}' >"$selection"
-          node scripts/release-publication.mjs verify \
-            "$RUNNER_TEMP/publication-plan" "$RUNNER_TEMP/publication-plan/plan.json" "$selection" "$RELEASE_COMMIT"
           node scripts/verify-release-consumer.mjs local-native \
             "$RUNNER_TEMP/publication-plan" "$RUNNER_TEMP/publication-plan/plan.json" "$RELEASE_COMMIT" \
             --typescript "$GITHUB_WORKSPACE/node_modules/typescript/bin/tsc"
