@@ -19,6 +19,11 @@ function parseSemver(version) {
   }
 }
 
+function compareNumericIdentifiers(left, right) {
+  if (left.length !== right.length) return left.length < right.length ? -1 : 1
+  return left === right ? 0 : left < right ? -1 : 1
+}
+
 export function compareSemver(left, right) {
   const a = parseSemver(left)
   const b = parseSemver(right)
@@ -35,7 +40,7 @@ export function compareSemver(left, right) {
     if (leftPart === rightPart) continue
     const leftNumber = /^\d+$/.test(leftPart)
     const rightNumber = /^\d+$/.test(rightPart)
-    if (leftNumber && rightNumber) return Math.sign(Number(leftPart) - Number(rightPart))
+    if (leftNumber && rightNumber) return compareNumericIdentifiers(leftPart, rightPart)
     if (leftNumber !== rightNumber) return leftNumber ? -1 : 1
     return leftPart < rightPart ? -1 : 1
   }

@@ -8,7 +8,7 @@
     "package:check": "pnpm install --frozen-lockfile && pnpm build && pnpm --filter okf-search-native check:rust && pnpm -r typecheck && pnpm -r test && pnpm test:demo && pnpm test:release-workflow && node scripts/check-package.mjs",
     "test": "pnpm build && pnpm -r test && pnpm test:demo",
     "test:demo": "vitest run test/demo.test.ts",
-    "test:release-workflow": "node --test scripts/release-publication.test.mjs",
+    "test:release-workflow": "node --test scripts/release-publication.test.mjs packages/okf-search-native/tests/ci-contract.test.mjs packages/okf-search-native/tests/verify-release-artifacts.test.mjs",
     "typecheck": "pnpm build && pnpm -r typecheck"
   },
   "devDependencies": {

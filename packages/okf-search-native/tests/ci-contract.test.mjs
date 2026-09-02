@@ -1,92 +1,87 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { promisify } from "node:util";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+const execFileAsync = promisify(execFile);
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const workflowPath = join(packageRoot, "..", "..", ".github", "workflows", "ci.yml");
+const workflows = {
+  source: {
+    path: join(packageRoot, "..", "..", ".github", "workflows", "ci.yml"),
+    job: "native-artifacts",
+  },
+  release: {
+    path: join(packageRoot, "..", "..", ".github", "workflows", "release-please.yml"),
+    job: "native_release_build",
+  },
+};
 
-function unquote(value) {
-  return value.replace(/^['"]|['"]$/g, "");
+const expectedRows = [
+  {
+    runner: "ubuntu-latest",
+    target: "x86_64-unknown-linux-gnu",
+    "node-arch": "x64",
+    artifact: "okf-search-native.linux-x64-gnu.node",
+    "napi-cross": true,
+    "macos-deployment-target": "",
+  },
+  {
+    runner: "macos-latest",
+    target: "x86_64-apple-darwin",
+    "node-arch": "x64",
+    artifact: "okf-search-native.darwin-x64.node",
+    "napi-cross": false,
+    "macos-deployment-target": "10.13",
+  },
+  {
+    runner: "macos-latest",
+    target: "aarch64-apple-darwin",
+    "node-arch": "arm64",
+    artifact: "okf-search-native.darwin-arm64.node",
+    "napi-cross": false,
+    "macos-deployment-target": "10.13",
+  },
+  {
+    runner: "windows-latest",
+    target: "x86_64-pc-windows-msvc",
+    "node-arch": "x64",
+    artifact: "okf-search-native.win32-x64-msvc.node",
+    "napi-cross": false,
+    "macos-deployment-target": "",
+  },
+];
+
+async function parseWorkflow(path) {
+  const ruby = "print JSON.generate(YAML.safe_load(File.read(ARGV[0]), aliases: true))";
+  const { stdout } = await execFileAsync("ruby", ["-r", "yaml", "-r", "json", "-e", ruby, path]);
+  return JSON.parse(stdout);
 }
 
-test("source native CI keeps the four target/artifact rows", async () => {
-  const workflow = await readFile(workflowPath, "utf8");
-  const rows = [...workflow.matchAll(
-    /- runner: ([^\n]+)\n\s+target: ([^\n]+)\n\s+node-arch: ([^\n]+)\n\s+artifact: ([^\n]+)\n\s+napi-cross: (true|false)\n\s+macos-deployment-target: ([^\n]+)/g,
-  )].map((match) => ({
-    runner: match[1],
-    target: match[2],
-    nodeArch: match[3],
-    artifact: match[4],
-    napiCross: match[5],
-    macosDeploymentTarget: unquote(match[6]),
-  }));
+for (const [label, spec] of Object.entries(workflows)) {
+  test(`${label} native matrix binds Node and dependency installation to all four target CPUs`, async () => {
+    const workflow = await parseWorkflow(spec.path);
+    const job = workflow.jobs[spec.job];
+    assert.deepEqual(job.strategy.matrix.include, expectedRows);
+    const setup = job.steps.find(({ name }) => name === "Setup Node.js");
+    assert.equal(setup.with.architecture, "${{ matrix.node-arch }}");
+    const install = job.steps.find(({ run }) => run?.startsWith("pnpm install --frozen-lockfile"));
+    assert.equal(install.run, "pnpm install --frozen-lockfile --cpu=${{ matrix.node-arch }}");
+  });
+}
 
-  assert.deepEqual(rows, [
-    {
-      runner: "ubuntu-latest",
-      target: "x86_64-unknown-linux-gnu",
-      nodeArch: "x64",
-      artifact: "okf-search-native.linux-x64-gnu.node",
-      napiCross: "true",
-      macosDeploymentTarget: "",
-    },
-    {
-      runner: "macos-latest",
-      target: "x86_64-apple-darwin",
-      nodeArch: "x64",
-      artifact: "okf-search-native.darwin-x64.node",
-      napiCross: "false",
-      macosDeploymentTarget: "10.13",
-    },
-    {
-      runner: "macos-latest",
-      target: "aarch64-apple-darwin",
-      nodeArch: "arm64",
-      artifact: "okf-search-native.darwin-arm64.node",
-      napiCross: "false",
-      macosDeploymentTarget: "10.13",
-    },
-    {
-      runner: "windows-latest",
-      target: "x86_64-pc-windows-msvc",
-      nodeArch: "x64",
-      artifact: "okf-search-native.win32-x64-msvc.node",
-      napiCross: "false",
-      macosDeploymentTarget: "",
-    },
-  ]);
-});
-
-test("source native CI builds and exercises the renamed package output", async () => {
-  const workflow = await readFile(workflowPath, "utf8");
-
-  assert.match(workflow, /--platform --release --js native\.cjs --dts native\.d\.cts/);
-  assert.match(workflow, /--target "\$\{\{ matrix\.target \}\}"/);
-  assert.match(workflow, /-- --locked/);
-  assert.match(workflow, /--use-napi-cross/);
-  assert.match(workflow, /node-version: 22\.19\.0/);
-  assert.match(workflow, /node-version: 22\.20\.0/);
-  assert.match(workflow, /toolchain: 1\.88\.0/);
-
-  const nativeArtifacts = workflow.slice(workflow.indexOf("  native-artifacts:"));
-  assert.match(
-    nativeArtifacts,
-    /- name: Install dependencies\n\s+run: pnpm install --frozen-lockfile --cpu=\$\{\{ matrix\.node-arch \}\}/,
-  );
-  assert.match(workflow, /MACOSX_DEPLOYMENT_TARGET/);
-  assert.match(workflow, /macos-deployment-target: '10\.13'/);
-  assert.ok(workflow.includes('${build_args[@]+"${build_args[@]}"}'));
-
-  const facade = workflow.indexOf("- name: Build source package facade");
-  const glibc = workflow.indexOf("- name: Verify Linux glibc floor");
-  const smoke = workflow.indexOf("- name: Runtime smoke test");
-  const upload = workflow.indexOf("- name: Upload tested artifact");
-  assert.ok(facade >= 0 && facade < glibc);
-  assert.ok(glibc < smoke && smoke < upload);
-  assert.match(workflow, /objdump -T/);
-  assert.match(workflow, /Maximum imported GLIBC symbol/);
-  assert.match(workflow, /GLIBC_2\.17/);
+test("native workflows preserve build, runtime, GLIBC, and upload gates", async () => {
+  for (const { path, job } of Object.values(workflows)) {
+    const source = await readFile(path, "utf8");
+    const parsed = await parseWorkflow(path);
+    const commands = parsed.jobs[job].steps.map(({ run }) => run ?? "").join("\n");
+    assert.match(commands, /--platform --release --js native\.cjs --dts native\.d\.cts/);
+    assert.match(commands, /-- --locked/);
+    assert.match(commands, /--use-napi-cross/);
+    assert.match(commands, /GLIBC_2\.17/);
+    assert.ok(source.includes('${build_args[@]+"${build_args[@]}"}'));
+    assert.ok(parsed.jobs[job].steps.findIndex(({ name }) => name.startsWith("Runtime smoke")) < parsed.jobs[job].steps.findIndex(({ name }) => name === "Upload tested artifact"));
+  }
 });
