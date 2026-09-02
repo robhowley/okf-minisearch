@@ -80,6 +80,11 @@ function assertManifest(manifest) {
     "okf-search-native.*.node",
   ])
   assert.equal(manifest.engines?.node, ">=22.19.0")
+  assert.deepEqual(manifest.repository, {
+    type: "git",
+    url: "git+https://github.com/robhowley/okf-minisearch.git",
+    directory: "packages/okf-search-native",
+  }, "candidate repository metadata")
   assert.equal(manifest.napi?.binaryName, "okf-search-native")
   assert.deepEqual(manifest.napi?.targets, TARGETS)
   assert.equal(Object.keys(manifest.dependencies ?? {}).length, 0, "candidate must have no runtime dependencies")

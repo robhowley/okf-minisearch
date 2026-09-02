@@ -60,6 +60,12 @@ function sha512Hex(integrity) {
   return Buffer.from(integrity.slice("sha512-".length), "base64").toString("hex")
 }
 
+function sourceCommit(candidate) {
+  const commit = candidate?.sourceCommit ?? candidate?.releaseCommit
+  assert.match(commit ?? "", /^[0-9a-f]{40}$/, "candidate source commit")
+  return commit
+}
+
 export function verifyProvenance(attestations, candidate, { repository, workflow }) {
   assert.ok(attestations && typeof attestations === "object" && !Array.isArray(attestations), "attestation response is malformed")
   assert.ok(Array.isArray(attestations.attestations), "attestation response has no attestations array")
@@ -99,7 +105,7 @@ export function verifyProvenance(attestations, candidate, { repository, workflow
   assert.ok(Array.isArray(dependencies), "provenance resolvedDependencies is missing")
   assert.equal(dependencies.some((dependency) =>
     dependency?.uri === `git+${repository}@refs/heads/main` &&
-    dependency?.digest?.gitCommit === candidate.releaseCommit), true,
+    dependency?.digest?.gitCommit === sourceCommit(candidate)), true,
   "provenance release commit does not match")
 }
 
@@ -110,14 +116,14 @@ export async function verifyNpmPublication(candidate, {
   distTag = "latest",
   fetchImpl = fetch,
 } = {}) {
-  assert.equal(candidate?.name, "okf-search-native")
+  assert.match(candidate?.name ?? "", /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/, "candidate package name")
   assert.match(candidate?.version ?? "", /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)
-  assert.match(candidate?.releaseCommit ?? "", /^[0-9a-f]{40}$/)
+  sourceCommit(candidate)
   assert.match(candidate?.sha256 ?? "", /^[0-9a-f]{64}$/)
   assert.equal(typeof owner, "string", "expected npm owner is required")
   assert.match(repository ?? "", /^https:\/\/github\.com\/[^/]+\/[^/]+$/)
   assert.match(workflow ?? "", /^\.github\/workflows\/[^/]+\.ya?ml$/)
-  assert.match(distTag, /^[a-z0-9][a-z0-9._-]*$/)
+  assert.ok(distTag === null || /^[a-z0-9][a-z0-9._-]*$/.test(distTag), "expected dist-tag policy")
 
   const encodedName = encodeURIComponent(candidate.name)
   const packument = await json(
@@ -125,7 +131,9 @@ export async function verifyNpmPublication(candidate, {
     `${candidate.name} packument`,
   )
   assert.equal(packument.name, candidate.name, "registry package name does not match")
-  assert.equal(packument["dist-tags"]?.[distTag], candidate.version, `${distTag} dist-tag does not match`)
+  if (distTag !== null) {
+    assert.equal(packument["dist-tags"]?.[distTag], candidate.version, `${distTag} dist-tag does not match`)
+  }
   assert.equal(Array.isArray(packument.maintainers) && packument.maintainers.some((maintainer) => maintainer?.name === owner), true, "npm owner does not match")
 
   const version = packument.versions?.[candidate.version]
@@ -173,11 +181,12 @@ async function verifyRegistrySignatures(name, version) {
 }
 
 async function main() {
-  const [metadataPath, owner, repository, workflow, distTag = "latest", ...extra] = process.argv.slice(2)
+  const [metadataPath, owner, repository, workflow, distTagArgument = "latest", ...extra] = process.argv.slice(2)
   if (extra.length || !metadataPath || !owner || !repository || !workflow) {
-    fail("usage: verify-npm-publication.mjs <candidate.json> <owner> <repository-url> <workflow-path> [dist-tag]")
+    fail("usage: verify-npm-publication.mjs <artifact-metadata.json> <owner> <repository-url> <workflow-path> [dist-tag|-]")
   }
   const candidate = JSON.parse(await readFile(resolve(metadataPath), "utf8"))
+  const distTag = distTagArgument === "-" ? null : distTagArgument
   const result = await verifyNpmPublication(candidate, { owner, repository, workflow, distTag })
   await verifyRegistrySignatures(result.name, result.version)
   console.log(`verified npm bytes, signed provenance, and identity for ${result.name}@${result.version} (${result.sha256})`)

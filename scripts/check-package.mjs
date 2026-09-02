@@ -1557,6 +1557,11 @@ async function inspectNativeManifest(nativeTarball, extractionRoot) {
     "okf-search-native.*.node",
   ]);
   assert.equal(manifest.engines?.node, ">=22.19.0");
+  assert.deepEqual(manifest.repository, {
+    type: "git",
+    url: "git+https://github.com/robhowley/okf-minisearch.git",
+    directory: "packages/okf-search-native",
+  });
   assert.equal(Object.hasOwn(manifest, "type"), false);
   assert.equal(Object.hasOwn(manifest, "browser"), false);
   assert.equal(Object.hasOwn(manifest, "optionalDependencies"), false);
