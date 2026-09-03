@@ -1,6 +1,6 @@
 {
   "name": "okf-search-native",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Node-native OKF search with raw Markdown and prepared-document APIs.",
   "keywords": [
     "open-knowledge-format",
