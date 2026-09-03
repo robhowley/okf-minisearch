@@ -1,3 +1,9 @@
+import {
+  isOkfConformance,
+  isOkfStatus,
+  isOkfTrustTier,
+} from "@okf-internal/prepare";
+
 import type {
   SearchBoost as NativeSearchBoost,
   SearchOptions as NativeSearchOptions,
@@ -37,23 +43,6 @@ type SearchOptionsInput = {
   readonly boost?: unknown;
   readonly fuzzy?: unknown;
 };
-
-const OKF_STATUSES = [
-  "draft",
-  "stable",
-  "deprecated",
-] as const;
-
-const OKF_TRUST_TIERS = [
-  "unverified",
-  "machine-confirmed",
-  "human-reviewed",
-] as const;
-
-const OKF_CONFORMANCE = [
-  "strict",
-  "degraded",
-] as const;
 
 /**
  * Validate the friendly root options and create a detached native DTO.
@@ -289,10 +278,7 @@ function validateWhere(
     where.statuses = validateFilterArray(
       object.statuses,
       "statuses",
-      (entry): entry is (typeof OKF_STATUSES)[number] =>
-        OKF_STATUSES.includes(
-          entry as (typeof OKF_STATUSES)[number],
-        ),
+      isOkfStatus,
       "options.where.statuses must contain only valid OkfStatus values",
     );
   }
@@ -301,10 +287,7 @@ function validateWhere(
     where.trustTiers = validateFilterArray(
       object.trustTiers,
       "trustTiers",
-      (entry): entry is (typeof OKF_TRUST_TIERS)[number] =>
-        OKF_TRUST_TIERS.includes(
-          entry as (typeof OKF_TRUST_TIERS)[number],
-        ),
+      isOkfTrustTier,
       "options.where.trustTiers must contain only valid OkfTrustTier values",
     );
   }
@@ -325,10 +308,7 @@ function validateWhere(
     where.conformance = validateFilterArray(
       object.conformance,
       "conformance",
-      (entry): entry is (typeof OKF_CONFORMANCE)[number] =>
-        OKF_CONFORMANCE.includes(
-          entry as (typeof OKF_CONFORMANCE)[number],
-        ),
+      isOkfConformance,
       "options.where.conformance must contain only valid OkfConformance values",
     );
   }

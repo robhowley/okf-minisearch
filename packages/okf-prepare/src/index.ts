@@ -9,6 +9,11 @@ export {
   prepareOkfDocuments,
   validateOkfDocument,
 } from "./prepare.js";
+export {
+  isOkfConformance,
+  isOkfStatus,
+  isOkfTrustTier,
+} from "./vocabulary.js";
 
 export type {
   DegradedPreparedOkfFacets,
@@ -16,6 +21,7 @@ export type {
   NonEmptyDiagnostics,
   NonEmptyPreparedOkfSections,
   OkfAttester,
+  OkfConformance,
   OkfDiagnostic,
   OkfDiagnosticCode,
   OkfDocument,
