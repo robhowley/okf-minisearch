@@ -4,26 +4,16 @@ import type {
 
 import type {
   PreparedDocument as NativePreparedDocument,
-  PreparedSection as NativePreparedSection,
 } from "../native.cjs";
 
-type NativeSectionFacets = Pick<
-  NativePreparedSection,
+type NativeDocumentFacets = Pick<
+  NativePreparedDocument,
   "status" | "staleAfterEpoch" | "stalenessClassified" | "trustTier"
 >;
 
-type NativeSectionEnvelope = Omit<
-  NativePreparedSection,
-  | "sectionId"
-  | "headingPath"
-  | "text"
-  | "startLine"
-  | "endLine"
-  | keyof NativeSectionFacets
-> & NativeSectionFacets;
-
 /**
- * Map one accepted preparation result to the flat DTO consumed by napi.
+ * Map one accepted preparation result to the hierarchical DTO consumed by
+ * napi.
  *
  * Fatal preparation is represented by a thrown PrepareError, not by a value;
  * consequently this boundary accepts only strict or degraded results. The
@@ -35,31 +25,20 @@ export function mapPreparedDocument(
   assertAccepted(prepared);
 
   const { identity, metadata, facets, sections, diagnostics, type, conformance } = prepared;
-  const documentId = identity.documentId;
-  const path = identity.path;
-  const sectionEnvelope: NativeSectionEnvelope = {
-    documentId,
-    conformance,
-    title: metadata.title,
-    path,
+  return {
+    documentId: identity.documentId,
+    path: identity.path,
     type,
+    conformance,
+    diagnostics: diagnostics.map((diagnostic) => ({ ...diagnostic })),
+    title: metadata.title,
     tags: [...metadata.tags],
     ...mapFacets(facets),
     resource: metadata.resource ?? "",
     description: metadata.description ?? "",
     sourceText: metadata.sourceText,
-  };
-
-  return {
-    documentId,
-    path,
-    type,
-    conformance,
-    diagnostics: diagnostics.map((diagnostic) => ({ ...diagnostic })),
     sections: sections.map((section) => ({
       sectionId: section.id,
-      ...sectionEnvelope,
-      tags: [...sectionEnvelope.tags],
       headingPath: section.headingPath,
       text: section.text,
       startLine: section.startLine,
@@ -77,8 +56,8 @@ export function mapPreparedDocuments(
 
 function mapFacets(
   facets: PreparedOkfDocument["facets"],
-): NativeSectionFacets {
-  const result: NativeSectionFacets = {
+): NativeDocumentFacets {
+  const result: NativeDocumentFacets = {
     stalenessClassified: facets.staleness.classified,
   };
 

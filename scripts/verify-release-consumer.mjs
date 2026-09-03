@@ -292,11 +292,11 @@ assert.equal(index.search("release-cjs-needle").length, 1);
 `,
       "prepared.mjs": `import assert from "node:assert/strict";
 import { NativeOkfSearch } from "okf-search-native/prepared";
-const section = { sectionId: "prepared#root", documentId: "prepared", conformance: "strict", title: "Prepared", path: "prepared.md", type: "note", tags: ["release"], status: "stable", stalenessClassified: true, trustTier: "human-reviewed", resource: "prepared", headingPath: "Prepared", description: "release fixture", sourceText: "", text: "release-prepared-needle", startLine: 1, endLine: 3 };
-const document = { documentId: "prepared", path: "prepared.md", type: "note", conformance: "strict", diagnostics: [], sections: [section] };
+const section = { sectionId: "prepared#root", headingPath: "Prepared", text: "release-prepared-needle", startLine: 1, endLine: 3 };
+const document = { documentId: "prepared", path: "prepared.md", type: "note", conformance: "strict", diagnostics: [], title: "Prepared", tags: ["release"], status: "stable", stalenessClassified: true, trustTier: "human-reviewed", resource: "prepared", description: "release fixture", sourceText: "", sections: [section] };
 const index = NativeOkfSearch.fromPrepared([document]);
 assert.equal(index.search("release-prepared-needle")[0]?.documentId, "prepared");
-index.ingestPrepared({ ...document, type: "guide", sections: [{ ...section, type: "guide", text: "release-prepared-replacement" }] });
+index.ingestPrepared({ ...document, type: "guide", sections: [{ ...section, text: "release-prepared-replacement" }] });
 assert.deepEqual(index.listTypes(), ["guide"]);
 assert.equal(index.removeDocument("prepared"), true);
 assert.deepEqual(index.listTypes(), []);

@@ -43,27 +43,8 @@ pub struct Diagnostic {
 pub struct PreparedSection {
     #[napi(js_name = "sectionId")]
     pub section_id: String,
-    #[napi(js_name = "documentId")]
-    pub document_id: String,
-    pub conformance: String,
-    pub title: String,
-    pub path: String,
-    #[napi(js_name = "type")]
-    pub document_type: String,
-    pub tags: Vec<String>,
-    pub status: Option<String>,
-    #[napi(js_name = "staleAfterEpoch")]
-    pub stale_after_epoch: Option<f64>,
-    #[napi(js_name = "stalenessClassified")]
-    pub staleness_classified: bool,
-    #[napi(js_name = "trustTier")]
-    pub trust_tier: Option<String>,
-    pub resource: String,
     #[napi(js_name = "headingPath")]
     pub heading_path: String,
-    pub description: String,
-    #[napi(js_name = "sourceText")]
-    pub source_text: String,
     pub text: String,
     #[napi(js_name = "startLine")]
     pub start_line: u32,
@@ -81,6 +62,19 @@ pub struct PreparedDocument {
     pub document_type: String,
     pub conformance: String,
     pub diagnostics: Vec<Diagnostic>,
+    pub title: String,
+    pub tags: Vec<String>,
+    pub status: Option<String>,
+    #[napi(js_name = "staleAfterEpoch")]
+    pub stale_after_epoch: Option<f64>,
+    #[napi(js_name = "stalenessClassified")]
+    pub staleness_classified: bool,
+    #[napi(js_name = "trustTier")]
+    pub trust_tier: Option<String>,
+    pub resource: String,
+    pub description: String,
+    #[napi(js_name = "sourceText")]
+    pub source_text: String,
     pub sections: Vec<PreparedSection>,
 }
 
@@ -1209,6 +1203,46 @@ fn validate_document(document: &PreparedDocument) -> Result<(), EngineError> {
             document.document_id, diagnostic.code, diagnostic.path
         )));
     }
+    if let Some(value) = document.stale_after_epoch
+        && (!value.is_finite() || value < i64::MIN as f64 || value > i64::MAX as f64)
+    {
+        return Err(EngineError::Invalid(format!(
+            "document `{}` has an invalid staleAfterEpoch",
+            document.document_id
+        )));
+    }
+    if !document.staleness_classified && document.stale_after_epoch.is_some() {
+        return Err(EngineError::Invalid(format!(
+            "document `{}` has an unclassified staleAfterEpoch",
+            document.document_id
+        )));
+    }
+    if document.conformance == "strict"
+        && (document.status.is_none()
+            || document.trust_tier.is_none()
+            || !document.staleness_classified)
+    {
+        return Err(EngineError::Invalid(format!(
+            "strict document `{}` requires classified status, trustTier, and staleness",
+            document.document_id
+        )));
+    }
+    if let Some(status) = document.status.as_deref()
+        && !matches!(status, "draft" | "stable" | "deprecated")
+    {
+        return Err(EngineError::Invalid(format!(
+            "document `{}` has invalid status `{status}`",
+            document.document_id
+        )));
+    }
+    if let Some(tier) = document.trust_tier.as_deref()
+        && !matches!(tier, "unverified" | "machine-confirmed" | "human-reviewed")
+    {
+        return Err(EngineError::Invalid(format!(
+            "document `{}` has invalid trustTier `{tier}`",
+            document.document_id
+        )));
+    }
     if document.sections.is_empty() {
         return Err(EngineError::Invalid(format!(
             "document `{}` has no projected sections",
@@ -1230,79 +1264,10 @@ fn validate_document(document: &PreparedDocument) -> Result<(), EngineError> {
                 document.document_id, section.section_id
             )));
         }
-        if section.document_id != document.document_id
-            || section.path != document.path
-            || section.document_type != document.document_type
-            || section.conformance != document.conformance
-        {
-            return Err(EngineError::Invalid(format!(
-                "section `{}` disagrees with its document envelope",
-                section.section_id
-            )));
-        }
         if section.start_line == 0 || section.end_line < section.start_line {
             return Err(EngineError::Invalid(format!(
                 "section `{}` has invalid line bounds {}..{}",
                 section.section_id, section.start_line, section.end_line
-            )));
-        }
-        if let Some(value) = section.stale_after_epoch
-            && (!value.is_finite() || value < i64::MIN as f64 || value > i64::MAX as f64)
-        {
-            return Err(EngineError::Invalid(format!(
-                "section `{}` has an invalid staleAfterEpoch",
-                section.section_id
-            )));
-        }
-        if !section.staleness_classified && section.stale_after_epoch.is_some() {
-            return Err(EngineError::Invalid(format!(
-                "section `{}` has an unclassified staleAfterEpoch",
-                section.section_id
-            )));
-        }
-        if section.conformance == "strict"
-            && (section.status.is_none()
-                || section.trust_tier.is_none()
-                || !section.staleness_classified)
-        {
-            return Err(EngineError::Invalid(format!(
-                "strict section `{}` requires classified status, trustTier, and staleness",
-                section.section_id
-            )));
-        }
-        if let Some(status) = section.status.as_deref()
-            && !matches!(status, "draft" | "stable" | "deprecated")
-        {
-            return Err(EngineError::Invalid(format!(
-                "section `{}` has invalid status `{status}`",
-                section.section_id
-            )));
-        }
-        if let Some(tier) = section.trust_tier.as_deref()
-            && !matches!(tier, "unverified" | "machine-confirmed" | "human-reviewed")
-        {
-            return Err(EngineError::Invalid(format!(
-                "section `{}` has invalid trustTier `{tier}`",
-                section.section_id
-            )));
-        }
-    }
-
-    let first = &document.sections[0];
-    for section in &document.sections[1..] {
-        if section.title != first.title
-            || section.tags != first.tags
-            || section.status != first.status
-            || section.stale_after_epoch != first.stale_after_epoch
-            || section.staleness_classified != first.staleness_classified
-            || section.trust_tier != first.trust_tier
-            || section.resource != first.resource
-            || section.description != first.description
-            || section.source_text != first.source_text
-        {
-            return Err(EngineError::Invalid(format!(
-                "section `{}` disagrees with document-wide metadata",
-                section.section_id
             )));
         }
     }
@@ -1315,7 +1280,7 @@ fn add_document(
     document: &PreparedDocument,
 ) -> Result<(), EngineError> {
     for section in &document.sections {
-        add_section(writer, fields, section)?;
+        add_section(writer, fields, document, section)?;
     }
     Ok(())
 }
@@ -1323,39 +1288,40 @@ fn add_document(
 fn add_section(
     writer: &IndexWriter,
     fields: &Fields,
+    document: &PreparedDocument,
     section: &PreparedSection,
 ) -> Result<(), EngineError> {
     let mut doc = TantivyDocument::default();
     doc.add_text(fields.section_id, &section.section_id);
-    doc.add_text(fields.document_id, &section.document_id);
-    doc.add_text(fields.conformance, &section.conformance);
-    doc.add_text(fields.title, &section.title);
-    doc.add_text(fields.path, &section.path);
-    doc.add_text(fields.type_text, &section.document_type);
-    doc.add_text(fields.type_exact, &section.document_type);
-    for tag in &section.tags {
+    doc.add_text(fields.document_id, &document.document_id);
+    doc.add_text(fields.conformance, &document.conformance);
+    doc.add_text(fields.title, &document.title);
+    doc.add_text(fields.path, &document.path);
+    doc.add_text(fields.type_text, &document.document_type);
+    doc.add_text(fields.type_exact, &document.document_type);
+    for tag in &document.tags {
         doc.add_text(fields.tags_text, tag);
         doc.add_text(fields.tag_exact, tag);
     }
-    if let Some(status) = &section.status {
+    if let Some(status) = &document.status {
         doc.add_text(fields.status, status);
     }
-    if let Some(epoch) = section.stale_after_epoch {
+    if let Some(epoch) = document.stale_after_epoch {
         doc.add_i64(fields.stale_after_epoch, epoch.round() as i64);
     }
     // The positive marker is sufficient: missing means unclassified. Avoiding
     // a posting for the overwhelmingly uninteresting false value keeps this
     // filter field compact.
-    if section.staleness_classified {
+    if document.staleness_classified {
         doc.add_u64(fields.staleness_classified, 1);
     }
-    if let Some(tier) = &section.trust_tier {
+    if let Some(tier) = &document.trust_tier {
         doc.add_text(fields.trust_tier, tier);
     }
-    doc.add_text(fields.resource, &section.resource);
+    doc.add_text(fields.resource, &document.resource);
     doc.add_text(fields.heading, &section.heading_path);
-    doc.add_text(fields.description, &section.description);
-    doc.add_text(fields.sources, &section.source_text);
+    doc.add_text(fields.description, &document.description);
+    doc.add_text(fields.sources, &document.source_text);
     doc.add_text(fields.body, &section.text);
     doc.add_u64(fields.start_line, section.start_line as u64);
     doc.add_u64(fields.end_line, section.end_line as u64);
@@ -1605,8 +1571,37 @@ mod tests {
     const FIRST_DEADLINE: i64 = 1_000;
     const SECOND_DEADLINE: i64 = 3_000;
 
+    fn section(document_id: &str, text: &str) -> PreparedSection {
+        PreparedSection {
+            section_id: format!("{document_id}#root"),
+            heading_path: "Overview".to_owned(),
+            text: text.to_owned(),
+            start_line: 1,
+            end_line: 3,
+        }
+    }
+
+    fn document(section: PreparedSection) -> PreparedDocument {
+        let document_id = section
+            .section_id
+            .split_once('#')
+            .map_or(section.section_id.as_str(), |(document_id, _)| document_id)
+            .to_owned();
+        document_with_metadata(
+            &document_id,
+            "Note",
+            "strict",
+            &["search"],
+            Some("stable"),
+            None,
+            true,
+            Some("human-reviewed"),
+            vec![section],
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
-    fn section(
+    fn document_with_metadata(
         document_id: &str,
         document_type: &str,
         conformance: &str,
@@ -1615,54 +1610,41 @@ mod tests {
         stale_after_epoch: Option<i64>,
         staleness_classified: bool,
         trust_tier: Option<&str>,
-    ) -> PreparedSection {
+        sections: Vec<PreparedSection>,
+    ) -> PreparedDocument {
         let path = format!("{document_id}.md");
-        PreparedSection {
-            section_id: format!("{document_id}#root"),
+        let diagnostics = if conformance == "degraded" {
+            vec![Diagnostic {
+                code: "ERR_OKF_FIELD".to_owned(),
+                message: "fixture degradation".to_owned(),
+                field: Some("stale_after".to_owned()),
+                path: path.clone(),
+            }]
+        } else {
+            Vec::new()
+        };
+        PreparedDocument {
             document_id: document_id.to_owned(),
-            conformance: conformance.to_owned(),
-            title: format!("Memory architecture for {document_id}"),
             path,
             document_type: document_type.to_owned(),
+            conformance: conformance.to_owned(),
+            diagnostics,
+            title: format!("Memory architecture for {document_id}"),
             tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
             status: status.map(str::to_owned),
             stale_after_epoch: stale_after_epoch.map(|epoch| epoch as f64),
             staleness_classified,
             trust_tier: trust_tier.map(str::to_owned),
             resource: document_id.to_owned(),
-            heading_path: "Overview".to_owned(),
             description: "Memory architecture reference".to_owned(),
             source_text: String::new(),
-            text: "Memory architecture keeps retrieval predictable.".to_owned(),
-            start_line: 1,
-            end_line: 3,
-        }
-    }
-
-    fn document(section: PreparedSection) -> PreparedDocument {
-        let diagnostics = if section.conformance == "degraded" {
-            vec![Diagnostic {
-                code: "ERR_OKF_FIELD".to_owned(),
-                message: "fixture degradation".to_owned(),
-                field: Some("stale_after".to_owned()),
-                path: section.path.clone(),
-            }]
-        } else {
-            Vec::new()
-        };
-        PreparedDocument {
-            document_id: section.document_id.clone(),
-            path: section.path.clone(),
-            document_type: section.document_type.clone(),
-            conformance: section.conformance.clone(),
-            diagnostics,
-            sections: vec![section],
+            sections,
         }
     }
 
     fn fixture_engine() -> Engine {
         Engine::new(vec![
-            document(section(
+            document_with_metadata(
                 "decision",
                 "Decision",
                 "strict",
@@ -1671,8 +1653,12 @@ mod tests {
                 Some(FIRST_DEADLINE),
                 true,
                 Some("human-reviewed"),
-            )),
-            document(section(
+                vec![section(
+                    "decision",
+                    "Memory architecture keeps retrieval predictable.",
+                )],
+            ),
+            document_with_metadata(
                 "reference",
                 "Reference",
                 "strict",
@@ -1681,8 +1667,12 @@ mod tests {
                 Some(SECOND_DEADLINE),
                 true,
                 Some("machine-confirmed"),
-            )),
-            document(section(
+                vec![section(
+                    "reference",
+                    "Memory architecture keeps retrieval predictable.",
+                )],
+            ),
+            document_with_metadata(
                 "classified-without-deadline",
                 "Note",
                 "strict",
@@ -1691,8 +1681,12 @@ mod tests {
                 None,
                 true,
                 Some("unverified"),
-            )),
-            document(section(
+                vec![section(
+                    "classified-without-deadline",
+                    "Memory architecture keeps retrieval predictable.",
+                )],
+            ),
+            document_with_metadata(
                 "unclassified",
                 "Note",
                 "degraded",
@@ -1701,7 +1695,11 @@ mod tests {
                 None,
                 false,
                 None,
-            )),
+                vec![section(
+                    "unclassified",
+                    "Memory architecture keeps retrieval predictable.",
+                )],
+            ),
         ])
         .expect("fixture should index")
     }
@@ -1937,7 +1935,7 @@ mod tests {
         );
 
         engine
-            .ingest(document(section(
+            .ingest(document_with_metadata(
                 "decision",
                 "Guide",
                 "strict",
@@ -1946,7 +1944,11 @@ mod tests {
                 Some(SECOND_DEADLINE),
                 true,
                 Some("unverified"),
-            )))
+                vec![section(
+                    "decision",
+                    "Memory architecture keeps retrieval predictable.",
+                )],
+            ))
             .expect("replacement should commit");
 
         assert!(result_ids(&engine, Some(old_filter), BEFORE).is_empty());
@@ -1997,18 +1999,7 @@ mod tests {
     }
 
     fn strict_section(document_id: &str, text: &str) -> PreparedSection {
-        let mut value = section(
-            document_id,
-            "Note",
-            "strict",
-            &["search"],
-            Some("stable"),
-            None,
-            true,
-            Some("human-reviewed"),
-        );
-        value.text = text.to_owned();
-        value
+        section(document_id, text)
     }
 
     fn search_options(fields: &[&str], match_mode: &str) -> SearchOptions {
@@ -2032,37 +2023,48 @@ mod tests {
         );
     }
 
+    fn count_term(engine: &Engine, field: Field, term: &str) -> usize {
+        let query = TermQuery::new(Term::from_field_text(field, term), IndexRecordOption::Basic);
+        engine
+            .reader
+            .searcher()
+            .search(&query, &Count)
+            .expect("term count")
+    }
+
     #[test]
     fn strict_and_unclassified_staleness_contracts_are_enforced() {
         let mut cases = Vec::new();
-        let mut missing_status = strict_section("missing-status", "needle");
+        let mut missing_status = document(strict_section("missing-status", "needle"));
         missing_status.status = None;
-        cases.push(("missing status", document(missing_status)));
-        let mut missing_trust = strict_section("missing-trust", "needle");
+        cases.push(("missing status", missing_status));
+        let mut missing_trust = document(strict_section("missing-trust", "needle"));
         missing_trust.trust_tier = None;
-        cases.push(("missing trust", document(missing_trust)));
-        let mut unclassified = strict_section("unclassified-strict", "needle");
+        cases.push(("missing trust", missing_trust));
+        let mut unclassified = document(strict_section("unclassified-strict", "needle"));
         unclassified.staleness_classified = false;
-        cases.push(("unclassified strict staleness", document(unclassified)));
-        let mut deadline = section(
-            "unclassified-deadline",
-            "Note",
-            "degraded",
-            &[],
-            None,
-            Some(FIRST_DEADLINE),
-            false,
-            None,
-        );
-        deadline.text = "needle".to_owned();
-        cases.push(("unclassified deadline", document(deadline)));
+        cases.push(("unclassified strict staleness", unclassified));
+        cases.push((
+            "unclassified deadline",
+            document_with_metadata(
+                "unclassified-deadline",
+                "Note",
+                "degraded",
+                &[],
+                None,
+                Some(FIRST_DEADLINE),
+                false,
+                None,
+                vec![section("unclassified-deadline", "needle")],
+            ),
+        ));
 
         for (name, invalid) in cases {
             let error = Engine::new(vec![invalid]).err().expect(name);
             assert_invalid(error);
         }
 
-        let classified_degraded = document(section(
+        let classified_degraded = document_with_metadata(
             "classified-degraded",
             "Note",
             "degraded",
@@ -2071,8 +2073,9 @@ mod tests {
             Some(FIRST_DEADLINE),
             true,
             Some("unverified"),
-        ));
-        let unclassified_degraded = document(section(
+            vec![section("classified-degraded", "needle")],
+        );
+        let unclassified_degraded = document_with_metadata(
             "unclassified-degraded",
             "Note",
             "degraded",
@@ -2081,78 +2084,42 @@ mod tests {
             None,
             false,
             None,
-        ));
+            vec![section("unclassified-degraded", "needle")],
+        );
         Engine::new(vec![classified_degraded, unclassified_degraded])
             .expect("valid degraded classifications should remain indexable");
     }
 
     #[test]
-    fn repeated_document_metadata_must_agree() {
-        let base = strict_section("metadata", "first section text");
-        let second = |section_id: &str| {
-            let mut value = base.clone();
-            value.section_id = section_id.to_owned();
-            value.heading_path = "Different heading".to_owned();
-            value.text = "different section text".to_owned();
-            value.start_line = 4;
-            value.end_line = 6;
-            value
-        };
-        let document_with = |changed: PreparedSection| {
-            let mut value = document(base.clone());
-            value.sections.push(changed);
-            value
-        };
+    fn parent_metadata_is_indexed_into_every_section_and_replacement_updates_it() {
+        let mut initial = document(strict_section("metadata", "first section text"));
+        let mut second = section("metadata", "second section text");
+        second.section_id = "metadata#second".to_owned();
+        initial.sections.push(second);
+        initial.title = "Initial shared title".to_owned();
+        initial.tags = vec!["initial-shared".to_owned()];
 
-        let mut cases = Vec::new();
-        let mut changed = second("metadata#title");
-        changed.title = "Different title".to_owned();
-        cases.push(("title", document_with(changed)));
-        let mut changed = second("metadata#tags");
-        changed.tags.push("different".to_owned());
-        cases.push(("tags", document_with(changed)));
-        let mut changed = second("metadata#status");
-        changed.status = Some("draft".to_owned());
-        cases.push(("status", document_with(changed)));
-        let mut changed = second("metadata#deadline");
-        changed.stale_after_epoch = Some(FIRST_DEADLINE as f64);
-        cases.push(("staleAfterEpoch", document_with(changed)));
-        let classified = section(
-            "classified-metadata",
-            "Note",
-            "degraded",
-            &[],
-            Some("stable"),
-            None,
-            true,
-            Some("human-reviewed"),
+        let mut engine = Engine::new(vec![initial]).expect("initial document");
+        assert_eq!(count_term(&engine, engine.fields.title, "initial"), 2);
+        assert_eq!(
+            count_term(&engine, engine.fields.tag_exact, "initial-shared"),
+            2
         );
-        let mut unclassified = classified.clone();
-        unclassified.section_id = "classified-metadata#other".to_owned();
-        unclassified.staleness_classified = false;
-        let mut classification_disagreement = document(classified);
-        classification_disagreement.sections.push(unclassified);
-        cases.push(("stalenessClassified", classification_disagreement));
-        let mut changed = second("metadata#trust");
-        changed.trust_tier = Some("unverified".to_owned());
-        cases.push(("trustTier", document_with(changed)));
-        let mut changed = second("metadata#resource");
-        changed.resource = "different".to_owned();
-        cases.push(("resource", document_with(changed)));
-        let mut changed = second("metadata#description");
-        changed.description = "different".to_owned();
-        cases.push(("description", document_with(changed)));
-        let mut changed = second("metadata#source");
-        changed.source_text = "different".to_owned();
-        cases.push(("sourceText", document_with(changed)));
 
-        for (name, invalid) in cases {
-            let error = Engine::new(vec![invalid]).err().expect(name);
-            assert_invalid(error);
-        }
+        let mut replacement = document(strict_section("metadata", "replacement section text"));
+        let mut second = section("metadata", "replacement second section text");
+        second.section_id = "metadata#second".to_owned();
+        replacement.sections.push(second);
+        replacement.title = "Replacement shared title".to_owned();
+        replacement.tags = vec!["replacement-shared".to_owned()];
+        engine.ingest(replacement).expect("replacement document");
 
-        Engine::new(vec![document_with(second("metadata#valid"))])
-            .expect("section-local fields may differ");
+        assert_eq!(count_term(&engine, engine.fields.title, "initial"), 0);
+        assert_eq!(count_term(&engine, engine.fields.title, "replacement"), 2);
+        assert_eq!(
+            count_term(&engine, engine.fields.tag_exact, "replacement-shared"),
+            2
+        );
     }
 
     #[test]
@@ -2161,17 +2128,17 @@ mod tests {
         let mut cases = Vec::new();
 
         for (name, change) in [
-            ("documentId envelope", 0),
-            ("path envelope", 1),
-            ("type envelope", 2),
-            ("conformance envelope", 3),
+            ("empty documentId", 0),
+            ("empty path", 1),
+            ("empty type", 2),
+            ("invalid conformance", 3),
         ] {
             let mut invalid = valid.clone();
             match change {
-                0 => invalid.sections[0].document_id = "other".to_owned(),
-                1 => invalid.sections[0].path = "other.md".to_owned(),
-                2 => invalid.sections[0].document_type = "Guide".to_owned(),
-                3 => invalid.sections[0].conformance = "degraded".to_owned(),
+                0 => invalid.document_id = " ".to_owned(),
+                1 => invalid.path = " ".to_owned(),
+                2 => invalid.document_type = "".to_owned(),
+                3 => invalid.conformance = "unknown".to_owned(),
                 _ => unreachable!(),
             }
             cases.push((name, vec![invalid]));
@@ -2186,7 +2153,7 @@ mod tests {
         });
         cases.push(("strict diagnostics", vec![strict_diagnostic]));
 
-        let mut degraded_without_diagnostics = document(section(
+        let mut degraded_without_diagnostics = document_with_metadata(
             "degraded",
             "Note",
             "degraded",
@@ -2195,7 +2162,8 @@ mod tests {
             None,
             false,
             None,
-        ));
+            vec![section("degraded", "state needle")],
+        );
         degraded_without_diagnostics.diagnostics.clear();
         cases.push((
             "missing degraded diagnostics",
@@ -2203,7 +2171,7 @@ mod tests {
         ));
 
         for (name, change) in [("diagnostic code", 0), ("diagnostic path", 1)] {
-            let mut invalid = document(section(
+            let mut invalid = document_with_metadata(
                 "diagnostic",
                 "Note",
                 "degraded",
@@ -2212,7 +2180,8 @@ mod tests {
                 None,
                 false,
                 None,
-            ));
+                vec![section("diagnostic", "state needle")],
+            );
             if change == 0 {
                 invalid.diagnostics[0].code = "ERR_OTHER".to_owned();
             } else {
@@ -2220,6 +2189,20 @@ mod tests {
             }
             cases.push((name, vec![invalid]));
         }
+
+        let mut invalid_status = valid.clone();
+        invalid_status.status = Some("future".to_owned());
+        cases.push(("invalid status", vec![invalid_status]));
+        let mut invalid_trust = valid.clone();
+        invalid_trust.trust_tier = Some("manual".to_owned());
+        cases.push(("invalid trust tier", vec![invalid_trust]));
+        let mut invalid_deadline = valid.clone();
+        invalid_deadline.stale_after_epoch = Some(f64::NAN);
+        cases.push(("invalid staleAfterEpoch", vec![invalid_deadline]));
+        let mut unclassified_deadline = valid.clone();
+        unclassified_deadline.staleness_classified = false;
+        unclassified_deadline.stale_after_epoch = Some(FIRST_DEADLINE as f64);
+        cases.push(("unclassified staleAfterEpoch", vec![unclassified_deadline]));
 
         let mut zero_start = valid.clone();
         zero_start.sections[0].start_line = 0;
@@ -2235,14 +2218,12 @@ mod tests {
         let duplicate_document = {
             let mut other = valid.clone();
             other.path = "other.md".to_owned();
-            other.sections[0].path = other.path.clone();
             vec![valid.clone(), other]
         };
         cases.push(("duplicate document ownership", duplicate_document));
         let duplicate_path = {
             let mut other = document(strict_section("other", "state needle"));
             other.path = valid.path.clone();
-            other.sections[0].path = valid.path.clone();
             vec![valid.clone(), other]
         };
         cases.push(("duplicate path ownership", duplicate_path));
@@ -2267,8 +2248,8 @@ mod tests {
         ];
         let baseline_ids = BTreeSet::from(["first".to_owned(), "second".to_owned()]);
 
-        let mut envelope = document(strict_section("new-envelope", "new needle"));
-        envelope.sections[0].document_type = "Guide".to_owned();
+        let mut invalid_status = document(strict_section("new-status-value", "new needle"));
+        invalid_status.status = Some("future".to_owned());
         let mut diagnostics = document(strict_section("new-diagnostic", "new needle"));
         diagnostics.diagnostics.push(Diagnostic {
             code: "ERR_OKF_FIELD".to_owned(),
@@ -2281,12 +2262,12 @@ mod tests {
         let mut repeated = document(strict_section("new-repeat", "new needle"));
         repeated.sections.push(repeated.sections[0].clone());
         let mut missing_status = document(strict_section("new-status", "new needle"));
-        missing_status.sections[0].status = None;
+        missing_status.status = None;
         let mut missing_trust = document(strict_section("new-trust", "new needle"));
-        missing_trust.sections[0].trust_tier = None;
+        missing_trust.trust_tier = None;
         let mut unclassified = document(strict_section("new-staleness", "new needle"));
-        unclassified.sections[0].staleness_classified = false;
-        let unclassified_deadline = document(section(
+        unclassified.staleness_classified = false;
+        let unclassified_deadline = document_with_metadata(
             "new-deadline",
             "Note",
             "degraded",
@@ -2295,23 +2276,17 @@ mod tests {
             Some(FIRST_DEADLINE),
             false,
             None,
-        ));
-        let mut metadata = document(strict_section("new-metadata", "new needle"));
-        let mut second_section = metadata.sections[0].clone();
-        second_section.section_id = "new-metadata#second".to_owned();
-        second_section.title = "conflicting title".to_owned();
-        metadata.sections.push(second_section);
+            vec![section("new-deadline", "new needle")],
+        );
         let mut path_conflict = document(strict_section("new-path", "new needle"));
         path_conflict.path = "first.md".to_owned();
-        path_conflict.sections[0].path = path_conflict.path.clone();
         let mut section_conflict = document(strict_section("new-section", "new needle"));
         section_conflict.sections[0].section_id = "first#root".to_owned();
         let mut replacement_conflict = document(strict_section("first", "new needle"));
         replacement_conflict.path = "changed.md".to_owned();
-        replacement_conflict.sections[0].path = replacement_conflict.path.clone();
 
         for (name, invalid) in [
-            ("envelope disagreement", envelope),
+            ("invalid status", invalid_status),
             ("diagnostics", diagnostics),
             ("line bounds", bounds),
             ("repeated section id", repeated),
@@ -2319,7 +2294,6 @@ mod tests {
             ("missing strict trust", missing_trust),
             ("unclassified strict staleness", unclassified),
             ("unclassified staleAfterEpoch", unclassified_deadline),
-            ("repeated metadata disagreement", metadata),
             ("path ownership", path_conflict),
             ("section ownership", section_conflict),
             ("replacement ownership", replacement_conflict),
@@ -2487,11 +2461,11 @@ mod tests {
 
     #[test]
     fn text_options_change_retrieval_and_ranking() {
-        let mut both = strict_section("both", "alpha beta");
+        let mut both = document(strict_section("both", "alpha beta"));
         both.title = "plain".to_owned();
-        let mut alpha = strict_section("alpha", "alpha");
+        let mut alpha = document(strict_section("alpha", "alpha"));
         alpha.title = "plain".to_owned();
-        let engine = Engine::new(vec![document(both), document(alpha)]).expect("engine");
+        let engine = Engine::new(vec![both, alpha]).expect("engine");
         assert_eq!(
             engine
                 .search("alpha beta", Some(search_options(&["body"], "any")))
@@ -2507,9 +2481,9 @@ mod tests {
             "both"
         );
 
-        let mut cross_field = strict_section("cross-field", "beta");
+        let mut cross_field = document(strict_section("cross-field", "beta"));
         cross_field.title = "alpha".to_owned();
-        let cross_field = Engine::new(vec![document(cross_field)]).expect("cross-field engine");
+        let cross_field = Engine::new(vec![cross_field]).expect("cross-field engine");
         assert_eq!(
             cross_field
                 .search(
@@ -2521,9 +2495,9 @@ mod tests {
             1
         );
 
-        let mut title_hit = strict_section("title-hit", "plain body");
+        let mut title_hit = document(strict_section("title-hit", "plain body"));
         title_hit.title = "exclusive needle".to_owned();
-        let fields = Engine::new(vec![document(title_hit)]).expect("fields engine");
+        let fields = Engine::new(vec![title_hit]).expect("fields engine");
         assert_eq!(
             fields
                 .search("exclusive", Some(search_options(&["title"], "any")))
@@ -2538,12 +2512,11 @@ mod tests {
                 .is_empty()
         );
 
-        let mut title_rank = strict_section("title-rank", "plain");
+        let mut title_rank = document(strict_section("title-rank", "plain"));
         title_rank.title = "rankneedle".to_owned();
-        let mut body_rank = strict_section("body-rank", "rankneedle");
+        let mut body_rank = document(strict_section("body-rank", "rankneedle"));
         body_rank.title = "plain".to_owned();
-        let ranking =
-            Engine::new(vec![document(title_rank), document(body_rank)]).expect("ranking");
+        let ranking = Engine::new(vec![title_rank, body_rank]).expect("ranking");
         let default = ranking
             .search(
                 "rankneedle",
@@ -2570,10 +2543,10 @@ mod tests {
 
     #[test]
     fn matched_fields_handles_nonmatching_probes_after_removal() {
-        let mut kept = strict_section("kept", "a md inventoryneedle");
+        let mut kept = document(strict_section("kept", "a md inventoryneedle"));
         kept.title = "kept".to_owned();
-        let removed = strict_section("removed", "nested removedneedle");
-        let mut engine = Engine::new(vec![document(kept), document(removed)]).expect("engine");
+        let removed = document(strict_section("removed", "nested removedneedle"));
+        let mut engine = Engine::new(vec![kept, removed]).expect("engine");
 
         assert!(engine.remove("removed").expect("remove"));
 
@@ -2602,10 +2575,13 @@ mod tests {
 
     #[test]
     fn prefix_fuzzy_matched_fields_and_snippets_use_production_search() {
-        let mut value = strict_section("search-contract", "alpha architecture retrieval");
+        let mut value = document(strict_section(
+            "search-contract",
+            "alpha architecture retrieval",
+        ));
         value.title = "alpha architecture retrieval".to_owned();
         value.description = "alpha architecture retrieval".to_owned();
-        let engine = Engine::new(vec![document(value)]).expect("engine");
+        let engine = Engine::new(vec![value]).expect("engine");
 
         assert_eq!(
             engine

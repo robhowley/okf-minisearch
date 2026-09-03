@@ -40,26 +40,22 @@ export interface PreparedDocument {
   type: string
   conformance: string
   diagnostics: Array<Diagnostic>
-  sections: Array<PreparedSection>
-}
-
-/** Search-independent output from the existing OKF parser/projector. */
-export interface PreparedSection {
-  sectionId: string
-  documentId: string
-  conformance: string
   title: string
-  path: string
-  type: string
   tags: Array<string>
   status?: string
   staleAfterEpoch?: number
   stalenessClassified: boolean
   trustTier?: string
   resource: string
-  headingPath: string
   description: string
   sourceText: string
+  sections: Array<PreparedSection>
+}
+
+/** Search-independent output from the existing OKF parser/projector. */
+export interface PreparedSection {
+  sectionId: string
+  headingPath: string
   text: string
   startLine: number
   endLine: number

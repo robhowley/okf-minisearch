@@ -66,7 +66,10 @@ index.removeDocument("docs/old");
 ```
 
 Prepared DTO declarations are exported from `okf-search-native/prepared`, not
-from the package root.
+from the package root. `PreparedDocument` owns document-wide metadata once;
+`PreparedSection` contains only its ID, heading path, text, and line bounds.
+The native backend expands each section into one Tantivy record while keeping
+bootstrap, replacement, and removal at document scope.
 
 ## Generated and built files
 

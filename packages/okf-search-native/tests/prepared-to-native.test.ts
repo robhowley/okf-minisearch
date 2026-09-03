@@ -58,27 +58,30 @@ describe("mapPreparedDocument", () => {
       type: "note",
       conformance: "strict",
       diagnostics: [],
+      title: "Native title",
+      tags: ["alpha", "beta"],
+      status: "deprecated",
+      staleAfterEpoch: Date.parse("2026-08-24T10:00:00.124Z"),
+      stalenessClassified: true,
+      trustTier: "human-reviewed",
+      resource: "https://example.test/resource",
+      description: "Native description",
+      sourceText: "source-id Source title process:builder https://example.test/source",
       sections: prepared.sections.map((section) => ({
         sectionId: section.id,
-        documentId,
-        conformance: "strict",
-        title: "Native title",
-        path,
-        type: "note",
-        tags: ["alpha", "beta"],
-        status: "deprecated",
-        staleAfterEpoch: Date.parse("2026-08-24T10:00:00.124Z"),
-        stalenessClassified: true,
-        trustTier: "human-reviewed",
-        resource: "https://example.test/resource",
         headingPath: section.headingPath,
-        description: "Native description",
-        sourceText: "source-id Source title process:builder https://example.test/source",
         text: section.text,
         startLine: section.startLine,
         endLine: section.endLine,
       })),
     });
+    expect(Object.keys(mapped.sections[0]!).sort()).toEqual([
+      "endLine",
+      "headingPath",
+      "sectionId",
+      "startLine",
+      "text",
+    ]);
   });
 
   it("maps degraded diagnostics and each facet's classification independently", () => {
@@ -106,8 +109,7 @@ describe("mapPreparedDocument", () => {
     expect(mapped.diagnostics).toEqual(
       prepared.diagnostics.map((diagnostic) => ({ ...diagnostic })),
     );
-    expect(mapped.sections).toHaveLength(prepared.sections.length);
-    expect(mapped.sections[0]).toMatchObject({
+    expect(mapped).toMatchObject({
       documentId: "degraded",
       path: "degraded.md",
       type: "note",
@@ -119,25 +121,32 @@ describe("mapPreparedDocument", () => {
       stalenessClassified: false,
       resource: "",
       sourceText: "",
-      text: "degradedneedle",
     });
-    expect(Object.hasOwn(mapped.sections[0]!, "status")).toBe(false);
-    expect(Object.hasOwn(mapped.sections[0]!, "staleAfterEpoch")).toBe(false);
+    expect(mapped.sections).toHaveLength(prepared.sections.length);
+    expect(mapped.sections[0]).toEqual({
+      sectionId: prepared.sections[0]!.id,
+      headingPath: prepared.sections[0]!.headingPath,
+      text: "degradedneedle",
+      startLine: prepared.sections[0]!.startLine,
+      endLine: prepared.sections[0]!.endLine,
+    });
+    expect(Object.hasOwn(mapped, "status")).toBe(false);
+    expect(Object.hasOwn(mapped, "staleAfterEpoch")).toBe(false);
   });
 
   it("maps a classified facet without inventing an absent timestamp", () => {
     const prepared = prepare("type: note\nstatus: draft", "classifiedneedle");
     const mapped = mapPreparedDocument(prepared);
 
-    expect(mapped.sections[0]).toMatchObject({
+    expect(mapped).toMatchObject({
       status: "draft",
       trustTier: "unverified",
       stalenessClassified: true,
     });
-    expect(Object.hasOwn(mapped.sections[0]!, "staleAfterEpoch")).toBe(false);
+    expect(Object.hasOwn(mapped, "staleAfterEpoch")).toBe(false);
   });
 
-  it("detaches all mutable DTO containers and repeated section envelopes", () => {
+  it("detaches mutable DTO containers without repeating document metadata", () => {
     const prepared = prepare(
       "type: note\nstatus: future",
       "# First\nfirstneedle\n\n# Second\nsecondneedle",
@@ -153,8 +162,7 @@ describe("mapPreparedDocument", () => {
     expect(mapped.diagnostics).not.toBe(prepared.diagnostics);
     expect(mapped.diagnostics[0]).not.toBe(prepared.diagnostics[0]);
     expect(mapped.sections).not.toBe(prepared.sections);
-    expect(first.tags).not.toBe(second.tags);
-    expect(first.tags).not.toBe(prepared.metadata.tags);
+    expect(mapped.tags).not.toBe(prepared.metadata.tags);
 
     const preparedTags = prepared.metadata.tags as unknown as string[];
     const preparedDiagnostics = prepared.diagnostics as unknown as Array<{
@@ -166,13 +174,13 @@ describe("mapPreparedDocument", () => {
     preparedDiagnostics[0]!.field = "prepared-mutation";
     preparedSections[0]!.text = "prepared-mutation";
 
-    expect(first.tags).toEqual([]);
+    expect(mapped.tags).toEqual([]);
     expect(mapped.diagnostics[0]).not.toMatchObject({ field: "prepared-mutation" });
     expect(first.text).toBe("firstneedle");
 
-    first.tags.push("native-mutation");
+    mapped.tags.push("native-mutation");
     mapped.diagnostics[0]!.message = "native-mutation";
-    expect(second.tags).toEqual([]);
+    expect(second.text).toBe("secondneedle");
     expect(prepared.metadata.tags).toEqual(["prepared-mutation"]);
     expect(prepared.diagnostics[0]!.message).not.toBe("native-mutation");
   });
