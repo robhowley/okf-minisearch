@@ -1,0 +1,18 @@
+{
+  "commit": "1111111111111111111111111111111111111111",
+  "otherCommit": "2222222222222222222222222222222222222222",
+  "manifests": {
+    "packages/okf-minisearch": { "name": "okf-minisearch", "version": "2.3.0" },
+    "packages/pi-okf-search": { "name": "pi-okf-search", "version": "0.5.0" },
+    "packages/okf-search-native": { "name": "okf-search-native", "version": "0.1.0" }
+  },
+  "registry": [
+    { "label": "exact 200", "status": 200, "body": { "name": "okf-minisearch", "version": "2.3.0" }, "state": "published" },
+    { "label": "404", "status": 404, "body": { "error": "Not found" }, "state": "unpublished" },
+    { "label": "wrong name", "status": 200, "body": { "name": "other", "version": "2.3.0" }, "error": "mismatched identity" },
+    { "label": "wrong version", "status": 200, "body": { "name": "okf-minisearch", "version": "2.2.1" }, "error": "mismatched identity" },
+    { "label": "malformed body", "status": 200, "body": null, "error": "malformed metadata" },
+    { "label": "unauthorized", "status": 401, "body": {}, "error": "HTTP 401" },
+    { "label": "server failure", "status": 503, "body": {}, "error": "HTTP 503" }
+  ]
+}

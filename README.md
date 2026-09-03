@@ -106,7 +106,6 @@ The model can call `okf_search`, inspect ranked snippets, and reopen a result's 
 - **Library:** ESM-only. Node.js usage requires Node.js 20 or newer; browser usage starts from files selected by the user.
 - **Pi package:** Node.js `>=22.19.0`. Its tests pin `@earendil-works/pi-ai` and `@earendil-works/pi-coding-agent` `0.84.3`; the peer dependency ranges do not establish a narrower supported Pi version range.
 - **Pi package loading:** the package manifest exposes `./extensions/okf-search`; Pi discovers the extension entry point from that directory.
-
 - [Node.js package documentation](packages/okf-minisearch/README.md)
 - [Pi package documentation](packages/pi-okf-search/README.md)
 - [Pinned OKF v0.2 specification](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/ad30107c31c06aec8a7d5636e0d1058118604e6f/SPEC.md)
@@ -121,9 +120,9 @@ pnpm install
 pnpm package:check
 ```
 
-`pnpm package:check` performs a frozen install, builds, type-checks, tests, and packs both packages, then verifies packed Node, browser, and Pi consumers.
+`pnpm package:check` performs a frozen install, builds, type-checks, tests, retains the demo check, and exercises packed Node, browser, and Pi consumers.
 
-Build only the library:
+Build only the JavaScript library:
 
 ```sh
 pnpm --filter okf-minisearch build

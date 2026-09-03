@@ -1,0 +1,30 @@
+[package]
+name = "okf-search-native"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+chrono = "0.4"
+napi = { version = "3.12", default-features = false, features = ["napi8", "chrono_date", "dyn-symbols"] }
+napi-derive = "3"
+parking_lot = "0.12"
+tantivy = "0.26.1"
+thiserror = "2"
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true
+strip = "symbols"
+codegen-units = 1
+
+# Rust 1.88's macOS build-script binaries cannot run after symbol stripping.
+# Keep the shipped cdylib stripped while leaving build scripts executable.
+[profile.release.build-override]
+strip = "none"

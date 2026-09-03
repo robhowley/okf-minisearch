@@ -23,24 +23,41 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const privateSource = join(repoRoot, "packages", "okf-prepare", "src", "index.ts");
 const privateSpecifier = "@okf-internal/prepare";
 const expectedExports = ["createPrepareBundleSentinel"];
-const target = {
-  entrypoint: join(
-    repoRoot,
-    "packages",
-    "okf-minisearch",
-    "test",
-    "support",
-    "prepare-bundle-entry.ts",
-  ),
-  artifacts: [
-    { name: "node", platform: "node", format: "esm", target: "node20", extension: "mjs" },
-    { name: "browser", platform: "browser", format: "esm", target: "es2022", extension: "mjs" },
-    { name: "browser-global", platform: "browser", format: "iife", target: "es2022", extension: "js", globalName: "OkfPrepareBundleProof", minify: true },
-  ],
+const targets = {
+  minisearch: {
+    entrypoint: join(
+      repoRoot,
+      "packages",
+      "okf-minisearch",
+      "test",
+      "support",
+      "prepare-bundle-entry.ts",
+    ),
+    artifacts: [
+      { name: "node", platform: "node", format: "esm", target: "node20", extension: "mjs" },
+      { name: "browser", platform: "browser", format: "esm", target: "es2022", extension: "mjs" },
+      { name: "browser-global", platform: "browser", format: "iife", target: "es2022", extension: "js", globalName: "OkfPrepareBundleProof", minify: true },
+    ],
+  },
+  native: {
+    entrypoint: join(
+      repoRoot,
+      "packages",
+      "okf-search-native",
+      "tests",
+      "prepare-bundle-entry.ts",
+    ),
+    artifacts: [
+      { name: "native", platform: "node", format: "esm", target: "node22", extension: "mjs" },
+      { name: "native", platform: "node", format: "cjs", target: "node22", extension: "cjs" },
+    ],
+  },
 };
 
+const targetName = process.argv[2];
+const selected = targets[targetName];
+assert.ok(selected, "usage: node scripts/check-private-bundling.mjs <minisearch|native>");
 assert.equal(process.argv.length, 3, "the bundling proof accepts exactly one target");
-assert.equal(process.argv[2], "minisearch", "usage: node scripts/check-private-bundling.mjs minisearch");
 
 function assertSentinel(api, label) {
   assert.deepEqual(Object.keys(api).sort(), expectedExports, `${label}: unexpected exports`);
@@ -85,7 +102,7 @@ async function buildJavaScript(temporaryRoot, artifact) {
   );
   const result = await build({
     absWorkingDir: repoRoot,
-    entryPoints: [target.entrypoint],
+    entryPoints: [selected.entrypoint],
     outfile: output,
     bundle: true,
     packages: "bundle",
@@ -97,7 +114,7 @@ async function buildJavaScript(temporaryRoot, artifact) {
     format: artifact.format,
     target: artifact.target,
     globalName: artifact.globalName,
-    banner: artifact.platform === "node"
+    banner: artifact.platform === "node" && artifact.format === "esm"
       ? {
           js: 'import { createRequire as __okfCreateRequire } from "node:module";\nconst require = __okfCreateRequire(import.meta.url);',
         }
@@ -105,7 +122,7 @@ async function buildJavaScript(temporaryRoot, artifact) {
     minify: artifact.minify ?? false,
   });
 
-  const label = `minisearch ${artifact.name} ${artifact.format}`;
+  const label = `${targetName} ${artifact.name} ${artifact.format}`;
   await assertPrivateBytes(result.metafile, label);
   const code = await readFile(output, "utf8");
   assertNoPrivateReference(code, label);
@@ -114,15 +131,17 @@ async function buildJavaScript(temporaryRoot, artifact) {
     const context = {};
     runInNewContext(code, context);
     assertSentinel(context.OkfPrepareBundleProof, label);
+  } else if (artifact.format === "cjs") {
+    assertSentinel(createRequire(import.meta.url)(output), label);
   } else {
     assertSentinel(await import(pathToFileURL(output).href), label);
   }
 }
 
 async function buildDeclarations(temporaryRoot) {
-  const output = join(temporaryRoot, "minisearch.d.ts");
+  const output = join(temporaryRoot, `${targetName}.d.ts`);
   const bundle = await rollup({
-    input: target.entrypoint,
+    input: selected.entrypoint,
     plugins: [
       {
         name: "resolve-private-prepare-source",
@@ -147,7 +166,7 @@ async function buildDeclarations(temporaryRoot) {
   assert.match(declaration, /createPrepareBundleSentinel/);
   assert.match(declaration, /readonly marker: ["']okf-prepare-bundled["']/);
   assert.match(declaration, /readonly value: 73/);
-  assertNoPrivateReference(declaration, "minisearch declarations");
+  assertNoPrivateReference(declaration, `${targetName} declarations`);
 
   const consumerRoot = await mkdtemp(join(tmpdir(), "okf-prepare-declaration-consumer-"));
   try {
@@ -197,11 +216,11 @@ async function buildDeclarations(temporaryRoot) {
 
 const temporaryRoot = await mkdtemp(join(tmpdir(), "okf-prepare-bundle-"));
 try {
-  for (const artifact of target.artifacts) {
+  for (const artifact of selected.artifacts) {
     await buildJavaScript(temporaryRoot, artifact);
   }
   await buildDeclarations(temporaryRoot);
-  console.log("minisearch: private JS and declaration bundling proof passed");
+  console.log(`${targetName}: private JS and declaration bundling proof passed`);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
 }

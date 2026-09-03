@@ -29,14 +29,30 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const packageRoots = {
   library: join(root, "packages", "okf-minisearch"),
   pi: join(root, "packages", "pi-okf-search"),
+  native: join(root, "packages", "okf-search-native"),
 };
 const packageNames = {
   library: "okf-minisearch",
   pi: "pi-okf-search",
+  native: "okf-search-native",
+};
+const nativeArtifactSuffixes = {
+  darwin: { x64: "darwin-x64", arm64: "darwin-arm64" },
+  linux: { x64: "linux-x64-gnu" },
+  win32: { x64: "win32-x64-msvc" },
 };
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const PRIVATE_PACKAGE_NAME = "@okf-internal/prepare";
 const FORBIDDEN_PACKED_MARKERS = [PRIVATE_PACKAGE_NAME, "workspace:"];
+
+function currentNativeArtifact() {
+  const suffix = nativeArtifactSuffixes[process.platform]?.[process.arch];
+  assert.ok(
+    suffix,
+    `${packageNames.native}: unsupported validation host ${process.platform}/${process.arch}`,
+  );
+  return `${packageNames.native}.${suffix}.node`;
+}
 
 function display(command, args) {
   return [command, ...args]
@@ -158,6 +174,39 @@ function checkPiPaths(paths) {
   );
 }
 
+function checkNativePaths(paths) {
+  const hostArtifact = currentNativeArtifact();
+  const required = [
+    "LICENSE",
+    "README.md",
+    "index.d.ts",
+    "index.js",
+    "package.json",
+    hostArtifact,
+  ];
+  const leaked = paths.filter((path) =>
+    path.endsWith(".rs") ||
+    (path.endsWith(".ts") && !path.endsWith(".d.ts")) ||
+    /(?:^|\/)(?:src|target|test|tests|docs)(?:\/|$)/.test(path),
+  );
+
+  assert.deepEqual(
+    leaked,
+    [],
+    `${packageNames.native}: packed package contains source/build/test files: ${leaked.join(", ")}`,
+  );
+  assert.deepEqual(
+    paths,
+    required.sort(),
+    `${packageNames.native}: packed paths must contain only the generated host package files`,
+  );
+  assert.deepEqual(
+    paths.filter((path) => path.endsWith(".node")),
+    [hostArtifact],
+    `${packageNames.native}: packed package must contain exactly the current host native artifact`,
+  );
+}
+
 function assertUnder(parent, path, label) {
   const fromParent = relative(parent, path);
   assert.ok(
@@ -222,8 +271,12 @@ async function packPackage(id, tarballRoot, temporaryRoot) {
 
   if (id === "library") {
     checkLibraryPaths(result.paths);
-  } else {
+  } else if (id === "pi") {
     checkPiPaths(result.paths);
+  } else if (id === "native") {
+    checkNativePaths(result.paths);
+  } else {
+    assert.fail(`unknown package id: ${id}`);
   }
 
   return { tarball, result };
@@ -686,6 +739,174 @@ assert.throws(
 );
 `;
 
+const nativeTypeConsumer = `import { NativeOkfSearch } from "okf-search-native";
+import type {
+  DegradedDocument,
+  Diagnostic,
+  PreparedDocument,
+  PreparedSection,
+  RemoveIdentity,
+  SearchBoost,
+  SearchHit,
+  SearchOptions,
+  SearchWhere,
+  Suggestion,
+} from "okf-search-native";
+
+const diagnostic: Diagnostic = {
+  code: "ERR_OKF_FIELD",
+  message: "fixture degradation",
+  path: "native.md",
+};
+const section: PreparedSection = {
+  sectionId: "native-doc#root",
+  documentId: "native-doc",
+  conformance: "strict",
+  title: "Native prepared document",
+  path: "native.md",
+  type: "note",
+  tags: ["native"],
+  status: "stable",
+  stalenessClassified: true,
+  trustTier: "human-reviewed",
+  resource: "native-doc",
+  headingPath: "Native prepared document",
+  description: "A prepared native package fixture.",
+  sourceText: "",
+  text: "nativepackedneedle",
+  startLine: 1,
+  endLine: 3,
+};
+const document: PreparedDocument = {
+  documentId: "native-doc",
+  path: "native.md",
+  type: "note",
+  conformance: "strict",
+  diagnostics: [],
+  sections: [section],
+};
+const identity: RemoveIdentity = {
+  documentId: document.documentId,
+  path: document.path,
+};
+const where: SearchWhere = {
+  types: ["note"],
+  tagsAny: ["native"],
+  statuses: ["stable"],
+  trustTiers: ["human-reviewed"],
+  stale: false,
+  conformance: ["strict"],
+};
+const boost: SearchBoost = { body: 2 };
+const options: SearchOptions = {
+  limit: 10,
+  where,
+  asOf: new Date(),
+  match: "all",
+  fields: ["body"],
+  boost,
+  fuzzy: 0.2,
+};
+const native: NativeOkfSearch = NativeOkfSearch.fromPrepared([document]);
+const hits: SearchHit[] = native.search("nativepackedneedle", options);
+const degraded: DegradedDocument[] = native.listDegradedDocuments();
+const suggestions: Suggestion[] = native.autoSuggest("nativepackedneedle", options);
+native.ingestPrepared(document);
+const removed: boolean = native.removeDocument(identity);
+
+void [diagnostic, hits, degraded, suggestions, removed];
+`;
+
+const nativeRuntimeConsumer = `import assert from "node:assert/strict";
+
+const loaded = await import("okf-search-native");
+const api = loaded.default ?? loaded;
+assert.deepEqual(Object.keys(api).sort(), ["NativeOkfSearch"]);
+assert.equal(typeof api.NativeOkfSearch, "function");
+
+const prepared = {
+  documentId: "native-doc",
+  path: "native.md",
+  type: "note",
+  conformance: "strict",
+  diagnostics: [],
+  sections: [{
+    sectionId: "native-doc#root",
+    documentId: "native-doc",
+    conformance: "strict",
+    title: "Native prepared document",
+    path: "native.md",
+    type: "note",
+    tags: ["native"],
+    status: "stable",
+    stalenessClassified: true,
+    trustTier: "human-reviewed",
+    resource: "native-doc",
+    headingPath: "Native prepared document",
+    description: "A prepared native package fixture.",
+    sourceText: "",
+    text: "nativepackedneedle",
+    startLine: 1,
+    endLine: 3,
+  }],
+};
+const replacement = {
+  documentId: "native-doc",
+  path: "native.md",
+  type: "guide",
+  conformance: "strict",
+  diagnostics: [],
+  sections: [{
+    sectionId: "native-doc#root",
+    documentId: "native-doc",
+    conformance: "strict",
+    title: "Native replacement document",
+    path: "native.md",
+    type: "guide",
+    tags: ["replacement"],
+    status: "stable",
+    stalenessClassified: true,
+    trustTier: "human-reviewed",
+    resource: "native-doc",
+    headingPath: "Native replacement document",
+    description: "A replacement native package fixture.",
+    sourceText: "",
+    text: "nativereplacementneedle",
+    startLine: 1,
+    endLine: 3,
+  }],
+};
+const native = api.NativeOkfSearch.fromPrepared([prepared]);
+assert.deepEqual(native.listTypes(), ["note"]);
+assert.deepEqual(native.listDegradedDocuments(), []);
+const initialHits = native.search("nativepackedneedle", {
+  fields: ["body"],
+});
+assert.equal(initialHits.length, 1);
+assert.equal(initialHits[0].documentId, "native-doc");
+assert.equal(initialHits[0].path, "native.md");
+assert.equal(initialHits[0].snippet, "nativepackedneedle");
+assert.throws(
+  () => native.autoSuggest("nativepackedneedle"),
+  /\\[ERR_OKF_UNSUPPORTED\\]/,
+);
+
+native.ingestPrepared(replacement);
+assert.deepEqual(native.listTypes(), ["guide"]);
+assert.deepEqual(native.search("nativepackedneedle"), []);
+assert.equal(native.search("nativereplacementneedle").length, 1);
+assert.equal(
+  native.removeDocument({ documentId: "native-doc", path: "native.md" }),
+  true,
+);
+assert.deepEqual(native.listTypes(), []);
+assert.deepEqual(native.search("nativereplacementneedle"), []);
+assert.equal(
+  native.removeDocument({ documentId: "native-doc", path: "native.md" }),
+  false,
+);
+`;
+
 const runtimeConsumer = `import assert from "node:assert/strict";
 import { join } from "node:path";
 import * as api from "okf-minisearch";
@@ -1070,6 +1291,49 @@ async function inspectPiManifest(
   );
 }
 
+async function inspectNativeManifest(nativeTarball, extractionRoot) {
+  await mkdir(extractionRoot, { recursive: true });
+  run("tar", ["-xzf", nativeTarball, "-C", extractionRoot]);
+
+  const manifestPath = join(extractionRoot, "package", "package.json");
+  const serialized = await readFile(manifestPath, "utf8");
+  const manifest = JSON.parse(serialized);
+  const hostArtifact = currentNativeArtifact();
+
+  await scanPackedPackage(extractionRoot, packageNames.native);
+
+  assert.equal(manifest.name, packageNames.native);
+  assert.equal(manifest.main, "./index.js");
+  assert.equal(manifest.types, "./index.d.ts");
+  assert.deepEqual(manifest.exports, {
+    ".": {
+      types: "./index.d.ts",
+      require: "./index.js",
+      import: "./index.js",
+      default: "./index.js",
+    },
+  });
+  assert.deepEqual(manifest.files, [
+    "index.js",
+    "index.d.ts",
+    "okf-search-native.*.node",
+  ]);
+  assert.equal(manifest.engines?.node, ">=22.19.0");
+  assert.equal(Object.hasOwn(manifest, "type"), false);
+  assert.equal(serialized.includes("workspace:"), false);
+  assert.equal(manifest.napi?.binaryName, packageNames.native);
+  assert.deepEqual(manifest.napi?.targets, [
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+  ]);
+
+  await access(join(extractionRoot, "package", "index.js"));
+  await access(join(extractionRoot, "package", "index.d.ts"));
+  await access(join(extractionRoot, "package", hostArtifact));
+}
+
 async function prepareConsumerRoot(consumerRoot, manifest) {
   await mkdir(consumerRoot, { recursive: true });
   await writeJson(join(consumerRoot, "package.json"), {
@@ -1148,6 +1412,32 @@ async function prepareLibraryConsumer(temporaryRoot, libraryTarball) {
       "",
     ].join("\n"),
   );
+  return consumerRoot;
+}
+
+async function prepareNativeConsumer(temporaryRoot, nativeTarball) {
+  const consumerRoot = join(temporaryRoot, "native-consumer");
+  await prepareConsumerRoot(consumerRoot, {
+    name: "okf-search-native-packed-consumer",
+    dependencies: {
+      "okf-search-native": `file:../tarballs/${basename(nativeTarball)}`,
+    },
+  });
+  await writeFile(join(consumerRoot, "native-consumer.mts"), nativeTypeConsumer);
+  await writeFile(join(consumerRoot, "native-runtime.mjs"), nativeRuntimeConsumer);
+  await writeJson(join(consumerRoot, "native-tsconfig.json"), {
+    compilerOptions: {
+      target: "ES2022",
+      module: "NodeNext",
+      moduleResolution: "NodeNext",
+      strict: true,
+      noEmit: true,
+      skipLibCheck: false,
+      types: ["node"],
+      typeRoots: [join(root, "node_modules", "@types")],
+    },
+    include: ["native-consumer.mts"],
+  });
   return consumerRoot;
 }
 
@@ -1376,6 +1666,21 @@ async function checkRollupConsumers(consumerRoot) {
   );
 }
 
+function checkNativeConsumer(consumerRoot) {
+  run(
+    process.execPath,
+    [
+      join(root, "node_modules", "typescript", "bin", "tsc"),
+      "--project",
+      "native-tsconfig.json",
+      "--pretty",
+      "false",
+    ],
+    { cwd: consumerRoot },
+  );
+  run(process.execPath, ["native-runtime.mjs"], { cwd: consumerRoot });
+}
+
 async function main() {
   const temporaryRoot = await mkdtemp(
     join(tmpdir(), "okf-minisearch-package-"),
@@ -1391,6 +1696,7 @@ async function main() {
       temporaryRoot,
     );
     const piPackage = await packPackage("pi", tarballRoot, temporaryRoot);
+    const nativePackage = await packPackage("native", tarballRoot, temporaryRoot);
     const libraryManifest = JSON.parse(
       await readFile(join(packageRoots.library, "package.json"), "utf8"),
     );
@@ -1417,9 +1723,17 @@ async function main() {
       join(temporaryRoot, "extracted", "pi"),
       expectedLibraryRange,
     );
+    await inspectNativeManifest(
+      nativePackage.tarball,
+      join(temporaryRoot, "extracted", "native"),
+    );
     const libraryConsumerRoot = await prepareLibraryConsumer(
       temporaryRoot,
       libraryPackage.tarball,
+    );
+    const nativeConsumerRoot = await prepareNativeConsumer(
+      temporaryRoot,
+      nativePackage.tarball,
     );
     const piConsumerRoot = await preparePiConsumer(
       temporaryRoot,
@@ -1428,23 +1742,32 @@ async function main() {
       libraryVersion,
     );
 
-    for (const consumerRoot of [libraryConsumerRoot, piConsumerRoot]) {
+    for (const consumerRoot of [
+      libraryConsumerRoot,
+      nativeConsumerRoot,
+      piConsumerRoot,
+    ]) {
       run(
         pnpm,
         ["install", "--ignore-scripts", "--no-frozen-lockfile"],
         { cwd: consumerRoot },
       );
       await checkPrivatePackageBoundary(consumerRoot);
-      await checkCurrentLibraryTarball(consumerRoot, libraryPackage.tarball);
     }
+    await checkCurrentLibraryTarball(
+      libraryConsumerRoot,
+      libraryPackage.tarball,
+    );
+    await checkCurrentLibraryTarball(piConsumerRoot, libraryPackage.tarball);
 
     checkLibraryConsumer(libraryConsumerRoot);
     await checkEsbuildConsumers(libraryConsumerRoot);
     await checkRollupConsumers(libraryConsumerRoot);
+    checkNativeConsumer(nativeConsumerRoot);
     run(process.execPath, ["smoke.mjs"], { cwd: piConsumerRoot });
 
     console.log(
-      `\nPacked packages passed manifest, install, Node/browser TypeScript, runtime, esbuild, Rollup, and Pi loader checks: ${relative(root, packageRoots.library)}, ${relative(root, packageRoots.pi)}`,
+      `\nPacked packages passed manifest, install, Node/browser TypeScript, runtime, esbuild, Rollup, and Pi loader checks: ${relative(root, packageRoots.library)}, ${relative(root, packageRoots.pi)}, ${relative(root, packageRoots.native)}`,
     );
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
