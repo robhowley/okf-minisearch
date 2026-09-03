@@ -86,14 +86,6 @@ pub struct PreparedDocument {
 
 #[napi(object)]
 #[derive(Clone, Debug)]
-pub struct RemoveIdentity {
-    #[napi(js_name = "documentId")]
-    pub document_id: String,
-    pub path: String,
-}
-
-#[napi(object)]
-#[derive(Clone, Debug)]
 pub struct SearchWhere {
     pub types: Option<Vec<String>>,
     #[napi(js_name = "tagsAny")]
@@ -1023,26 +1015,18 @@ impl Engine {
         self.verify_post_commit_count(&document.document_id, count)
     }
 
-    fn remove(&mut self, identity: RemoveIdentity) -> Result<bool, EngineError> {
+    fn remove(&mut self, document_id: &str) -> Result<bool, EngineError> {
         self.usable()?;
-        let Some(existing) = self.documents.get(&identity.document_id).cloned() else {
-            self.verify_count(&identity.document_id, 0)?;
+        let Some(existing) = self.documents.get(document_id).cloned() else {
+            self.verify_count(document_id, 0)?;
             return Ok(false);
         };
-        if existing.path != identity.path {
-            return Err(EngineError::Invalid(format!(
-                "remove path `{}` disagrees with indexed path `{}`",
-                identity.path, existing.path
-            )));
-        }
-        self.verify_count(&identity.document_id, existing.section_count)?;
-        self.writer.delete_term(Term::from_field_text(
-            self.fields.document_id,
-            &identity.document_id,
-        ));
-        self.commit(&format!("remove `{}`", identity.document_id))?;
-        self.documents.remove(&identity.document_id);
-        self.verify_post_commit_count(&identity.document_id, 0)?;
+        self.verify_count(document_id, existing.section_count)?;
+        self.writer
+            .delete_term(Term::from_field_text(self.fields.document_id, document_id));
+        self.commit(&format!("remove `{document_id}`"))?;
+        self.documents.remove(document_id);
+        self.verify_post_commit_count(document_id, 0)?;
         Ok(true)
     }
 
@@ -1569,8 +1553,8 @@ impl NativeOkfSearch {
     }
 
     #[napi(js_name = "removeDocument")]
-    pub fn remove_document(&self, identity: RemoveIdentity) -> Result<bool, Error> {
-        self.inner.lock().remove(identity).map_err(native_error)
+    pub fn remove_document(&self, document_id: String) -> Result<bool, Error> {
+        self.inner.lock().remove(&document_id).map_err(native_error)
     }
 
     #[napi]
@@ -1978,15 +1962,13 @@ mod tests {
             BTreeSet::from(["decision".to_owned()]),
         );
 
-        assert!(
-            engine
-                .remove(RemoveIdentity {
-                    document_id: "decision".to_owned(),
-                    path: "decision.md".to_owned(),
-                })
-                .expect("remove should commit")
-        );
+        assert!(engine.remove("decision").expect("remove should commit"));
         assert!(result_ids(&engine, Some(replacement_filter), BEFORE).is_empty());
+        assert!(
+            !engine
+                .remove("decision")
+                .expect("repeat removal should be absent")
+        );
     }
 
     #[test]
@@ -2423,10 +2405,7 @@ mod tests {
         assert_napi_unusable(native.list_degraded_documents());
         assert_napi_unusable(native.auto_suggest("healthy".to_owned(), None));
         assert_napi_unusable(native.ingest_prepared(document(strict_section("second", "healthy"))));
-        assert_napi_unusable(native.remove_document(RemoveIdentity {
-            document_id: "first".to_owned(),
-            path: "first.md".to_owned(),
-        }));
+        assert_napi_unusable(native.remove_document("first".to_owned()));
     }
 
     #[test]
@@ -2500,10 +2479,7 @@ mod tests {
         remove.count_results.push_back(Ok(1));
         remove.count_results.push_back(Ok(1));
         let error = remove
-            .remove(RemoveIdentity {
-                document_id: "first".to_owned(),
-                path: "first.md".to_owned(),
-            })
+            .remove("first")
             .expect_err("post-commit count mismatch");
         assert!(matches!(error, EngineError::Poisoned(_)));
         assert!(matches!(remove.list_types(), Err(EngineError::Poisoned(_))));
@@ -2599,14 +2575,7 @@ mod tests {
         let removed = strict_section("removed", "nested removedneedle");
         let mut engine = Engine::new(vec![document(kept), document(removed)]).expect("engine");
 
-        assert!(
-            engine
-                .remove(RemoveIdentity {
-                    document_id: "removed".to_owned(),
-                    path: "removed.md".to_owned(),
-                })
-                .expect("remove")
-        );
+        assert!(engine.remove("removed").expect("remove"));
 
         let hits = engine
             .search(

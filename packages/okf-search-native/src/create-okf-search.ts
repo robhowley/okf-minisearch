@@ -127,7 +127,10 @@ export function createOkfSearch(
         throwPreparationError(error);
       }
 
-      return callNative(identity.path, () => native.removeDocument(identity));
+      return callNative(
+        identity.path,
+        () => native.removeDocument(identity.documentId),
+      );
     },
 
     search(query, options): OkfSearchHit[] {

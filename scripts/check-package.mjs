@@ -875,7 +875,6 @@ import type {
   Diagnostic,
   PreparedDocument,
   PreparedSection,
-  RemoveIdentity,
   SearchBoost,
   SearchHit,
   SearchOptions,
@@ -915,10 +914,6 @@ const document: PreparedDocument = {
   diagnostics: [],
   sections: [section],
 };
-const identity: RemoveIdentity = {
-  documentId: document.documentId,
-  path: document.path,
-};
 const where: SearchWhere = {
   types: ["note"],
   tagsAny: ["native"],
@@ -942,7 +937,9 @@ const hits: SearchHit[] = native.search("nativepackedneedle", options);
 const degraded: DegradedDocument[] = native.listDegradedDocuments();
 const suggestions: Suggestion[] = native.autoSuggest("nativepackedneedle", options);
 native.ingestPrepared(document);
-const removed: boolean = native.removeDocument(identity);
+const removed: boolean = native.removeDocument(document.documentId);
+// @ts-expect-error Prepared removal accepts only a document ID.
+native.removeDocument({ documentId: document.documentId, path: document.path });
 void [diagnostic, hits, degraded, suggestions, removed];
 `;
 
@@ -1111,9 +1108,10 @@ native.ingestPrepared(replacement);
 assert.deepEqual(native.listTypes(), ["guide"]);
 assert.deepEqual(native.search("nativepackedneedle"), []);
 assert.equal(native.search("nativereplacementneedle").length, 1);
-assert.equal(native.removeDocument({ documentId: "native-doc", path: "native.md" }), true);
+assert.equal(native.removeDocument("native-doc"), true);
 assert.deepEqual(native.listTypes(), []);
-assert.equal(native.removeDocument({ documentId: "native-doc", path: "native.md" }), false);
+assert.equal(native.removeDocument("native-doc"), false);
+assert.equal(native.removeDocument("missing"), false);
 `;
 
 const nativePreparedCjsConsumer = `const assert = require("node:assert/strict");

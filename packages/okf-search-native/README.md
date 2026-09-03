@@ -62,7 +62,7 @@ import { NativeOkfSearch } from "okf-search-native/prepared";
 const index = NativeOkfSearch.fromPrepared(preparedDocuments);
 const hits = index.search("memory", { limit: 10, fields: ["body"] });
 index.ingestPrepared(preparedDocument);
-index.removeDocument({ documentId: "docs/old", path: "docs/old.md" });
+index.removeDocument("docs/old");
 ```
 
 Prepared DTO declarations are exported from `okf-search-native/prepared`, not

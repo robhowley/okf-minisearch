@@ -298,8 +298,10 @@ const index = NativeOkfSearch.fromPrepared([document]);
 assert.equal(index.search("release-prepared-needle")[0]?.documentId, "prepared");
 index.ingestPrepared({ ...document, type: "guide", sections: [{ ...section, type: "guide", text: "release-prepared-replacement" }] });
 assert.deepEqual(index.listTypes(), ["guide"]);
-assert.equal(index.removeDocument({ documentId: "prepared", path: "prepared.md" }), true);
+assert.equal(index.removeDocument("prepared"), true);
 assert.deepEqual(index.listTypes(), []);
+assert.equal(index.removeDocument("prepared"), false);
+assert.equal(index.removeDocument("missing"), false);
 `,
       "prepared.cjs": `const assert = require("node:assert/strict");
 const { NativeOkfSearch } = require("okf-search-native/prepared");

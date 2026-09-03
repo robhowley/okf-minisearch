@@ -163,11 +163,10 @@ test("ESM and CommonJS resolve the root and prepared subpath", async () => {
   assert.equal(prepared.search("prepared-runtime-marker")[0]?.documentId, "prepared");
   prepared.ingestPrepared(preparedDocument("prepared-added", "prepared-ingest-marker"));
   assert.equal(prepared.search("prepared-ingest-marker", { match: "all" }).length, 1);
-  assert.equal(prepared.removeDocument({
-    documentId: "prepared-added",
-    path: "prepared-added.md",
-  }), true);
+  assert.equal(prepared.removeDocument("prepared-added"), true);
   assert.deepEqual(prepared.search("prepared-ingest-marker", { match: "all" }), []);
+  assert.equal(prepared.removeDocument("prepared-added"), false);
+  assert.equal(prepared.removeDocument("missing"), false);
 
   const directoryRoot = await mkdtemp(join(tmpdir(), "okf-search-native-package-api-"));
   try {

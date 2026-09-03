@@ -45,6 +45,10 @@ type Same<T, U> =
   (<V>() => V extends T ? 1 : 2) extends
   (<V>() => V extends U ? 1 : 2) ? true : false;
 type Assert<T extends true> = T;
+type ExactPreparedRemove = Assert<Same<
+  NativeOkfSearch["removeDocument"],
+  (documentId: string) => boolean
+>>;
 
 type ExactErrorCode = Assert<Same<
   OkfErrorCode,
@@ -109,6 +113,9 @@ declare const prepared: PreparedDocument[];
 const native = NativeOkfSearch.fromPrepared(prepared);
 const preparedOptions: PreparedSearchOptions = { match: "all" };
 native.search("memory", preparedOptions);
+native.removeDocument("prepared");
+// @ts-expect-error Prepared removal accepts only a document ID.
+native.removeDocument({ documentId: "prepared", path: "prepared.md" });
 
 void [
   unsupported,
@@ -125,6 +132,7 @@ void [
   null as ExactSearchKeys | null,
   null as ExactWhereKeys | null,
   null as ExactAutoSuggest | null,
+  null as ExactPreparedRemove | null,
   null as IsoDateTime | null,
   null as OkfAttester | null,
   null as OkfDiagnostic | null,

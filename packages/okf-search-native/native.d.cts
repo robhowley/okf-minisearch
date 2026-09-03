@@ -8,7 +8,7 @@
 export declare class NativeOkfSearch {
   static fromPrepared(documents: Array<PreparedDocument>): NativeOkfSearch
   ingestPrepared(document: PreparedDocument): void
-  removeDocument(identity: RemoveIdentity): boolean
+  removeDocument(documentId: string): boolean
   search(query: string, options?: SearchOptions | undefined | null): Array<SearchHit>
   listTypes(): Array<string>
   listDegradedDocuments(): Array<DegradedDocument>
@@ -63,11 +63,6 @@ export interface PreparedSection {
   text: string
   startLine: number
   endLine: number
-}
-
-export interface RemoveIdentity {
-  documentId: string
-  path: string
 }
 
 export interface SearchBoost {
