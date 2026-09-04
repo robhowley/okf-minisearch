@@ -1283,7 +1283,7 @@ test("registry proof checks owner, tag, bytes, SRI, provenance workflow, and rel
   }
 })
 
-test("release workflow keeps the eight-job transaction DAG and native target CPU bindings", () => {
+test("release workflow keeps the transaction DAG, target CPU bindings, and candidate failure policy", () => {
   const path = new URL("../.github/workflows/release-please.yml", import.meta.url)
   const parsed = JSON.parse(execFileSync("ruby", ["-r", "yaml", "-r", "json", "-e", "print JSON.generate(YAML.safe_load(File.read(ARGV[0]), aliases: true))", path.pathname], { encoding: "utf8" }))
   assert.deepEqual(Object.keys(parsed.jobs), [
@@ -1295,6 +1295,20 @@ test("release workflow keeps the eight-job transaction DAG and native target CPU
   assert.deepEqual(needs("publication_transaction"), ["release_metadata", "candidate_plan", "native_candidate_test"])
   assert.deepEqual(needs("js_post_publish_test"), ["release_metadata", "candidate_plan", "publication_transaction"])
   assert.equal(Object.values(parsed.jobs).filter((job) => job.environment === "npm-production").length, 1)
+  const candidateJob = parsed.jobs.native_candidate_test
+  assert.equal(candidateJob.strategy["fail-fast"], false)
+  assert.equal(candidateJob["continue-on-error"], "${{ matrix.allow-failure }}")
+  assert.deepEqual(
+    Object.fromEntries(candidateJob.strategy.matrix.include.map(({ target, "allow-failure": allowFailure }) => [target, allowFailure])),
+    {
+      "x86_64-unknown-linux-gnu": false,
+      "x86_64-apple-darwin": false,
+      "aarch64-apple-darwin": false,
+      "x86_64-pc-windows-msvc": true,
+    },
+  )
+  assert.match(parsed.jobs.publication_transaction.if, /always\(\)/)
+  assert.match(parsed.jobs.publication_transaction.if, /needs\.native_candidate_test\.result == 'success'/)
   const releaseSteps = parsed.jobs.native_release_build.steps
   assert.equal(releaseSteps.find(({ name }) => name === "Install dependencies for target CPU").run, "pnpm install --frozen-lockfile --cpu=${{ matrix.node-arch }}")
   assert.equal(parsed.jobs.native_release_build.strategy.matrix.include.length, 4)

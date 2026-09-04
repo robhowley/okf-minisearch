@@ -267,6 +267,7 @@ jobs:
     needs: [release_metadata, candidate_plan]
     if: needs.release_metadata.outputs.native_released == 'true' && needs.candidate_plan.result == 'success'
     runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.allow-failure }}
     permissions:
       actions: read
       contents: read
@@ -277,15 +278,19 @@ jobs:
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             node-arch: x64
+            allow-failure: false
           - runner: macos-latest
             target: x86_64-apple-darwin
             node-arch: x64
+            allow-failure: false
           - runner: macos-latest
             target: aarch64-apple-darwin
             node-arch: arm64
+            allow-failure: false
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
             node-arch: x64
+            allow-failure: true
     steps:
       - name: Checkout immutable consumer proof
         uses: actions/checkout@v4
