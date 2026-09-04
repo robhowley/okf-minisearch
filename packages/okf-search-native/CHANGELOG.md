@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/robhowley/okf-minisearch/compare/okf-search-native-v0.3.0...okf-search-native-v0.3.1) (2026-09-04)
+
+
+### Bug Fixes
+
+* **okf-search-native:** reject fractional stale epochs ([#62](https://github.com/robhowley/okf-minisearch/issues/62)) ([0fe89a2](https://github.com/robhowley/okf-minisearch/commit/0fe89a2c6d853ece2da826c9f3a8a2b638141285))
+
 ## [0.3.0](https://github.com/robhowley/okf-minisearch/compare/okf-search-native-v0.2.0...okf-search-native-v0.3.0) (2026-09-04)
 
 
