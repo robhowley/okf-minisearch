@@ -622,6 +622,7 @@ test("local native mode selects the planned tarball and runs all package consume
     assert.equal(install.args.at(-1), resolve(data.directory, data.plan.packages[0].tarball))
     assert.deepEqual([...consumerSources.keys()], ["root.mjs", "root.cjs", "prepared.mjs", "prepared.cjs"])
     assert.match(consumerSources.get("root.mjs"), /openOkf/)
+    assert.match(consumerSources.get("root.mjs"), /index\.search\("release-added-needle", \{ match: "all" \}\)/)
     assert.match(consumerSources.get("prepared.mjs"), /ingestPrepared/)
     assert.equal(commands.some(({ args }) => args.includes("--project") && args.includes("tsconfig.json")), true)
   } finally {

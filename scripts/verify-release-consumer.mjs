@@ -273,7 +273,7 @@ assert.equal(index.search("release-raw-needle")[0]?.documentId, "raw");
 assert.equal(index.ingest({ path: "added.md", markdown: "---\\ntype: added\\n---\\nrelease-added-needle\\n" }).conformance, "strict");
 assert.deepEqual(index.listTypes(), ["added", "note"]);
 assert.equal(index.remove("./added.md"), true);
-assert.deepEqual(index.search("release-added-needle"), []);
+assert.deepEqual(index.search("release-added-needle", { match: "all" }), []);
 assert.throws(() => index.autoSuggest("release"), (error) => error instanceof api.OkfError && error.code === "ERR_OKF_UNSUPPORTED");
 const fixture = join(process.cwd(), "fixture");
 const source = join(fixture, "nested", "directory.md");
