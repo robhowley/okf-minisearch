@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, join, resolve } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { expectedArtifactNames } from "../packages/okf-search-native/scripts/verify-release-artifacts.mjs"
@@ -54,15 +54,15 @@ function fail(message) {
   throw new Error(message)
 }
 
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { encoding: "utf8", ...options })
+function run(command, args, options = {}, runCommand = spawnSync) {
+  const result = runCommand(command, args, { encoding: "utf8", ...options })
   if (result.error) throw result.error
   if (result.status !== 0) fail(`${command} ${args.join(" ")} exited with ${result.status}${result.stderr ? `: ${result.stderr.trim()}` : ""}`)
   return result.stdout.trim()
 }
 
-function runTar(args) {
-  return run("tar", args)
+export function runTar(tarball, operation, extraArgs = [], runCommand = spawnSync) {
+  return run("tar", [operation, basename(tarball), ...extraArgs], { cwd: dirname(tarball) }, runCommand)
 }
 
 function digest(algorithm, bytes, encoding) {
@@ -145,7 +145,7 @@ export async function inspectPublicationArtifact(tarball, selected) {
   assert.match(selected.version ?? "", SEMVER, "publication artifact version")
   const archive = await readFile(tarball)
   assert.ok(archive.length > 0, "publication artifact must not be empty")
-  const listing = runTar(["-tzf", tarball]).split(/\r?\n/).filter(Boolean)
+  const listing = runTar(tarball, "-tzf").split(/\r?\n/).filter(Boolean)
   assert.ok(listing.length > 0, "publication artifact has no entries")
   for (const item of listing) {
     assert.ok(item === "package" || item === "package/" || item.startsWith("package/"), `publication artifact path escapes package/: ${item}`)
@@ -154,7 +154,7 @@ export async function inspectPublicationArtifact(tarball, selected) {
 
   const extractionRoot = await mkdtemp(join(tmpdir(), "okf-publication-artifact-"))
   try {
-    runTar(["-xzf", tarball, "-C", extractionRoot])
+    runTar(tarball, "-xzf", ["-C", extractionRoot])
     const packageRoot = join(extractionRoot, "package")
     const files = (await regularFiles(packageRoot)).sort()
     let unpackedBytes = 0

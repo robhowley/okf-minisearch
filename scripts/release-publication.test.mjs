@@ -17,6 +17,7 @@ import {
   createPublicationPlan,
   inspectPublicationArtifact,
   runPublicationTransaction,
+  runTar,
   verifyNpmPublication,
   verifyPublicationPlan,
 } from "./release-publication.mjs"
@@ -248,6 +249,32 @@ function packageSpec(name, version) {
     version,
   }
 }
+
+test("tarball checks use a local basename for drive-like archive paths", () => {
+  const tarball = "D:/a/_temp/publication-plan/okf-search-native-0.3.1.tgz"
+  const commands = []
+  const runCommand = (command, args, options) => {
+    commands.push({ command, args, options })
+    return { status: 0, stdout: "package\\n", stderr: "" }
+  }
+
+  runTar(tarball, "-tzf", [], runCommand)
+  runTar(tarball, "-xzf", ["-C", "/tmp/extracted"], runCommand)
+
+  assert.deepEqual(commands, [
+    {
+      command: "tar",
+      args: ["-tzf", "okf-search-native-0.3.1.tgz"],
+      options: { encoding: "utf8", cwd: "D:/a/_temp/publication-plan" },
+    },
+    {
+      command: "tar",
+      args: ["-xzf", "okf-search-native-0.3.1.tgz", "-C", "/tmp/extracted"],
+      options: { encoding: "utf8", cwd: "D:/a/_temp/publication-plan" },
+    },
+  ])
+  assert.equal(commands.every(({ args }) => !args[1].includes("D:")), true)
+})
 
 const workspaceRoot = resolve(".")
 
@@ -533,6 +560,9 @@ test("real selected JS packages run both production smokes from exact local byte
     const installs = commands.filter(({ args }) => args[0] === "install")
     assert.equal(installs.length, 2)
     assert.equal(installs.every(({ args }) => args.includes("--ignore-scripts")), true)
+    const tarCommands = commands.filter(({ command }) => command === "tar")
+    assert.ok(tarCommands.length > 0)
+    assert.equal(tarCommands.every(({ args, cwd }) => args[0] === "-xzf" && args[1] === basename(args[1]) && !args[1].includes(":") && cwd === directory), true)
     assert.equal(commands.filter(({ args }) => args.some((arg) => /(?:minisearch|pi)-smoke\.mjs$/.test(arg))).length, 2)
     assert.equal(commands.some(({ args }) => args[0] === "ls" && args.includes("--long")), true, "Pi selected-byte dependency proof did not run")
   } finally {
