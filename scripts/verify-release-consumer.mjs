@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, isAbsolute, join, resolve, sep } from "node:path"
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { verifyPublicationPlan } from "./release-publication.mjs"
@@ -124,7 +124,7 @@ async function fileMap(root, directory = root) {
 async function assertInstalledBytes(tarball, packageRoot, onCommand, runCommand) {
   const extracted = await mkdtemp(join(tmpdir(), "okf-js-tarball-bytes-"))
   try {
-    run("tar", ["-xzf", tarball, "-C", extracted], extracted, process.env, false, onCommand, runCommand)
+    run("tar", ["-xzf", basename(tarball), "-C", extracted], dirname(tarball), process.env, false, onCommand, runCommand)
     assert.deepEqual(await fileMap(packageRoot), await fileMap(join(extracted, "package")), `installed files differ from ${basename(tarball)}`)
   } finally {
     await rm(extracted, { recursive: true, force: true })
