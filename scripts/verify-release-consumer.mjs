@@ -14,6 +14,20 @@ import { NPM_REGISTRY } from "./npm-registry-state.mjs"
 const JS_PACKAGES = new Set(["okf-minisearch", "pi-okf-search"])
 const NATIVE_PACKAGE = "okf-search-native"
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
+const piPackageManifest = JSON.parse(await readFile(new URL("../packages/pi-okf-search/package.json", import.meta.url), "utf8"))
+const PI_HOST_DEPENDENCIES = Object.fromEntries(
+  Object.keys(piPackageManifest.peerDependencies).map((name) => [name, piPackageManifest.devDependencies?.[name]]),
+)
+for (const [name, version] of Object.entries(PI_HOST_DEPENDENCIES)) assert.match(version ?? "", SEMVER, `exact Pi host version for ${name}`)
+
+function consumerDependencies(name, dependency, selectedMini) {
+  const dependencies = { [name]: dependency }
+  if (name === "pi-okf-search") {
+    if (selectedMini) dependencies["okf-minisearch"] = selectedMini
+    Object.assign(dependencies, PI_HOST_DEPENDENCIES)
+  }
+  return dependencies
+}
 
 function fail(message) {
   throw new Error(message)
@@ -180,8 +194,11 @@ async function installConsumer(entry, entries, directory, onCommand, runCommand)
   const root = await mkdtemp(join(tmpdir(), "okf-js-release-consumer-"))
   try {
     const selectedMini = entries.find(({ name }) => name === "okf-minisearch")
-    const dependencies = { [entry.name]: `file:${join(directory, entry.tarball)}` }
-    if (entry.name === "pi-okf-search" && selectedMini) dependencies[selectedMini.name] = `file:${join(directory, selectedMini.tarball)}`
+    const dependencies = consumerDependencies(
+      entry.name,
+      `file:${join(directory, entry.tarball)}`,
+      selectedMini && `file:${join(directory, selectedMini.tarball)}`,
+    )
     await writeFile(join(root, "package.json"), `${JSON.stringify({
       name: "okf-js-release-consumer",
       version: "1.0.0",
@@ -214,8 +231,7 @@ export async function verifyRegistryConsumer(name, version, selectedMini, { onCo
   if (selectedMini) assert.match(selectedMini.version ?? "", SEMVER, "exact selected MiniSearch version")
   const root = await mkdtemp(join(tmpdir(), "okf-js-release-consumer-"))
   try {
-    const dependencies = { [name]: version }
-    if (name === "pi-okf-search" && selectedMini) dependencies["okf-minisearch"] = selectedMini.version
+    const dependencies = consumerDependencies(name, version, selectedMini?.version)
     await writeFile(join(root, "package.json"), `${JSON.stringify({ name: "okf-js-release-consumer", version: "1.0.0", private: true, type: "module", dependencies }, null, 2)}\n`)
     const npm = process.platform === "win32" ? "npm.cmd" : "npm"
     run(npm, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock", "--registry", NPM_REGISTRY, "--save-exact"], root, process.env, false, onCommand, runCommand)
