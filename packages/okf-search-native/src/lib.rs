@@ -1204,7 +1204,10 @@ fn validate_document(document: &PreparedDocument) -> Result<(), EngineError> {
         )));
     }
     if let Some(value) = document.stale_after_epoch
-        && (!value.is_finite() || value < i64::MIN as f64 || value > i64::MAX as f64)
+        && (!value.is_finite()
+            || value.fract() != 0.0
+            || value < i64::MIN as f64
+            || value > i64::MAX as f64)
     {
         return Err(EngineError::Invalid(format!(
             "document `{}` has an invalid staleAfterEpoch",
@@ -1307,7 +1310,7 @@ fn add_section(
         doc.add_text(fields.status, status);
     }
     if let Some(epoch) = document.stale_after_epoch {
-        doc.add_i64(fields.stale_after_epoch, epoch.round() as i64);
+        doc.add_i64(fields.stale_after_epoch, epoch as i64);
     }
     // The positive marker is sufficient: missing means unclassified. Avoiding
     // a posting for the overwhelmingly uninteresting false value keeps this
@@ -2199,6 +2202,9 @@ mod tests {
         let mut invalid_deadline = valid.clone();
         invalid_deadline.stale_after_epoch = Some(f64::NAN);
         cases.push(("invalid staleAfterEpoch", vec![invalid_deadline]));
+        let mut fractional_deadline = valid.clone();
+        fractional_deadline.stale_after_epoch = Some(FIRST_DEADLINE as f64 + 0.5);
+        cases.push(("fractional staleAfterEpoch", vec![fractional_deadline]));
         let mut unclassified_deadline = valid.clone();
         unclassified_deadline.staleness_classified = false;
         unclassified_deadline.stale_after_epoch = Some(FIRST_DEADLINE as f64);
