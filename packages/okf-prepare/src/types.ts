@@ -7,6 +7,8 @@ export type OkfTrustTier =
   | "machine-confirmed"
   | "human-reviewed";
 
+export type OkfConformance = "strict" | "degraded";
+
 export interface OkfDocumentInput {
   readonly path: string;
   readonly markdown: string;

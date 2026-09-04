@@ -1,0 +1,208 @@
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import test from "node:test";
+
+const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const require = createRequire(import.meta.url);
+
+async function readJson(path) {
+  return JSON.parse(await readFile(path, "utf8"));
+}
+
+function markdown(type, marker) {
+  return `---\ntype: ${type}\n---\n${marker}\n`;
+}
+
+function preparedDocument(documentId, marker) {
+  return {
+    documentId,
+    path: `${documentId}.md`,
+    type: "note",
+    conformance: "strict",
+    diagnostics: [],
+    title: `Prepared ${marker}`,
+    tags: ["native"],
+    status: "stable",
+    staleAfterEpoch: undefined,
+    stalenessClassified: true,
+    trustTier: "human-reviewed",
+    resource: documentId,
+    description: "Prepared native package API fixture",
+    sourceText: marker,
+    sections: [{
+      sectionId: `${documentId}#root`,
+      headingPath: "Overview",
+      text: marker,
+      startLine: 1,
+      endLine: 3,
+    }],
+  };
+}
+
+test("manifest exposes only the friendly root and prepared binding", async () => {
+  const manifest = await readJson(join(packageRoot, "package.json"));
+
+  assert.equal(manifest.type, undefined);
+  assert.equal(manifest.main, "./dist/index.cjs");
+  assert.equal(manifest.module, "./dist/index.mjs");
+  assert.equal(manifest.types, "./dist/index.d.ts");
+  assert.deepEqual(manifest.exports, {
+    ".": {
+      import: {
+        types: "./dist/index.d.mts",
+        default: "./dist/index.mjs",
+      },
+      require: {
+        types: "./dist/index.d.cts",
+        default: "./dist/index.cjs",
+      },
+      default: "./dist/index.mjs",
+    },
+    "./prepared": {
+      types: "./native.d.cts",
+      import: "./native.cjs",
+      require: "./native.cjs",
+      default: "./native.cjs",
+    },
+  });
+  assert.deepEqual(manifest.files, [
+    "dist",
+    "native.cjs",
+    "native.d.cts",
+    "okf-search-native.*.node",
+  ]);
+  assert.equal(manifest.dependencies, undefined);
+  assert.equal(manifest.optionalDependencies, undefined);
+  assert.equal(manifest.browser, undefined);
+  assert.equal(manifest.scripts.install, undefined);
+  assert.equal(manifest.exports["./native.cjs"], undefined);
+});
+
+test("root declarations are identical and contain no private package reference", async () => {
+  const declarations = await Promise.all([
+    "index.d.mts",
+    "index.d.cts",
+    "index.d.ts",
+  ].map((filename) => readFile(join(packageRoot, "dist", filename), "utf8")));
+
+  assert.equal(declarations[0], declarations[1]);
+  assert.equal(declarations[1], declarations[2]);
+  assert.doesNotMatch(declarations[0], /@okf-internal\/prepare|workspace:/);
+});
+
+test("ESM and CommonJS resolve the root and prepared subpath", async () => {
+  const esmRoot = await import("okf-search-native");
+  const cjsRoot = require("okf-search-native");
+  const esmPrepared = await import("okf-search-native/prepared");
+  const cjsPrepared = require("okf-search-native/prepared");
+
+  for (const root of [esmRoot, cjsRoot]) {
+    assert.deepEqual(Object.keys(root).sort(), [
+      "OkfError",
+      "createOkfSearch",
+      "openOkf",
+      "validateOkfDocument",
+    ]);
+    assert.equal("default" in root, false);
+    assert.equal("NativeOkfSearch" in root, false);
+
+    const error = new root.OkfError("ERR_OKF_UNSUPPORTED", "autoSuggest");
+    assert.equal(error.name, "OkfError");
+    assert.equal(error.code, "ERR_OKF_UNSUPPORTED");
+    assert.equal(error.path, "autoSuggest");
+    assert.equal(error.message, "Unsupported OKF operation: autoSuggest");
+    assert.equal(Object.hasOwn(error, "field"), false);
+    assert.equal(Object.hasOwn(error, "cause"), false);
+
+    const index = root.createOkfSearch([{
+      path: "package-api.md",
+      markdown: "---\ntype: note\n---\npackage-api-marker\n",
+    }]);
+    assert.equal(index.search("package-api-marker")[0]?.documentId, "package-api");
+    assert.equal(root.validateOkfDocument({
+      path: "valid.md",
+      markdown: "---\ntype: note\n---\nvalid\n",
+    }).isValid, true);
+  }
+
+  for (const prepared of [esmPrepared, cjsPrepared]) {
+    assert.equal(typeof prepared.NativeOkfSearch.fromPrepared, "function");
+    const index = prepared.NativeOkfSearch.fromPrepared([]);
+    assert.deepEqual(index.listTypes(), []);
+  }
+  assert.deepEqual(Object.keys(cjsPrepared), ["NativeOkfSearch"]);
+
+  const index = cjsRoot.createOkfSearch([
+    { path: "smoke.md", markdown: markdown("note", "friendly-runtime-marker") },
+  ]);
+  assert.equal(index.ingest({
+    path: "nested/added.md",
+    markdown: markdown("guide", "friendly-ingest-marker"),
+  }).conformance, "strict");
+  assert.deepEqual(index.listTypes(), ["guide", "note"]);
+  assert.equal(index.remove("./nested//added.md"), true);
+  assert.deepEqual(index.search("friendly-ingest-marker", { match: "all" }), []);
+  assert.throws(
+    () => index.autoSuggest("friendly"),
+    (error) => error instanceof cjsRoot.OkfError &&
+      error.code === "ERR_OKF_UNSUPPORTED" &&
+      error.path === "autoSuggest",
+  );
+
+  const prepared = cjsPrepared.NativeOkfSearch.fromPrepared([
+    preparedDocument("prepared", "prepared-runtime-marker"),
+  ]);
+  assert.equal(prepared.search("prepared-runtime-marker")[0]?.documentId, "prepared");
+  prepared.ingestPrepared(preparedDocument("prepared-added", "prepared-ingest-marker"));
+  assert.equal(prepared.search("prepared-ingest-marker", { match: "all" }).length, 1);
+  assert.equal(prepared.removeDocument("prepared-added"), true);
+  assert.deepEqual(prepared.search("prepared-ingest-marker", { match: "all" }), []);
+  assert.equal(prepared.removeDocument("prepared-added"), false);
+  assert.equal(prepared.removeDocument("missing"), false);
+
+  const directoryRoot = await mkdtemp(join(tmpdir(), "okf-search-native-package-api-"));
+  try {
+    const nestedRoot = join(directoryRoot, "nested");
+    await mkdir(nestedRoot, { recursive: true });
+    await writeFile(
+      join(nestedRoot, "directory.md"),
+      markdown("guide", "friendly-directory-marker"),
+    );
+
+    const directoryIndex = await cjsRoot.openOkf(directoryRoot);
+    assert.equal(
+      directoryIndex.search("friendly-directory-marker")[0]?.documentId,
+      "nested/directory",
+    );
+    assert.deepEqual(directoryIndex.listTypes(), ["guide"]);
+    assert.equal(directoryIndex.ingest({
+      path: "added.md",
+      markdown: markdown("note", "friendly-directory-ingest-marker"),
+    }).conformance, "strict");
+    assert.deepEqual(directoryIndex.listTypes(), ["guide", "note"]);
+    assert.equal(directoryIndex.remove("./added.md"), true);
+    assert.equal(directoryIndex.remove("nested/directory.md"), true);
+    assert.deepEqual(directoryIndex.listTypes(), []);
+    assert.deepEqual(
+      directoryIndex.search("friendly-directory-marker", { match: "all" }),
+      [],
+    );
+  } finally {
+    await rm(directoryRoot, { recursive: true, force: true });
+  }
+});
+
+test("the physical generated loader is blocked by the export map", async () => {
+  await assert.rejects(
+    import("okf-search-native/native.cjs"),
+    (error) => error?.code === "ERR_PACKAGE_PATH_NOT_EXPORTED",
+  );
+  assert.throws(
+    () => require("okf-search-native/native.cjs"),
+    (error) => error?.code === "ERR_PACKAGE_PATH_NOT_EXPORTED",
+  );
+});

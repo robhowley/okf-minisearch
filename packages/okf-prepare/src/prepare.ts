@@ -3,6 +3,7 @@ import { parse } from "yaml";
 
 import { PrepareError } from "./errors.js";
 import { normalizeOkfDocumentIdentity } from "./identity.js";
+import { isOkfStatus } from "./vocabulary.js";
 
 import type { RootContent } from "mdast";
 import type { Node, Position } from "unist";
@@ -1203,10 +1204,6 @@ function wordCount(value: string): number {
       /[\p{L}\p{N}_]+/gu,
     )?.length ?? 0
   );
-}
-
-function isOkfStatus(value: unknown): value is OkfStatus {
-  return value === "draft" || value === "stable" || value === "deprecated";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

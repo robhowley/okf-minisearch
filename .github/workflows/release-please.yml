@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Exact non-draft GitHub release tag to recover
+        description: Exact non-draft release tag; unpublished recovery requires dispatch from main at that tag's commit
         required: true
         type: string
 
@@ -32,7 +32,7 @@ jobs:
           manifest-file: .github/release-please-manifest.json
 
   release_metadata:
-    name: Resolve release metadata
+    name: Resolve immutable release metadata
     needs: release_please
     if: >-
       ${{
@@ -49,15 +49,14 @@ jobs:
       has_releases: ${{ steps.candidates.outputs.has_releases }}
       release_commit: ${{ steps.candidates.outputs.release_commit }}
       released_packages: ${{ steps.candidates.outputs.released_packages }}
-      released_paths: ${{ steps.candidates.outputs.released_paths }}
       native_released: ${{ steps.candidates.outputs.native_released }}
+      js_released_packages: ${{ steps.candidates.outputs.js_released_packages }}
     steps:
       - name: Checkout publication automation and tags
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-
       - name: Resolve exact release candidates
         id: candidates
         env:
@@ -66,24 +65,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           metadata="$(node scripts/release-candidates.mjs)"
-          released_packages="$(jq -ce '.packages' <<<"$metadata")"
-          released_paths="$(jq -ce '[.packages[].path]' <<<"$metadata")"
-
+          packages="$(jq -ce '.packages' <<<"$metadata")"
           echo "release_commit=$(jq -er '.commit' <<<"$metadata")" >>"$GITHUB_OUTPUT"
-          echo "released_packages=$released_packages" >>"$GITHUB_OUTPUT"
-          echo "released_paths=$released_paths" >>"$GITHUB_OUTPUT"
+          echo "released_packages=$packages" >>"$GITHUB_OUTPUT"
           echo "has_releases=$(jq -r '.packages | length > 0' <<<"$metadata")" >>"$GITHUB_OUTPUT"
           echo "native_released=$(jq -r '.packages | any(.path == "packages/okf-search-native")' <<<"$metadata")" >>"$GITHUB_OUTPUT"
+          echo "js_released_packages=$(jq -c '[.packages[] | select(.path != "packages/okf-search-native")]' <<<"$metadata")" >>"$GITHUB_OUTPUT"
 
   native_release_build:
+    name: Release native artifact (${{ matrix.target }})
     needs: release_metadata
     if: needs.release_metadata.outputs.native_released == 'true'
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
-    name: Release native artifact (${{ matrix.target }})
-    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
@@ -118,56 +114,36 @@ jobs:
         with:
           ref: ${{ needs.release_metadata.outputs.release_commit }}
           persist-credentials: false
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 11.22.0
           standalone: true
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22.20.0
           architecture: ${{ matrix.node-arch }}
           cache: pnpm
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.88.0
           targets: ${{ matrix.target }}
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build native artifact
+      - name: Install dependencies for target CPU
+        run: pnpm install --frozen-lockfile --cpu=${{ matrix.node-arch }}
+      - name: Build native package
         env:
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos-deployment-target }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          build_args=()
-          if [[ "${{ matrix.napi-cross }}" == "true" ]]; then
-            build_args+=(--use-napi-cross)
-          fi
-          pnpm --dir packages/okf-search-native exec napi build \
-            --platform --release --target "${{ matrix.target }}" \
-            "${build_args[@]+"${build_args[@]}"}" -- --locked
-
+        run: pnpm --dir packages/okf-search-native run build --target "${{ matrix.target }}" --use-napi-cross=${{ matrix.napi-cross }}
       - name: Verify Linux glibc floor
         if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: pnpm --dir packages/okf-search-native run verify:release-artifacts glibc "${{ matrix.artifact }}"
+      - name: Runtime package API test
+        run: pnpm --dir packages/okf-search-native run test:package-api
+      - name: Verify exact nonempty artifact
         shell: bash
-        run: |
-          set -euo pipefail
-          artifact="packages/okf-search-native/${{ matrix.artifact }}"
-          max_glibc="$(objdump -T "$artifact" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sort -Vu | tail -1)"
-          test -n "$max_glibc"
-          test "$(printf '%s\n' GLIBC_2.17 "$max_glibc" | sort -V | tail -1)" = GLIBC_2.17
-
-      - name: Runtime smoke test
-        run: pnpm --dir packages/okf-search-native run test:runtime
-
+        run: test -s "packages/okf-search-native/${{ matrix.artifact }}"
       - name: Upload tested artifact
         uses: actions/upload-artifact@v4
         with:
@@ -176,12 +152,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  publish:
+  candidate_plan:
+    name: Build, pack, and test one immutable publication plan
     needs: [release_metadata, native_release_build]
     if: >-
       ${{
-        always() &&
-        needs.release_metadata.result == 'success' &&
+        always() && needs.release_metadata.result == 'success' &&
         needs.release_metadata.outputs.has_releases == 'true' &&
         (
           (needs.release_metadata.outputs.native_released == 'false' && needs.native_release_build.result == 'skipped') ||
@@ -192,202 +168,288 @@ jobs:
     permissions:
       actions: read
       contents: read
-      id-token: write
     steps:
-      - name: Checkout publication automation
-        uses: actions/checkout@v4
-        with:
-          path: automation
-          persist-credentials: false
-
       - name: Checkout immutable release commit
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.release_metadata.outputs.release_commit }}
-          path: source
           persist-credentials: false
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 11.22.0
           standalone: true
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
           cache: pnpm
-          cache-dependency-path: source/pnpm-lock.yaml
-          registry-url: https://registry.npmjs.org
-
-      - name: Install npm 11
-        # npm trusted publishing requires npm 11.5.1+ on Node 22.14+.
-        run: npm install --global npm@11
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.88.0
-          components: clippy,rustfmt
-
-      - name: Check native Rust format and lints
-        working-directory: source
+      - name: Install immutable source dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build and test selected JavaScript packages
+        env:
+          RELEASED_PACKAGES_JSON: ${{ needs.release_metadata.outputs.released_packages }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -d packages/okf-search-native ]]; then
-            pnpm --dir packages/okf-search-native run check:rust
+          if jq -e 'any(.path == "packages/okf-minisearch" or .path == "packages/pi-okf-search")' <<<"$RELEASED_PACKAGES_JSON" >/dev/null; then
+            pnpm --filter okf-minisearch build
+            pnpm --filter okf-minisearch test
           fi
-
-      - name: Validate packages before publishing
-        working-directory: source
-        run: pnpm package:check
-
-      - name: Remove unportable host artifact
+          if jq -e 'any(.path == "packages/pi-okf-search")' <<<"$RELEASED_PACKAGES_JSON" >/dev/null; then
+            pnpm --filter pi-okf-search typecheck
+            pnpm --filter pi-okf-search test
+          fi
+      - name: Remove stale native output
         if: needs.release_metadata.outputs.native_released == 'true'
-        working-directory: source
         shell: bash
-        run: find packages/okf-search-native -maxdepth 1 -type f -name '*.node' -delete
-
-      - name: Download tested native artifacts
+        run: |
+          set -euo pipefail
+          find packages/okf-search-native -maxdepth 1 -type f -name '*.node' -delete
+          rm -rf packages/okf-search-native/npm "$RUNNER_TEMP/okf-native-artifacts"
+      - name: Download only current-run tested native artifacts
         if: needs.release_metadata.outputs.native_released == 'true'
         uses: actions/download-artifact@v4
         with:
           pattern: okf-search-native-*
           path: ${{ runner.temp }}/okf-native-artifacts
           merge-multiple: true
-
-      - name: Assemble and verify native package
+      - name: Assemble and verify exact native files
         if: needs.release_metadata.outputs.native_released == 'true'
-        working-directory: source/packages/okf-search-native
+        working-directory: packages/okf-search-native
         shell: bash
         run: |
           set -euo pipefail
+          pnpm run build:facade
           rm -rf npm
           pnpm exec napi create-npm-dirs --npm-dir npm
-          pnpm exec napi artifacts \
-            --output-dir "$RUNNER_TEMP/okf-native-artifacts" \
-            --npm-dir npm
+          pnpm exec napi artifacts --output-dir "$RUNNER_TEMP/okf-native-artifacts" --npm-dir npm
           node scripts/verify-release-artifacts.mjs
-
-      - name: Pack every selected package
+      - name: Pack every selected package once and create the immutable plan
         env:
           RELEASED_PACKAGES_JSON: ${{ needs.release_metadata.outputs.released_packages }}
+          RELEASE_COMMIT: ${{ needs.release_metadata.outputs.release_commit }}
         shell: bash
         run: |
           set -euo pipefail
-
-          plan="$RUNNER_TEMP/release-packages.json"
-          destination="$RUNNER_TEMP/release-tarballs"
+          destination="$RUNNER_TEMP/publication-plan"
+          selection="$RUNNER_TEMP/selection.json"
           mkdir -p "$destination"
-          echo '[]' >"$plan"
+          jq -cn --arg commit "$RELEASE_COMMIT" --argjson packages "$RELEASED_PACKAGES_JSON" \
+            '{commit: $commit, packages: $packages}' >"$selection"
 
           while IFS= read -r package; do
             package_path="$(jq -er '.path' <<<"$package")"
-            package_name="$(jq -er '.name' <<<"$package")"
-            package_version="$(jq -er '.version' <<<"$package")"
-            package_directory="$GITHUB_WORKSPACE/source/$package_path"
-
-            jq -e --arg name "$package_name" --arg version "$package_version" \
-              '.name == $name and .version == $version' \
-              "$package_directory/package.json" >/dev/null
-
-            pack_json="$(cd "$package_directory" && pnpm pack --pack-destination "$destination" --json)"
-            tarball="$(jq -er '.filename | select(type == "string" and length > 0)' <<<"$pack_json")"
-            if [[ "$tarball" != /* ]]; then
-              tarball="$package_directory/$tarball"
-            fi
-            test -f "$tarball"
-            tar -tzf "$tarball" >/dev/null
-
-            packed_manifest="$(tar -xOzf "$tarball" package/package.json)"
-            jq -e --arg name "$package_name" --arg version "$package_version" \
-              '.name == $name and .version == $version' <<<"$packed_manifest" >/dev/null
-
-            jq -c \
-              --arg path "$package_path" \
-              --arg name "$package_name" \
-              --arg version "$package_version" \
-              --arg tarball "$tarball" \
-              '. + [{path: $path, name: $name, version: $version, tarball: $tarball}]' \
-              "$plan" >"$plan.next"
-            mv "$plan.next" "$plan"
+            name="$(jq -er '.name' <<<"$package")"
+            version="$(jq -er '.version' <<<"$package")"
+            jq -e --arg name "$name" --arg version "$version" \
+              '.name == $name and .version == $version' "$package_path/package.json" >/dev/null
+            pack_json="$(cd "$package_path" && pnpm pack --pack-destination "$destination" --json)"
+            source_tarball="$(jq -er '.filename' <<<"$pack_json")"
+            if [[ "$source_tarball" != /* ]]; then source_tarball="$GITHUB_WORKSPACE/$package_path/$source_tarball"; fi
+            target_tarball="$destination/$name-$version.tgz"
+            if [[ "$source_tarball" != "$target_tarball" ]]; then mv "$source_tarball" "$target_tarball"; fi
+            test -s "$target_tarball"
           done < <(jq -c '.[]' <<<"$RELEASED_PACKAGES_JSON")
 
-          test "$(jq 'length' "$plan")" -eq "$(jq 'length' <<<"$RELEASED_PACKAGES_JSON")"
+          node scripts/release-publication.mjs create "$destination" "$selection" "$RELEASE_COMMIT" "$destination/plan.json"
+          node scripts/verify-release-consumer.mjs local-js "$destination" "$destination/plan.json" "$RELEASE_COMMIT"
+      - name: Upload immutable plan and its exact tarballs
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-publication-plan
+          path: ${{ runner.temp }}/publication-plan
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Verify packed native runtime
-        if: needs.release_metadata.outputs.native_released == 'true'
+  native_candidate_test:
+    name: Candidate consumer (${{ matrix.target }})
+    needs: [release_metadata, candidate_plan]
+    if: needs.release_metadata.outputs.native_released == 'true' && needs.candidate_plan.result == 'success'
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            node-arch: x64
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            node-arch: x64
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            node-arch: arm64
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            node-arch: x64
+    steps:
+      - name: Checkout immutable consumer proof
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release_metadata.outputs.release_commit }}
+          persist-credentials: false
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+          standalone: true
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+          architecture: ${{ matrix.node-arch }}
+          cache: pnpm
+      - name: Install proof dependencies without scripts for target CPU
+        run: pnpm install --frozen-lockfile --ignore-scripts --cpu=${{ matrix.node-arch }}
+      - name: Download one immutable publication plan
+        uses: actions/download-artifact@v4
+        with:
+          name: release-publication-plan
+          path: ${{ runner.temp }}/publication-plan
+      - name: Verify the whole plan and test the native tarball
+        env:
+          RELEASE_COMMIT: ${{ needs.release_metadata.outputs.release_commit }}
+        shell: bash
+        run: |
+          node scripts/verify-release-consumer.mjs local-native \
+            "$RUNNER_TEMP/publication-plan" "$RUNNER_TEMP/publication-plan/plan.json" "$RELEASE_COMMIT" \
+            --typescript "$GITHUB_WORKSPACE/node_modules/typescript/bin/tsc"
+
+  publication_transaction:
+    name: Protected npm publication and registry proof
+    needs: [release_metadata, candidate_plan, native_candidate_test]
+    if: >-
+      ${{
+        always() && needs.release_metadata.result == 'success' && needs.candidate_plan.result == 'success' &&
+        (
+          (needs.release_metadata.outputs.native_released == 'false' && needs.native_candidate_test.result == 'skipped') ||
+          (needs.release_metadata.outputs.native_released == 'true' && needs.native_candidate_test.result == 'success')
+        )
+      }}
+    runs-on: ubuntu-latest
+    environment: npm-production
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout immutable publication transaction
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release_metadata.outputs.release_commit }}
+          persist-credentials: false
+      - name: Download immutable publication plan
+        uses: actions/download-artifact@v4
+        with:
+          name: release-publication-plan
+          path: ${{ runner.temp }}/publication-plan
+      - name: Setup Node.js for trusted publishing
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          registry-url: https://registry.npmjs.org
+      - name: Install npm 11
+        run: npm install --global npm@11
+      - name: Verify all entries, publish only missing tarballs, and prove the whole registry set
+        env:
+          RELEASED_PACKAGES_JSON: ${{ needs.release_metadata.outputs.released_packages }}
+          RELEASE_COMMIT: ${{ needs.release_metadata.outputs.release_commit }}
         shell: bash
         run: |
           set -euo pipefail
+          selection="$RUNNER_TEMP/selection.json"
+          jq -cn --arg commit "$RELEASE_COMMIT" --argjson packages "$RELEASED_PACKAGES_JSON" \
+            '{commit: $commit, packages: $packages}' >"$selection"
+          node scripts/release-publication.mjs transact \
+            "$RUNNER_TEMP/publication-plan" "$RUNNER_TEMP/publication-plan/plan.json" "$selection"
 
-          tarball="$(jq -er '.[] | select(.path == "packages/okf-search-native") | .tarball' "$RUNNER_TEMP/release-packages.json")"
-          tar_listing="$(tar -tzf "$tarball")"
-          mapfile -t native_files < <(grep -E '^package/.*\.node$' <<<"$tar_listing" | sort)
-          expected_native_files=(
-            package/okf-search-native.darwin-arm64.node
-            package/okf-search-native.darwin-x64.node
-            package/okf-search-native.linux-x64-gnu.node
-            package/okf-search-native.win32-x64-msvc.node
-          )
-          test "${#native_files[@]}" -eq "${#expected_native_files[@]}"
-          test "$(printf '%s\n' "${native_files[@]}")" = "$(printf '%s\n' "${expected_native_files[@]}")"
+  js_post_publish_test:
+    name: Exact JS registry install (${{ matrix.package.name }})
+    needs: [release_metadata, candidate_plan, publication_transaction]
+    if: needs.publication_transaction.result == 'success' && needs.release_metadata.outputs.js_released_packages != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.release_metadata.outputs.js_released_packages) }}
+    steps:
+      - name: Checkout immutable consumer proof
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release_metadata.outputs.release_commit }}
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+          registry-url: https://registry.npmjs.org
+      - name: Download exact published version plan
+        uses: actions/download-artifact@v4
+        with:
+          name: release-publication-plan
+          path: ${{ runner.temp }}/publication-plan
+      - name: Install exact registry versions scripts-disabled and run package smoke
+        shell: bash
+        run: node scripts/verify-release-consumer.mjs registry "$RUNNER_TEMP/publication-plan/plan.json" "${{ matrix.package.name }}"
 
-          grep -Fxq package/index.js <<<"$tar_listing"
-          grep -Fxq package/index.d.ts <<<"$tar_listing"
-
-          manifest="$(tar -xOzf "$tarball" package/package.json)"
-          jq -e '
-            (.scripts // {}) as $scripts
-            | ((.optionalDependencies // {} | length) == 0
-              and (["preinstall", "install", "postinstall"] | all(. as $name | $scripts[$name] == null)))
-          ' <<<"$manifest" >/dev/null
-
-          consumer="$RUNNER_TEMP/okf-search-native-release-consumer"
-          rm -rf "$consumer"
-          mkdir -p "$consumer"
-          npm install --prefix "$consumer" --ignore-scripts "$tarball"
-          NATIVE_CONSUMER="$consumer" node -e '
-            const path = require("node:path")
-            const binding = require(path.join(process.env.NATIVE_CONSUMER, "node_modules", "okf-search-native"))
-            if (typeof binding.NativeOkfSearch?.fromPrepared !== "function") {
-              throw new Error("NativeOkfSearch.fromPrepared is unavailable")
-            }
-            const index = binding.NativeOkfSearch.fromPrepared([])
-            if (!Array.isArray(index.listTypes())) {
-              throw new Error("native release tarball runtime smoke failed")
-            }
-          '
-
-      - name: Preflight every exact npm version
+  native_post_publish_test:
+    name: Exact native registry install (${{ matrix.target }})
+    needs: [release_metadata, candidate_plan, publication_transaction]
+    if: needs.publication_transaction.result == 'success' && needs.release_metadata.outputs.native_released == 'true'
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            node-arch: x64
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            node-arch: x64
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            node-arch: arm64
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            node-arch: x64
+    steps:
+      - name: Checkout immutable consumer proof
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release_metadata.outputs.release_commit }}
+          persist-credentials: false
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+          standalone: true
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+          architecture: ${{ matrix.node-arch }}
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - name: Install proof dependencies without scripts for target CPU
+        run: pnpm install --frozen-lockfile --ignore-scripts --cpu=${{ matrix.node-arch }}
+      - name: Download exact published version plan
+        uses: actions/download-artifact@v4
+        with:
+          name: release-publication-plan
+          path: ${{ runner.temp }}/publication-plan
+      - name: Install exact registry version scripts-disabled and run shared native journey
         shell: bash
         run: |
-          set -euo pipefail
-
-          while IFS= read -r package; do
-            name="$(jq -er '.name' <<<"$package")"
-            version="$(jq -er '.version' <<<"$package")"
-            state="$(node automation/scripts/npm-registry-state.mjs "$name" "$version")"
-            echo "$name@$version: $state"
-          done < <(jq -c '.[]' "$RUNNER_TEMP/release-packages.json")
-
-      - name: Publish missing exact npm versions in dependency order
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          while IFS= read -r package; do
-            name="$(jq -er '.name' <<<"$package")"
-            version="$(jq -er '.version' <<<"$package")"
-            tarball="$(jq -er '.tarball' <<<"$package")"
-            state="$(node automation/scripts/npm-registry-state.mjs "$name" "$version")"
-
-            if [[ "$state" == "published" ]]; then
-              echo "Skipping exact version already on npm: $name@$version"
-              continue
-            fi
-            test "$state" = "unpublished"
-            npm publish "$tarball" --access public
-          done < <(jq -c '.[]' "$RUNNER_TEMP/release-packages.json")
+          node scripts/verify-release-consumer.mjs registry \
+            "$RUNNER_TEMP/publication-plan/plan.json" okf-search-native \
+            --typescript "$GITHUB_WORKSPACE/node_modules/typescript/bin/tsc"

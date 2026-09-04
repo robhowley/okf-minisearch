@@ -1,15 +1,114 @@
 # `okf-search-native`
 
-The Rust/Tantivy `napi-rs` search backend for prepared Open Knowledge Format
-documents. It is a lower-level boundary: callers prepare documents in the
-existing OKF layer and pass `PreparedDocument[]` to `NativeOkfSearch`.
+Search [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format)
+collections at native speed from Node.js. `okf-search-native` builds an in-memory
+index with Rust and Tantivy and returns the best matching section from each
+document.
 
-This package does **not** provide `openOkf`, Markdown parsing, preparation,
-MiniSearch integration, ranking parity, or browser support.
+Use the package root for Markdown files or strings. Most users should start
+there. Use `okf-search-native/prepared` only when your application already
+produces prepared OKF documents.
 
-## Supported runtime matrix
+## Install
 
-The initial release is tested with Node `>=22.19.0` and Node-API 8 on:
+```sh
+npm install okf-search-native
+```
+
+The package requires Node.js `>=22.19.0` and includes TypeScript declarations.
+See [Requirements and tested platforms](#requirements-and-tested-platforms) for
+the available native artifacts.
+
+## Raw Markdown API
+
+`createOkfSearch(documents)` synchronously indexes Markdown already in memory.
+`openOkf(root)` recursively reads lowercase `.md` files from a Node.js
+directory. Files named exactly `index.md` or `log.md` are reserved and are not
+indexed.
+
+```js
+import {
+  createOkfSearch,
+  openOkf,
+  validateOkfDocument,
+} from "okf-search-native";
+
+const document = {
+  path: "notes/memory.md",
+  markdown: "---\ntype: note\n---\nMemory safety matters.\n",
+};
+
+const validation = validateOkfDocument(document);
+const index = createOkfSearch([document]);
+const hits = index.search("memory", { limit: 10, fields: ["body"] });
+
+const directoryIndex = await openOkf("./knowledge");
+directoryIndex.ingest({
+  path: "notes/new.md",
+  markdown: "---\ntype: note\n---\nNew material.\n",
+});
+directoryIndex.remove("notes/new.md");
+```
+
+Both constructors return an in-memory search handle. `ingest` adds or replaces
+one document after successful validation. `remove` changes only the current
+index, not its source file. Reopening a directory rebuilds the index from the
+files on disk.
+
+### Search behavior
+
+Search supports any or all term matching, field selection and boosts, fuzzy
+matching, final-term prefix matching, and filters for OKF type, tags, status,
+trust tier, staleness, and conformance.
+
+Results contain at most one hit per document. Each hit represents its
+highest-ranked matching section and includes the document path, heading path,
+line range, matched fields, and snippet. The handle also provides `listTypes()`
+and `listDegradedDocuments()` for inspecting the current collection.
+
+### Validation
+
+`validateOkfDocument` checks one Markdown document without changing an index.
+A strict document is valid and indexable. A degraded document remains indexable
+and searchable, with diagnostics describing fields that need repair. A document
+with a fatal path, parsing, Markdown, or `type` problem is not indexable.
+Expected validation failures are returned as diagnostics rather than thrown.
+
+See the [OKF v0.2 specification](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/ad30107c31c06aec8a7d5636e0d1058118604e6f/SPEC.md)
+for the document format and field semantics.
+
+### Differences from `okf-minisearch`
+
+The native backend uses Tantivy, so its ranking, scores, snippets, and fuzzy
+candidates can differ from `okf-minisearch`. Browser use is not supported.
+`autoSuggest` is also unsupported and throws an `OkfError` with code
+`ERR_OKF_UNSUPPORTED`.
+
+## Prepared API
+
+Most users can skip this section. Use the prepared API when another part of
+your application already produces `PreparedDocument` values and you want to
+pass them directly to the native backend.
+
+```js
+import { NativeOkfSearch } from "okf-search-native/prepared";
+
+const index = NativeOkfSearch.fromPrepared(preparedDocuments);
+const hits = index.search("memory", { limit: 10, fields: ["body"] });
+index.ingestPrepared(preparedDocument);
+index.removeDocument("docs/old");
+```
+
+`fromPrepared` builds an index from prepared documents. `ingestPrepared`
+replaces every indexed section owned by one document, and `removeDocument`
+removes them together. `PreparedDocument` contains document-wide metadata once;
+each `PreparedSection` contains only its ID, heading path, text, and line
+bounds. The DTO declarations are exported from `okf-search-native/prepared`,
+not from the package root.
+
+## Requirements and tested platforms
+
+Release checks cover Node.js `>=22.19.0` and Node-API 8 on:
 
 | Platform | Native artifact |
 | --- | --- |
@@ -19,52 +118,34 @@ The initial release is tested with Node `>=22.19.0` and Node-API 8 on:
 | Linux x64 (glibc >= 2.17) | `okf-search-native.linux-x64-gnu.node` |
 
 Linux musl/Alpine, Linux arm64, Windows arm64, Bun, Deno, browsers, and other
-Node versions are not claimed by this release. A published tarball contains
-all four artifacts. A local host build normally contains only its host
-artifact.
-
-## API
-
-```js
-const { NativeOkfSearch } = require("okf-search-native");
-
-const index = NativeOkfSearch.fromPrepared(preparedDocuments);
-const hits = index.search("memory", { limit: 10, fields: ["title", "body"] });
-index.ingestPrepared(preparedDocument);
-index.removeDocument({ documentId: "docs/old", path: "docs/old.md" });
-index.listTypes();
-index.listDegradedDocuments();
-```
-
-`autoSuggest` is deliberately unsupported and throws an error containing
-`[ERR_OKF_UNSUPPORTED]`. It does not return search hits as suggestions.
+Node versions are not covered by this matrix.
 
 ## Development
 
-Use Rust `1.88.0` (the repository toolchain file installs `rustfmt` and
-`clippy`):
+Development requires Rust `1.88.0`:
 
 ```sh
 pnpm install
 pnpm --filter okf-search-native run build
 pnpm --filter okf-search-native run check:rust
-pnpm --filter okf-search-native run test:rust
-pnpm --filter okf-search-native run test:types
-pnpm --filter okf-search-native run test:runtime
 pnpm --filter okf-search-native run test
 ```
 
-`test:types` compiles against the `index.d.ts` generated by `napi build`.
-`index.js` and `index.d.ts` are kept with the package so it remains inspectable
-independently of the spike.
+### Build output
 
-Before a multi-target release, copy the four tested `.node` files into this
-package root and run:
+`napi build` generates `native.cjs`, `native.d.cts`, and the host `.node`
+artifact. The package facade build writes `dist/index.cjs`, `dist/index.mjs`,
+`dist/index.d.cts`, `dist/index.d.mts`, and `dist/index.d.ts`. Generated native
+loader names are internal and are not package-root exports.
 
-```sh
-pnpm run verify:release-artifacts
-pnpm pack --pack-destination /tmp --json
-```
+### Release artifacts
 
-The verifier derives the required artifact names from `package.json`'s
-checked-in target list and rejects missing or extra native files.
+For multi-target candidate assembly, copy the four tested `.node` files into
+the package root, then run `pnpm run verify:release-artifacts`. The verifier
+derives the required artifact names from the checked-in target list and
+rejects missing or extra native files. CI also uses its `glibc <artifact>` mode
+to reject Linux addons that import symbols newer than `GLIBC_2.17`.
+
+## License
+
+[MIT](../../LICENSE)

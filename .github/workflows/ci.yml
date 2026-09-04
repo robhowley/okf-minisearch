@@ -37,9 +37,6 @@ jobs:
           toolchain: 1.88.0
           components: clippy,rustfmt
 
-      - name: Check native Rust format and lints
-        run: pnpm --dir packages/okf-search-native run check:rust
-
       - name: Validate packages
         run: pnpm package:check
 
@@ -101,34 +98,19 @@ jobs:
           components: clippy,rustfmt
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --cpu=${{ matrix.node-arch }}
 
-      - name: Build native artifact
+      - name: Build native package
         env:
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos-deployment-target }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          build_args=()
-          if [[ "${{ matrix.napi-cross }}" == "true" ]]; then
-            build_args+=(--use-napi-cross)
-          fi
-          pnpm --dir packages/okf-search-native exec napi build \
-            --platform --release --target "${{ matrix.target }}" \
-            "${build_args[@]+"${build_args[@]}"}" -- --locked
+        run: pnpm --dir packages/okf-search-native run build --target "${{ matrix.target }}" --use-napi-cross=${{ matrix.napi-cross }}
 
       - name: Verify Linux glibc floor
         if: matrix.target == 'x86_64-unknown-linux-gnu'
-        shell: bash
-        run: |
-          set -euo pipefail
-          artifact="packages/okf-search-native/${{ matrix.artifact }}"
-          max_glibc="$(objdump -T "$artifact" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sort -Vu | tail -1)"
-          test -n "$max_glibc"
-          test "$(printf '%s\n' GLIBC_2.17 "$max_glibc" | sort -V | tail -1)" = GLIBC_2.17
+        run: pnpm --dir packages/okf-search-native run verify:release-artifacts glibc "${{ matrix.artifact }}"
 
-      - name: Runtime smoke test
-        run: pnpm --dir packages/okf-search-native run test:runtime
+      - name: Runtime package API test
+        run: pnpm --dir packages/okf-search-native run test:package-api
 
       - name: Upload tested artifact
         uses: actions/upload-artifact@v4

@@ -16,6 +16,9 @@ describe("private preparation package", () => {
     expect(Object.keys(root).sort()).toEqual([
       "PrepareError",
       "createPrepareBundleSentinel",
+      "isOkfConformance",
+      "isOkfStatus",
+      "isOkfTrustTier",
       "normalizeOkfDocumentIdentity",
       "prepareOkfDocument",
       "prepareOkfDocuments",
