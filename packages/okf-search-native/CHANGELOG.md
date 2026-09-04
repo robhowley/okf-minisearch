@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/robhowley/okf-minisearch/compare/okf-search-native-v0.3.2...okf-search-native-v0.3.3) (2026-09-04)
+
+
+### Bug Fixes
+
+* **okf-search-native:** make Windows candidate non-blocking ([#67](https://github.com/robhowley/okf-minisearch/issues/67)) ([35221b9](https://github.com/robhowley/okf-minisearch/commit/35221b9909bb62e3c0adc8a6b32a1f7a5cdbe063))
+
 ## [0.3.2](https://github.com/robhowley/okf-minisearch/compare/okf-search-native-v0.3.1...okf-search-native-v0.3.2) (2026-09-04)
 
 
