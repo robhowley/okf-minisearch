@@ -47,9 +47,9 @@ pub struct PreparedSection {
     pub heading_path: String,
     pub text: String,
     #[napi(js_name = "startLine")]
-    pub start_line: u32,
+    pub start_line: f64,
     #[napi(js_name = "endLine")]
-    pub end_line: u32,
+    pub end_line: f64,
 }
 
 #[napi(object)]
@@ -1157,6 +1157,10 @@ fn validate_set(documents: &[PreparedDocument]) -> Result<(), EngineError> {
     Ok(())
 }
 
+fn is_valid_line_number(value: f64) -> bool {
+    value.is_finite() && value.fract() == 0.0 && (1.0..=u32::MAX as f64).contains(&value)
+}
+
 fn validate_document(document: &PreparedDocument) -> Result<(), EngineError> {
     if document.document_id.trim().is_empty() {
         return Err(EngineError::Invalid("documentId must not be empty".into()));
@@ -1267,7 +1271,10 @@ fn validate_document(document: &PreparedDocument) -> Result<(), EngineError> {
                 document.document_id, section.section_id
             )));
         }
-        if section.start_line == 0 || section.end_line < section.start_line {
+        if !is_valid_line_number(section.start_line)
+            || !is_valid_line_number(section.end_line)
+            || section.end_line < section.start_line
+        {
             return Err(EngineError::Invalid(format!(
                 "section `{}` has invalid line bounds {}..{}",
                 section.section_id, section.start_line, section.end_line
@@ -1294,6 +1301,10 @@ fn add_section(
     document: &PreparedDocument,
     section: &PreparedSection,
 ) -> Result<(), EngineError> {
+    // `validate_document` runs before storage construction in every caller.
+    let start_line = section.start_line as u32;
+    let end_line = section.end_line as u32;
+
     let mut doc = TantivyDocument::default();
     doc.add_text(fields.section_id, &section.section_id);
     doc.add_text(fields.document_id, &document.document_id);
@@ -1326,8 +1337,8 @@ fn add_section(
     doc.add_text(fields.description, &document.description);
     doc.add_text(fields.sources, &document.source_text);
     doc.add_text(fields.body, &section.text);
-    doc.add_u64(fields.start_line, section.start_line as u64);
-    doc.add_u64(fields.end_line, section.end_line as u64);
+    doc.add_u64(fields.start_line, start_line as u64);
+    doc.add_u64(fields.end_line, end_line as u64);
     writer.add_document(doc)?;
     Ok(())
 }
@@ -1579,8 +1590,8 @@ mod tests {
             section_id: format!("{document_id}#root"),
             heading_path: "Overview".to_owned(),
             text: text.to_owned(),
-            start_line: 1,
-            end_line: 3,
+            start_line: 1.0,
+            end_line: 3.0,
         }
     }
 
@@ -2211,11 +2222,11 @@ mod tests {
         cases.push(("unclassified staleAfterEpoch", vec![unclassified_deadline]));
 
         let mut zero_start = valid.clone();
-        zero_start.sections[0].start_line = 0;
+        zero_start.sections[0].start_line = 0.0;
         cases.push(("zero start line", vec![zero_start]));
         let mut reversed_bounds = valid.clone();
-        reversed_bounds.sections[0].start_line = 3;
-        reversed_bounds.sections[0].end_line = 2;
+        reversed_bounds.sections[0].start_line = 3.0;
+        reversed_bounds.sections[0].end_line = 2.0;
         cases.push(("reversed line bounds", vec![reversed_bounds]));
         let mut repeated = valid.clone();
         repeated.sections.push(repeated.sections[0].clone());
@@ -2264,7 +2275,7 @@ mod tests {
             path: diagnostics.path.clone(),
         });
         let mut bounds = document(strict_section("new-bounds", "new needle"));
-        bounds.sections[0].end_line = 0;
+        bounds.sections[0].end_line = 0.0;
         let mut repeated = document(strict_section("new-repeat", "new needle"));
         repeated.sections.push(repeated.sections[0].clone());
         let mut missing_status = document(strict_section("new-status", "new needle"));
@@ -2711,8 +2722,8 @@ mod tests {
                 let mut section = crowded.sections[0].clone();
                 section.section_id = format!("crowded#{index:02}");
                 section.heading_path = format!("Section {index}");
-                section.start_line = index + 1;
-                section.end_line = index + 1;
+                section.start_line = index as f64 + 1.0;
+                section.end_line = index as f64 + 1.0;
                 section
             })
             .collect();

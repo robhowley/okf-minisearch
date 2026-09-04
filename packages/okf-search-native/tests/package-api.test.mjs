@@ -43,6 +43,11 @@ function preparedDocument(documentId, marker) {
   };
 }
 
+function isInvalidPreparedDocument(error) {
+  return error instanceof Error &&
+    error.message.startsWith("[ERR_OKF_INVALID_PREPARED_DOCUMENT]");
+}
+
 test("manifest exposes only the friendly root and prepared binding", async () => {
   const manifest = await readJson(join(packageRoot, "package.json"));
 
@@ -194,6 +199,59 @@ test("ESM and CommonJS resolve the root and prepared subpath", async () => {
   } finally {
     await rm(directoryRoot, { recursive: true, force: true });
   }
+});
+
+test("prepared native construction rejects invalid line numbers", () => {
+  const { NativeOkfSearch } = require("okf-search-native/prepared");
+  const cases = [
+    ["fractional startLine", { startLine: 1.5 }],
+    ["fractional endLine", { endLine: 3.5 }],
+    ["negative startLine", { startLine: -1 }],
+    ["negative endLine", { endLine: -1 }],
+    ["zero startLine", { startLine: 0 }],
+    ["zero endLine", { endLine: 0 }],
+    ["oversized startLine", { startLine: 2 ** 32 }],
+    ["oversized endLine", { endLine: 2 ** 32 }],
+    ["non-finite startLine", { startLine: Number.NaN }],
+    ["non-finite endLine", { endLine: Number.POSITIVE_INFINITY }],
+    ["reversed line bounds", { startLine: 3, endLine: 2 }],
+  ];
+
+  for (const [name, bounds] of cases) {
+    const document = preparedDocument(`invalid-${name}`, name);
+    Object.assign(document.sections[0], bounds);
+    assert.throws(
+      () => NativeOkfSearch.fromPrepared([document]),
+      isInvalidPreparedDocument,
+      name,
+    );
+  }
+
+  const maximum = preparedDocument("maximum-line", "maximum-line");
+  Object.assign(maximum.sections[0], {
+    startLine: 2 ** 32 - 1,
+    endLine: 2 ** 32 - 1,
+  });
+  const index = NativeOkfSearch.fromPrepared([maximum]);
+  assert.equal(index.search("maximum-line")[0]?.startLine, 2 ** 32 - 1);
+  assert.equal(index.search("maximum-line")[0]?.endLine, 2 ** 32 - 1);
+});
+
+test("rejected prepared ingest preserves a usable native index", () => {
+  const { NativeOkfSearch } = require("okf-search-native/prepared");
+  const index = NativeOkfSearch.fromPrepared([
+    preparedDocument("prepared-seed", "prepared-seed-marker"),
+  ]);
+  const invalid = preparedDocument("prepared-invalid", "prepared-invalid-marker");
+  invalid.sections[0].startLine = -1;
+
+  assert.throws(
+    () => index.ingestPrepared(invalid),
+    isInvalidPreparedDocument,
+  );
+  assert.equal(index.search("prepared-seed-marker")[0]?.documentId, "prepared-seed");
+  assert.deepEqual(index.search("prepared-invalid-marker", { match: "all" }), []);
+  assert.deepEqual(index.listTypes(), ["note"]);
 });
 
 test("the physical generated loader is blocked by the export map", async () => {
