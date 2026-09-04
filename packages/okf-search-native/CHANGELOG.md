@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/robhowley/okf-minisearch/compare/okf-search-native-v0.3.1...okf-search-native-v0.3.2) (2026-09-04)
+
+
+### Bug Fixes
+
+* **okf-search-native:** validate prepared line numbers ([#65](https://github.com/robhowley/okf-minisearch/issues/65)) ([22fd40d](https://github.com/robhowley/okf-minisearch/commit/22fd40d9b6f921d4475e7aff77f5703171c9d048))
+
 ## [0.3.1](https://github.com/robhowley/okf-minisearch/compare/okf-search-native-v0.3.0...okf-search-native-v0.3.1) (2026-09-04)
 
 
