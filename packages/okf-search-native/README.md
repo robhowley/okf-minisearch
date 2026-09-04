@@ -108,7 +108,8 @@ not from the package root.
 
 ## Requirements and tested platforms
 
-Release checks cover Node.js `>=22.19.0` and Node-API 8 on:
+Linux x64 and macOS x64/arm64 are fully supported. Windows x64 is experimental.
+All targets require Node.js `>=22.19.0` and use Node-API 8.
 
 | Platform | Native artifact |
 | --- | --- |
