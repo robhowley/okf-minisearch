@@ -1,7 +1,7 @@
 {
   "name": "okf-search-native",
   "version": "0.2.0",
-  "description": "Node-native OKF search with raw Markdown and prepared-document APIs.",
+  "description": "Search Open Knowledge Format collections at native speed with a lean Rust and Tantivy engine.",
   "keywords": [
     "open-knowledge-format",
     "okf",
