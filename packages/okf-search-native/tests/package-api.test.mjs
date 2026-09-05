@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { promisify } from "node:util";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
+const execFileAsync = promisify(execFile);
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, "utf8"));
@@ -46,6 +49,11 @@ function preparedDocument(documentId, marker) {
 function isInvalidPreparedDocument(error) {
   return error instanceof Error &&
     error.message.startsWith("[ERR_OKF_INVALID_PREPARED_DOCUMENT]");
+}
+
+function isInvalidSearchOptions(error) {
+  return error instanceof Error &&
+    error.message.startsWith("[ERR_OKF_INVALID_SEARCH_OPTIONS]");
 }
 
 test("manifest exposes only the friendly root and prepared binding", async () => {
@@ -252,6 +260,62 @@ test("rejected prepared ingest preserves a usable native index", () => {
   assert.equal(index.search("prepared-seed-marker")[0]?.documentId, "prepared-seed");
   assert.deepEqual(index.search("prepared-invalid-marker", { match: "all" }), []);
   assert.deepEqual(index.listTypes(), ["note"]);
+});
+
+test("prepared search rejects malformed where and boost containers", () => {
+  const { NativeOkfSearch } = require("okf-search-native/prepared");
+  const marker = "prepared-search-options-marker";
+  const index = NativeOkfSearch.fromPrepared([
+    preparedDocument("prepared-options", marker),
+  ]);
+
+  for (const [property, values] of [
+    ["where", [null, false, 1, "primitive", []]],
+    ["boost", [null, false, 1, "primitive", []]],
+  ]) {
+    for (const value of values) {
+      assert.throws(
+        () => index.search(marker, { [property]: value }),
+        isInvalidSearchOptions,
+        `${property}=${String(value)}`,
+      );
+    }
+  }
+
+  assert.equal(index.search(marker).length, 1);
+  assert.equal(index.search(marker, undefined).length, 1);
+  assert.equal(index.search(marker, {}).length, 1);
+  assert.equal(index.search(marker, { where: {} }).length, 1);
+  assert.equal(index.search(marker, { boost: {} }).length, 1);
+});
+
+test("prepared search option getters can reenter read-only native inventory", async () => {
+  const document = preparedDocument("prepared-reentry", "prepared-reentry-marker");
+  const script = `
+    const { NativeOkfSearch } = require(${JSON.stringify(join(packageRoot, "native.cjs"))});
+    const index = NativeOkfSearch.fromPrepared([${JSON.stringify(document)}]);
+    let reentered = false;
+    const options = {};
+    Object.defineProperty(options, "where", {
+      enumerable: true,
+      get() {
+        reentered = true;
+        if (index.listTypes().join(",") !== "note") {
+          throw new Error("unexpected native inventory");
+        }
+        return {};
+      },
+    });
+    const hits = index.search("prepared-reentry-marker", options);
+    if (!reentered || hits.length !== 1) {
+      throw new Error("search option getter did not reenter successfully");
+    }
+  `;
+
+  await execFileAsync(process.execPath, ["-e", script], {
+    cwd: packageRoot,
+    timeout: 2_000,
+  });
 });
 
 test("the physical generated loader is blocked by the export map", async () => {
