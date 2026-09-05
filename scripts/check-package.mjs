@@ -1308,7 +1308,7 @@ assert.equal(okf.remove("consumer.md"), false);
 assert.equal(okf.remove("missing.md"), false);
 `;
 
-function smokeConsumer(nativeVersion) {
+function smokeConsumer(backendVersion) {
   return `import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -1391,7 +1391,7 @@ for (const expected of [
 const installedNativeManifest = JSON.parse(
   await readFile(join(consumerRoot, "node_modules", "okf-search-native", "package.json"), "utf8"),
 );
-assert.equal(installedNativeManifest.version, ${JSON.stringify(nativeVersion)});
+assert.equal(installedNativeManifest.version, ${JSON.stringify(backendVersion)});
 `;
 }
 
@@ -1768,16 +1768,16 @@ async function prepareNativeConsumers(temporaryRoot, nativeTarball) {
 
 async function preparePiConsumer(
   temporaryRoot,
-  nativeTarball,
+  backendTarball,
   piTarball,
-  nativeVersion,
+  backendVersion,
 ) {
   const consumerRoot = join(temporaryRoot, "pi-consumer");
-  const nativeSpecifier = `file:../tarballs/${basename(nativeTarball)}`;
+  const backendSpecifier = `file:../tarballs/${basename(backendTarball)}`;
   await prepareConsumerRoot(consumerRoot, {
     name: "pi-okf-search-packed-consumer",
     dependencies: {
-      "okf-search-native": nativeSpecifier,
+      "okf-search-native": backendSpecifier,
       "pi-okf-search": `file:../tarballs/${basename(piTarball)}`,
       "@earendil-works/pi-ai": "0.84.3",
       "@earendil-works/pi-coding-agent": "0.84.3",
@@ -1786,13 +1786,13 @@ async function preparePiConsumer(
   });
   await writeFile(
     join(consumerRoot, "pnpm-workspace.yaml"),
-    ["overrides:", `  okf-search-native: ${nativeSpecifier}`, ""].join("\n"),
+    ["overrides:", `  okf-search-native: ${backendSpecifier}`, ""].join("\n"),
   );
   const agentDir = join(consumerRoot, "agent");
   const fixtureDir = join(consumerRoot, "fixture");
   await mkdir(agentDir);
   await mkdir(fixtureDir);
-  await writeFile(join(consumerRoot, "smoke.mjs"), smokeConsumer(nativeVersion));
+  await writeFile(join(consumerRoot, "smoke.mjs"), smokeConsumer(backendVersion));
   await writeFile(
     join(fixtureDir, "marker.md"),
     [

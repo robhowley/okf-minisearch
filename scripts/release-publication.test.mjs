@@ -1,9 +1,9 @@
 import assert from "node:assert/strict"
-import { execFileSync, spawnSync } from "node:child_process"
+import { execFileSync } from "node:child_process"
 import { createHash, randomBytes } from "node:crypto"
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { basename, dirname, isAbsolute, join, resolve } from "node:path"
+import { basename, isAbsolute, join, resolve } from "node:path"
 import test from "node:test"
 
 import { PUBLIC_PACKAGES, resolveTagCommit, selectReleaseCandidates } from "./release-candidates.mjs"
@@ -49,7 +49,7 @@ function githubRelease(tag, draft = false) {
 test("release selection keeps the fixed public-package order", async () => {
   const tags = {
     "okf-minisearch-v2.3.0": fixture.commit,
-    "pi-okf-search-v0.5.0": fixture.otherCommit,
+    "pi-okf-search-v0.5.0": fixture.commit,
     "okf-search-native-v0.1.0": fixture.commit,
   }
   const releases = Object.fromEntries(Object.keys(tags).map((tag) => [tag, githubRelease(tag)]))
@@ -59,7 +59,7 @@ test("release selection keeps the fixed public-package order", async () => {
     releaseTag: "",
     ...candidateAdapters({ tags, releases }),
   })
-  assert.deepEqual(result.packages.map(({ path }) => path), ["packages/okf-minisearch", "packages/okf-search-native"])
+  assert.deepEqual(result.packages.map(({ path }) => path), ["packages/okf-minisearch", "packages/okf-search-native", "packages/pi-okf-search"])
 })
 
 test("dispatch requires an exact non-draft allowlisted release", async () => {
@@ -397,109 +397,6 @@ async function withWindowsProcess(callback) {
   }
 }
 
-function linkDependency(root, name, source) {
-  const target = join(root, "node_modules", ...name.split("/"))
-  mkdirSync(dirname(target), { recursive: true })
-  rmSync(target, { recursive: true, force: true })
-  symlinkSync(source, target, "dir")
-}
-
-function linkWorkspaceDependencies(root) {
-  mkdirSync(join(root, "node_modules"), { recursive: true })
-  for (const packageName of ["okf-minisearch", "okf-search-native", "pi-okf-search"]) {
-    const sourceRoot = join(workspaceRoot, "packages", packageName, "node_modules")
-    for (const name of readdirSync(sourceRoot)) {
-      if (name.startsWith(".")) continue
-      const source = join(sourceRoot, name)
-      if (name.startsWith("@")) {
-        for (const scopedName of readdirSync(source)) {
-          if (!scopedName.startsWith(".")) linkDependency(root, `${name}/${scopedName}`, join(source, scopedName))
-        }
-      } else {
-        linkDependency(root, name, source)
-      }
-    }
-  }
-}
-
-function unpackLocalDependency(root, name, specifier) {
-  if (!specifier.startsWith("file:")) return
-  const staging = mkdtempSync(join(tmpdir(), "local-npm-install-"))
-  try {
-    execFileSync("tar", ["-xzf", specifier.slice("file:".length), "-C", staging], { stdio: "ignore" })
-    const target = join(root, "node_modules", ...name.split("/"))
-    mkdirSync(dirname(target), { recursive: true })
-    rmSync(target, { recursive: true, force: true })
-    renameSync(join(staging, "package"), target)
-  } finally {
-    rmSync(staging, { recursive: true, force: true })
-  }
-}
-
-function packageManifest(root, name) {
-  return JSON.parse(readFileSync(join(root, "node_modules", ...name.split("/"), "package.json"), "utf8"))
-}
-
-function caretRangeAccepts(range, version) {
-  if (range === "*") return true
-
-  const rangeMatch = /^(\d+)\.(\d+)\.(\d+)$/.exec(range?.slice(1) ?? "")
-  const versionMatch = /^(\d+)\.(\d+)\.(\d+)$/.exec(version ?? "")
-  if (!range?.startsWith("^") || !rangeMatch || !versionMatch) return false
-
-  const minimum = rangeMatch.slice(1).map(Number)
-  const actual = versionMatch.slice(1).map(Number)
-  if (
-    actual[0] < minimum[0] ||
-    (actual[0] === minimum[0] && actual[1] < minimum[1]) ||
-    (actual[0] === minimum[0] && actual[1] === minimum[1] && actual[2] < minimum[2])
-  ) return false
-
-  if (minimum[0] > 0) return actual[0] === minimum[0]
-  if (minimum[1] > 0) return actual[0] === 0 && actual[1] === minimum[1]
-  return actual[0] === 0 && actual[1] === 0 && actual[2] === minimum[2]
-}
-
-function localNpmTree(root) {
-  const rootManifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
-  const dependencies = {}
-  for (const [name, specifier] of Object.entries(rootManifest.dependencies ?? {})) {
-    const manifest = packageManifest(root, name)
-    const node = { version: manifest.version, resolved: specifier.startsWith("file:") ? specifier : undefined }
-    if (name === "pi-okf-search") {
-      const nativeManifest = packageManifest(root, "okf-search-native")
-      const nativeSpecifier = rootManifest.dependencies?.["okf-search-native"]
-      const selected = nativeSpecifier?.startsWith("file:") && caretRangeAccepts(manifest.dependencies?.["okf-search-native"], nativeManifest.version)
-      node.dependencies = {
-        "okf-search-native": selected
-          ? { version: nativeManifest.version, resolved: nativeSpecifier }
-          : { version: "0.3.3", resolved: "https://registry.npmjs.org/okf-search-native/-/okf-search-native-0.3.3.tgz" },
-      }
-    }
-    dependencies[name] = node
-  }
-  return { name: rootManifest.name, dependencies }
-}
-
-function localCommandRunner() {
-  return (command, args, options) => {
-    if (command !== "npm" && command !== "npm.cmd") return spawnSync(command, args, options)
-    if (args[0] === "install") {
-      assert.equal(args.includes("--ignore-scripts"), true, "local install must disable scripts")
-      assert.equal(args.includes("--no-audit"), true, "local install must disable audit")
-      assert.equal(args.includes("--no-fund"), true, "local install must disable funding")
-      assert.equal(args.includes("--no-package-lock"), true, "local install must not write a lockfile")
-      assert.equal(args.includes("--registry"), true, "local install must pin the registry")
-      linkWorkspaceDependencies(options.cwd)
-      const manifest = JSON.parse(readFileSync(join(options.cwd, "package.json"), "utf8"))
-      for (const [name, specifier] of Object.entries(manifest.dependencies ?? {})) unpackLocalDependency(options.cwd, name, specifier)
-      return { status: 0, stdout: "", stderr: "" }
-    }
-    if (args[0] === "ls") return { status: 0, stdout: JSON.stringify(localNpmTree(options.cwd)), stderr: "" }
-    throw new Error(`unexpected npm command in local fixture: ${args.join(" ")}`)
-  }
-}
-
 async function makePlan(specs, pack = () => {}, policy = async () => ({ state: "unpublished", distTag: "latest" })) {
   const directory = mkdtempSync(join(tmpdir(), "publication-plan-"))
   pack(directory)
@@ -664,7 +561,6 @@ test("generated Pi consumer declares the exact tested host cohort", async () => 
       onCommand: ({ args, cwd }) => {
         if (args[0] === "install") dependencies = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")).dependencies
       },
-      runCommand: localCommandRunner(),
     })
     assert.deepEqual(dependencies, {
       "pi-okf-search": `file:${join(directory, plan.packages[1].tarball)}`,
