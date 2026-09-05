@@ -460,10 +460,11 @@ fn validate_nested_option_keys(
     let Some(value) = object.get::<Unknown<'_>>(property)? else {
         return Ok(());
     };
-    if value.get_type()? == ValueType::Object {
-        let nested = unsafe { value.cast::<Object<'_>>() }?;
-        validate_option_keys(&nested, location, allowed)?;
+    if value.get_type()? != ValueType::Object || value.is_array()? {
+        return Err(invalid_options(format!("{location} must be an object")));
     }
+    let nested = unsafe { value.cast::<Object<'_>>() }?;
+    validate_option_keys(&nested, location, allowed)?;
     Ok(())
 }
 
@@ -1543,10 +1544,12 @@ impl NativeOkfSearch {
         query: String,
         #[napi(ts_arg_type = "SearchOptions | undefined | null")] options: Option<Object<'_>>,
     ) -> Result<Vec<SearchHit>, Error> {
-        let engine = self.inner.lock();
-        engine.usable().map_err(native_error)?;
+        {
+            let engine = self.inner.lock();
+            engine.usable().map_err(native_error)?;
+        }
         let options = parse_search_options(options)?;
-        engine.search(&query, options)
+        self.inner.lock().search(&query, options)
     }
 
     #[napi(js_name = "listTypes")]
