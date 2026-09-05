@@ -1,6 +1,6 @@
 # pi-okf-search
 
-Search a local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown directory from [Pi](https://pi.dev/). The package adds one read-only tool, `okf_search`, which returns ranked snippets with source paths and line ranges. The `/okf` command provides utilities for inspecting and refreshing the index.
+Search a local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown directory from [Pi](https://pi.dev/). The package uses a native Rust/Tantivy backend to build an in-memory index. It adds one read-only tool, `okf_search`, which returns ranked snippets with source paths and line ranges. The `/okf` command provides utilities for inspecting and refreshing the index.
 
 ## Quick start
 
@@ -71,18 +71,22 @@ The extension recursively indexes `.md` files under `root`, except files named e
 
 Changes to the `root` setting or its Markdown files do not appear in search results automatically. Run `/okf refresh` to update the index. A successful refresh resets the age shown by `/okf status`; if it fails, Pi keeps using the previous index.
 
+## Requirements
+
+Requires Node.js `>=22.19.0`. Prebuilt native addons support macOS x64/arm64 and Linux x64 with glibc `>=2.17`; Windows x64 is experimental. Other platforms are not currently supported.
+
 ## Development
 
 From the repository root:
 
 ```sh
 pnpm install
-pnpm --filter okf-minisearch build
+pnpm --filter okf-search-native build
 pi -e ./packages/pi-okf-search/extensions/okf-search/index.ts
 pnpm package:check
 ```
 
-The library must be built before running the extension from this checkout. `pnpm package:check` runs the repository's build, typecheck, tests, packing, and packed-consumer checks.
+The native backend must be built before running the extension from this checkout. `pnpm package:check` runs the repository's build, typecheck, tests, packing, and packed-consumer checks.
 
 ## License
 

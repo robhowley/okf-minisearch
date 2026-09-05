@@ -21,10 +21,10 @@ const PI_HOST_DEPENDENCIES = Object.fromEntries(
 )
 for (const [name, version] of Object.entries(PI_HOST_DEPENDENCIES)) assert.match(version ?? "", SEMVER, `exact Pi host version for ${name}`)
 
-function consumerDependencies(name, dependency, selectedMini) {
+function consumerDependencies(name, dependency, selectedNative) {
   const dependencies = { [name]: dependency }
   if (name === "pi-okf-search") {
-    if (selectedMini) dependencies["okf-minisearch"] = selectedMini
+    if (selectedNative) dependencies[NATIVE_PACKAGE] = selectedNative
     Object.assign(dependencies, PI_HOST_DEPENDENCIES)
   }
   return dependencies
@@ -83,11 +83,11 @@ async function piSmoke(root, packageRoot, onCommand, runCommand) {
 
   await runConsumerEntry(root, "pi-smoke.mjs", `
 import assert from "node:assert/strict"
-import { createOkfSearch } from "okf-minisearch"
+import { createOkfSearch } from "okf-search-native"
 import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent"
 
-const index = createOkfSearch([{ path: "release.md", markdown: "---\\ntype: release\\n---\\nexact-version-js-smoke\\n" }])
-assert.equal(index.search("exact-version-js-smoke")[0]?.documentId, "release")
+const index = createOkfSearch([{ path: "release.md", markdown: "---\\ntype: release\\n---\\nexact-version-native-smoke\\n" }])
+assert.equal(index.search("exact-version-native-smoke")[0]?.documentId, "release")
 const root = process.cwd()
 const agentDir = process.env.PI_CODING_AGENT_DIR
 const settingsManager = SettingsManager.create(root, agentDir)
@@ -133,44 +133,44 @@ async function assertInstalledBytes(tarball, packageRoot, onCommand, runCommand)
   }
 }
 
-function miniNodes(tree, nodes = []) {
+function nativeNodes(tree, nodes = []) {
   const dependencies = tree?.dependencies ?? {}
   for (const [name, node] of Object.entries(dependencies)) {
-    if (name === "okf-minisearch") nodes.push(node)
-    miniNodes(node, nodes)
+    if (name === NATIVE_PACKAGE) nodes.push(node)
+    nativeNodes(node, nodes)
   }
   return nodes
 }
 
-async function assertPiResolvesRootMini(root, piRoot, onCommand, runCommand) {
-  const resolver = "process.stdout.write(import.meta.resolve('okf-minisearch'))\n"
-  const piResolver = join(piRoot, "resolve-okf-minisearch.mjs")
-  const rootResolver = join(root, "resolve-okf-minisearch.mjs")
+async function assertPiResolvesRootNative(root, piRoot, onCommand, runCommand) {
+  const resolver = `process.stdout.write(import.meta.resolve('${NATIVE_PACKAGE}'))\n`
+  const piResolver = join(piRoot, "resolve-okf-search-native.mjs")
+  const rootResolver = join(root, "resolve-okf-search-native.mjs")
   try {
     await writeFile(piResolver, resolver)
     await writeFile(rootResolver, resolver)
     const piResolved = run(process.execPath, [piResolver], root, process.env, true, onCommand, runCommand)
     const rootResolved = run(process.execPath, [rootResolver], root, process.env, true, onCommand, runCommand)
-    assert.equal(await realpath(fileURLToPath(piResolved)), await realpath(fileURLToPath(rootResolved)), "Pi resolves a different okf-minisearch instance")
+    assert.equal(await realpath(fileURLToPath(piResolved)), await realpath(fileURLToPath(rootResolved)), "Pi resolves a different okf-search-native instance")
   } finally {
     await rm(piResolver, { force: true })
     await rm(rootResolver, { force: true })
   }
 }
 
-async function assertPiUsesSelectedMini(root, piRoot, miniEntry, miniTarball, onCommand, runCommand) {
+async function assertPiUsesSelectedNative(root, piRoot, nativeEntry, nativeTarball, onCommand, runCommand) {
   const npm = process.platform === "win32" ? "npm.cmd" : "npm"
-  const tree = JSON.parse(run(npm, ["ls", "okf-minisearch", "--all", "--json", "--long"], root, process.env, true, onCommand, runCommand))
-  const nodes = miniNodes(tree)
-  assert.ok(nodes.length > 0, "npm dependency tree has no okf-minisearch")
+  const tree = JSON.parse(run(npm, ["ls", NATIVE_PACKAGE, "--all", "--json", "--long"], root, process.env, true, onCommand, runCommand))
+  const nodes = nativeNodes(tree)
+  assert.ok(nodes.length > 0, "npm dependency tree has no okf-search-native")
   for (const node of nodes) {
-    assert.equal(node.version, miniEntry.version, "npm dependency tree selected another okf-minisearch version")
+    assert.equal(node.version, nativeEntry.version, "npm dependency tree selected another okf-search-native version")
     if (node.resolved !== undefined) {
-      assert.doesNotMatch(node.resolved, /^https:\/\/registry\.npmjs\.org\//, "selected okf-minisearch resolved from the registry")
-      assert.ok(decodeURIComponent(node.resolved).includes(basename(miniTarball)), "selected okf-minisearch did not resolve from the planned tarball")
+      assert.doesNotMatch(node.resolved, /^https:\/\/registry\.npmjs\.org\//, "selected okf-search-native resolved from the registry")
+      assert.ok(decodeURIComponent(node.resolved).includes(basename(nativeTarball)), "selected okf-search-native did not resolve from the planned tarball")
     }
   }
-  await assertPiResolvesRootMini(root, piRoot, onCommand, runCommand)
+  await assertPiResolvesRootNative(root, piRoot, onCommand, runCommand)
 }
 
 async function validateInstalledPackage(root, entry, tarball, onCommand, runCommand) {
@@ -188,18 +188,18 @@ async function validateInstalledPackage(root, entry, tarball, onCommand, runComm
   for (const file of ["index.ts", "runtime.ts", "config.ts"]) {
     assert.equal((await stat(join(packageRoot, "extensions", "okf-search", file))).isFile(), true, `missing Pi extension file: ${file}`)
   }
-  assert.equal(typeof manifest.dependencies?.["okf-minisearch"], "string", "missing okf-minisearch dependency")
+  assert.equal(typeof manifest.dependencies?.[NATIVE_PACKAGE], "string", "missing okf-search-native dependency")
   await piSmoke(root, packageRoot, onCommand, runCommand)
 }
 
 async function installConsumer(entry, entries, directory, onCommand, runCommand) {
   const root = await mkdtemp(join(tmpdir(), "okf-js-release-consumer-"))
   try {
-    const selectedMini = entries.find(({ name }) => name === "okf-minisearch")
+    const selectedNative = entries.find(({ name }) => name === NATIVE_PACKAGE)
     const dependencies = consumerDependencies(
       entry.name,
       `file:${join(directory, entry.tarball)}`,
-      selectedMini && `file:${join(directory, selectedMini.tarball)}`,
+      selectedNative && `file:${join(directory, selectedNative.tarball)}`,
     )
     await writeFile(join(root, "package.json"), `${JSON.stringify({
       name: "okf-js-release-consumer",
@@ -211,9 +211,9 @@ async function installConsumer(entry, entries, directory, onCommand, runCommand)
     const npm = process.platform === "win32" ? "npm.cmd" : "npm"
     run(npm, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock", "--registry", NPM_REGISTRY], root, process.env, false, onCommand, runCommand)
     await validateInstalledPackage(root, entry, join(directory, entry.tarball), onCommand, runCommand)
-    if (entry.name === "pi-okf-search" && selectedMini) {
-      await assertInstalledBytes(join(directory, selectedMini.tarball), join(root, "node_modules", selectedMini.name), onCommand, runCommand)
-      await assertPiUsesSelectedMini(root, join(root, "node_modules", entry.name), selectedMini, join(directory, selectedMini.tarball), onCommand, runCommand)
+    if (entry.name === "pi-okf-search" && selectedNative) {
+      await assertInstalledBytes(join(directory, selectedNative.tarball), join(root, "node_modules", selectedNative.name), onCommand, runCommand)
+      await assertPiUsesSelectedNative(root, join(root, "node_modules", entry.name), selectedNative, join(directory, selectedNative.tarball), onCommand, runCommand)
     }
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -223,25 +223,25 @@ async function installConsumer(entry, entries, directory, onCommand, runCommand)
 export async function verifyLocalJsConsumers({ directory, plan, expectedCommit = plan.releaseCommit, onCommand, runCommand = spawnSync } = {}) {
   await verifyPublicationPlan({ directory, plan, expectedCommit })
   const entries = plan.packages.filter(({ name }) => JS_PACKAGES.has(name))
-  for (const entry of entries) await installConsumer(entry, entries, directory, onCommand, runCommand)
+  for (const entry of entries) await installConsumer(entry, plan.packages, directory, onCommand, runCommand)
   return entries.map(({ name, version }) => ({ name, version }))
 }
 
-export async function verifyRegistryConsumer(name, version, selectedMini, { onCommand, runCommand = spawnSync } = {}) {
+export async function verifyRegistryConsumer(name, version, selectedNative, { onCommand, runCommand = spawnSync } = {}) {
   assert.ok(JS_PACKAGES.has(name), "unsupported JS package")
   assert.match(version ?? "", SEMVER, "exact package version")
-  if (selectedMini) assert.match(selectedMini.version ?? "", SEMVER, "exact selected MiniSearch version")
+  if (selectedNative) assert.match(selectedNative.version ?? "", SEMVER, "exact selected native version")
   const root = await mkdtemp(join(tmpdir(), "okf-js-release-consumer-"))
   try {
-    const dependencies = consumerDependencies(name, version, selectedMini?.version)
+    const dependencies = consumerDependencies(name, version, selectedNative?.version)
     await writeFile(join(root, "package.json"), `${JSON.stringify({ name: "okf-js-release-consumer", version: "1.0.0", private: true, type: "module", dependencies }, null, 2)}\n`)
     const npm = process.platform === "win32" ? "npm.cmd" : "npm"
     run(npm, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock", "--registry", NPM_REGISTRY, "--save-exact"], root, process.env, false, onCommand, runCommand)
     await validateInstalledPackage(root, { name, version }, "", onCommand, runCommand)
-    if (name === "pi-okf-search" && selectedMini) {
-      const manifest = JSON.parse(await readFile(join(root, "node_modules", "okf-minisearch", "package.json"), "utf8"))
-      assert.equal(manifest.version, selectedMini.version, "post-publish consumer selected another MiniSearch version")
-      await assertPiResolvesRootMini(root, join(root, "node_modules", name), onCommand, runCommand)
+    if (name === "pi-okf-search" && selectedNative) {
+      const manifest = JSON.parse(await readFile(join(root, "node_modules", NATIVE_PACKAGE, "package.json"), "utf8"))
+      assert.equal(manifest.version, selectedNative.version, "post-publish consumer selected another native version")
+      await assertPiResolvesRootNative(root, join(root, "node_modules", name), onCommand, runCommand)
     }
     console.log(`verified clean scripts-disabled JS consumer for ${name}@${version}`)
   } finally {
@@ -379,8 +379,8 @@ export async function verifyRegistryPlanConsumer(plan, name, {
   const entry = plan?.packages?.find((candidate) => candidate.name === name)
   assert.ok(entry, "package is not selected in the publication plan")
   if (JS_PACKAGES.has(name)) {
-    const selectedMini = plan.packages.find((candidate) => candidate.name === "okf-minisearch")
-    return verifyJsConsumer(name, entry.version, selectedMini)
+    const selectedNative = plan.packages.find((candidate) => candidate.name === NATIVE_PACKAGE)
+    return verifyJsConsumer(name, entry.version, selectedNative)
   }
   assert.equal(name, NATIVE_PACKAGE, "unsupported selected package")
   assert.match(entry.version ?? "", SEMVER, "exact native package version")

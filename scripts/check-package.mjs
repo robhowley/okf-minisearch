@@ -1308,7 +1308,7 @@ assert.equal(okf.remove("consumer.md"), false);
 assert.equal(okf.remove("missing.md"), false);
 `;
 
-function smokeConsumer(libraryVersion) {
+function smokeConsumer(backendVersion) {
   return `import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -1388,10 +1388,10 @@ for (const expected of [
   assert.ok(text.includes(expected), "search result is missing expected packed marker content");
 }
 
-const installedLibraryManifest = JSON.parse(
-  await readFile(join(consumerRoot, "node_modules", "okf-minisearch", "package.json"), "utf8"),
+const installedNativeManifest = JSON.parse(
+  await readFile(join(consumerRoot, "node_modules", "okf-search-native", "package.json"), "utf8"),
 );
-assert.equal(installedLibraryManifest.version, ${JSON.stringify(libraryVersion)});
+assert.equal(installedNativeManifest.version, ${JSON.stringify(backendVersion)});
 `;
 }
 
@@ -1456,7 +1456,7 @@ async function inspectLibraryManifest(libraryTarball, extractionRoot) {
 async function inspectPiManifest(
   piTarball,
   extractionRoot,
-  expectedLibraryRange,
+  expectedNativeRange,
 ) {
   await mkdir(extractionRoot, { recursive: true });
   run("tar", ["-xzf", piTarball, "-C", extractionRoot]);
@@ -1476,7 +1476,7 @@ async function inspectPiManifest(
     extensions: ["./extensions/okf-search"],
   });
   assert.deepEqual(manifest.dependencies, {
-    "okf-minisearch": expectedLibraryRange,
+    "okf-search-native": expectedNativeRange,
   });
   assert.deepEqual(manifest.peerDependencies, {
     "@earendil-works/pi-ai": "*",
@@ -1484,9 +1484,9 @@ async function inspectPiManifest(
     typebox: "*",
   });
   assert.equal(
-    manifest.dependencies["okf-minisearch"],
-    expectedLibraryRange,
-    `${packageNames.pi}: packed dependency must be ${expectedLibraryRange}`,
+    manifest.dependencies["okf-search-native"],
+    expectedNativeRange,
+    `${packageNames.pi}: packed dependency must be ${expectedNativeRange}`,
   );
   assert.equal(serialized.includes("workspace:"), false);
   assert.equal(Object.hasOwn(manifest, "main"), false);
@@ -1494,11 +1494,11 @@ async function inspectPiManifest(
   assert.equal(Object.hasOwn(manifest, "exports"), false);
   assert.equal(Object.hasOwn(manifest.scripts, "build"), false);
   assert.equal(
-    Object.hasOwn(manifest.peerDependencies ?? {}, "okf-minisearch"),
+    Object.hasOwn(manifest.peerDependencies ?? {}, "okf-search-native"),
     false,
   );
   assert.equal(
-    Object.hasOwn(manifest.devDependencies ?? {}, "okf-minisearch"),
+    Object.hasOwn(manifest.devDependencies ?? {}, "okf-search-native"),
     false,
   );
 }
@@ -1768,16 +1768,16 @@ async function prepareNativeConsumers(temporaryRoot, nativeTarball) {
 
 async function preparePiConsumer(
   temporaryRoot,
-  libraryTarball,
+  backendTarball,
   piTarball,
-  libraryVersion,
+  backendVersion,
 ) {
   const consumerRoot = join(temporaryRoot, "pi-consumer");
-  const librarySpecifier = `file:../tarballs/${basename(libraryTarball)}`;
+  const backendSpecifier = `file:../tarballs/${basename(backendTarball)}`;
   await prepareConsumerRoot(consumerRoot, {
     name: "pi-okf-search-packed-consumer",
     dependencies: {
-      "okf-minisearch": librarySpecifier,
+      "okf-search-native": backendSpecifier,
       "pi-okf-search": `file:../tarballs/${basename(piTarball)}`,
       "@earendil-works/pi-ai": "0.84.3",
       "@earendil-works/pi-coding-agent": "0.84.3",
@@ -1786,13 +1786,13 @@ async function preparePiConsumer(
   });
   await writeFile(
     join(consumerRoot, "pnpm-workspace.yaml"),
-    ["overrides:", `  okf-minisearch: ${librarySpecifier}`, ""].join("\n"),
+    ["overrides:", `  okf-search-native: ${backendSpecifier}`, ""].join("\n"),
   );
   const agentDir = join(consumerRoot, "agent");
   const fixtureDir = join(consumerRoot, "fixture");
   await mkdir(agentDir);
   await mkdir(fixtureDir);
-  await writeFile(join(consumerRoot, "smoke.mjs"), smokeConsumer(libraryVersion));
+  await writeFile(join(consumerRoot, "smoke.mjs"), smokeConsumer(backendVersion));
   await writeFile(
     join(fixtureDir, "marker.md"),
     [
@@ -2054,23 +2054,24 @@ async function main() {
       tarballRoot,
       temporaryRoot,
     );
+    const nativePackage = await checkNativePackage(temporaryRoot, tarballRoot);
     const piPackage = await packPackage("pi", tarballRoot, temporaryRoot);
-    const libraryManifest = JSON.parse(
-      await readFile(join(packageRoots.library, "package.json"), "utf8"),
+    const nativeManifest = JSON.parse(
+      await readFile(join(packageRoots.native, "package.json"), "utf8"),
     );
-    const libraryVersion = libraryManifest.version;
-    assert.equal(typeof libraryVersion, "string");
-    assert.ok(libraryVersion.length > 0);
+    const nativeVersion = nativeManifest.version;
+    assert.equal(typeof nativeVersion, "string");
+    assert.ok(nativeVersion.length > 0);
     const piSourceManifest = JSON.parse(
       await readFile(join(packageRoots.pi, "package.json"), "utf8"),
     );
-    const expectedLibraryRange =
-      piSourceManifest.dependencies?.[packageNames.library]?.replace(
+    const expectedNativeRange =
+      piSourceManifest.dependencies?.[packageNames.native]?.replace(
         /^workspace:/,
         "",
       );
-    assert.equal(typeof expectedLibraryRange, "string");
-    assert.ok(expectedLibraryRange.length > 0);
+    assert.equal(typeof expectedNativeRange, "string");
+    assert.ok(expectedNativeRange.length > 0);
 
     await inspectLibraryManifest(
       libraryPackage.tarball,
@@ -2079,7 +2080,7 @@ async function main() {
     await inspectPiManifest(
       piPackage.tarball,
       join(temporaryRoot, "extracted", "pi"),
-      expectedLibraryRange,
+      expectedNativeRange,
     );
     const libraryConsumerRoot = await prepareLibraryConsumer(
       temporaryRoot,
@@ -2087,9 +2088,9 @@ async function main() {
     );
     const piConsumerRoot = await preparePiConsumer(
       temporaryRoot,
-      libraryPackage.tarball,
+      nativePackage.tarball,
       piPackage.tarball,
-      libraryVersion,
+      nativeVersion,
     );
 
     for (const consumerRoot of [libraryConsumerRoot, piConsumerRoot]) {
@@ -2107,14 +2108,13 @@ async function main() {
     );
     await checkCurrentTarball(
       piConsumerRoot,
-      packageNames.library,
-      libraryPackage.tarball,
+      packageNames.native,
+      nativePackage.tarball,
     );
 
     checkLibraryConsumer(libraryConsumerRoot);
     await checkEsbuildConsumers(libraryConsumerRoot);
     await checkRollupConsumers(libraryConsumerRoot);
-    await checkNativePackage(temporaryRoot, tarballRoot);
     run(process.execPath, ["smoke.mjs"], { cwd: piConsumerRoot });
 
     console.log(

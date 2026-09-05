@@ -1,6 +1,6 @@
 # okf-minisearch
 
-`okf-minisearch` searches [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown loaded from a Node.js directory, files selected in a browser, or Markdown already in memory. The companion `pi-okf-search` package lets Pi search a configured local OKF directory through one read-only `okf_search` tool.
+`okf-minisearch` searches [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown loaded from a Node.js directory, files selected in a browser, or Markdown already in memory. The companion `pi-okf-search` package retrieves ranked snippets from a configured local OKF directory through one read-only `okf_search` tool backed by a native Rust/Tantivy index.
 
 [![Package validation](https://github.com/robhowley/okf-minisearch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/robhowley/okf-minisearch/actions/workflows/ci.yml)
 [![okf-minisearch on npm](https://img.shields.io/npm/v/okf-minisearch?logo=npm&label=okf-minisearch)](https://www.npmjs.com/package/okf-minisearch)
@@ -131,11 +131,11 @@ pnpm --filter okf-minisearch build
 Run the Pi extension from this checkout:
 
 ```sh
-pnpm --filter okf-minisearch build
+pnpm --filter okf-search-native build
 pi -e ./packages/pi-okf-search/extensions/okf-search/index.ts
 ```
 
-The library must be built before this local extension command. The Pi package has no build step; Pi loads its TypeScript source.
+The native backend must be built before this local extension command. The Pi package has no build step; Pi loads its TypeScript source.
 
 ## License
 
