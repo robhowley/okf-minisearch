@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url"
 
 import { expectedArtifactNames } from "../packages/okf-search-native/scripts/verify-release-artifacts.mjs"
 import { NPM_REGISTRY, packagePublicationPolicy } from "./npm-registry-state.mjs"
+import { resolveCommandShape } from "./command-shape.mjs"
 import { PUBLIC_PACKAGES } from "./release-candidates.mjs"
 
 const TARGETS = [
@@ -55,10 +56,11 @@ function fail(message) {
 }
 
 function run(command, args, options = {}, runCommand = spawnSync) {
-  const result = runCommand(command, args, { encoding: "utf8", ...options })
+  const shape = resolveCommandShape(command, args)
+  const result = runCommand(shape.command, shape.args, { encoding: "utf8", ...options })
   if (result.error) throw result.error
   if (result.status !== 0) fail(`${command} ${args.join(" ")} exited with ${result.status}${result.stderr ? `: ${result.stderr.trim()}` : ""}`)
-  return result.stdout.trim()
+  return result.stdout?.trim() ?? ""
 }
 
 export function runTar(tarball, operation, extraArgs = [], runCommand = spawnSync) {
@@ -368,13 +370,13 @@ export async function verifyNpmPublication(entry, { distTag = entry.distTag, rel
   return { name: entry.name, version: entry.version, sha256: entry.sha256 }
 }
 
-async function verifyRegistrySignatures(entry) {
+async function verifyRegistrySignatures(entry, runCommand = spawnSync) {
   const root = await mkdtemp(join(tmpdir(), "okf-publication-signatures-"))
   const npm = process.platform === "win32" ? "npm.cmd" : "npm"
   try {
     await writeFile(join(root, "package.json"), `${JSON.stringify({ name: "okf-publication-signature-verifier", version: "1.0.0", private: true, dependencies: { [entry.name]: entry.version } }, null, 2)}\n`)
-    run(npm, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--registry", NPM_REGISTRY], { cwd: root, stdio: "inherit" })
-    run(npm, ["audit", "signatures", "--registry", NPM_REGISTRY], { cwd: root, stdio: "inherit" })
+    run(npm, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--registry", NPM_REGISTRY], { cwd: root, stdio: "inherit" }, runCommand)
+    run(npm, ["audit", "signatures", "--registry", NPM_REGISTRY], { cwd: root, stdio: "inherit" }, runCommand)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -409,7 +411,7 @@ export function verifyOidcToken(token, { repository, ref, workflow, commit }) {
   assert.equal(payload.sha, commit, "OIDC provenance commit mismatch")
 }
 
-function productionAdapters(environment) {
+export function productionAdapters(environment, runCommand = spawnSync) {
   const npm = process.platform === "win32" ? "npm.cmd" : "npm"
   return {
     registry: {
@@ -417,12 +419,12 @@ function productionAdapters(environment) {
       owner: packageOwnerState,
       verify: async (entry, plan) => {
         const result = await verifyNpmPublication(entry, { distTag: entry.distTag, releaseCommit: plan.releaseCommit })
-        await verifyRegistrySignatures(entry)
+        await verifyRegistrySignatures(entry, runCommand)
         return result
       },
-      ping: async () => { run(npm, ["ping", `--registry=${NPM_REGISTRY}`], { stdio: "inherit" }) },
+      ping: async () => { run(npm, ["ping", `--registry=${NPM_REGISTRY}`], { stdio: "inherit" }, runCommand) },
     },
-    npmVersion: async () => run(npm, ["--version"]),
+    npmVersion: async () => run(npm, ["--version"], {}, runCommand),
     getOidc: async () => {
       assert.ok(environment.ACTIONS_ID_TOKEN_REQUEST_URL, "GitHub OIDC request URL is missing")
       assert.ok(environment.ACTIONS_ID_TOKEN_REQUEST_TOKEN, "GitHub OIDC request token is missing")
@@ -432,7 +434,7 @@ function productionAdapters(environment) {
       return (await response.json()).value
     },
     publish: async (tarball, distTag) => {
-      run(npm, ["publish", tarball, "--access", "public", "--provenance", "--tag", distTag], { stdio: "inherit" })
+      run(npm, ["publish", tarball, "--access", "public", "--provenance", "--tag", distTag], { stdio: "inherit" }, runCommand)
     },
   }
 }
