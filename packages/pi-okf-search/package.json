@@ -1,7 +1,7 @@
 {
   "name": "pi-okf-search",
   "version": "0.4.0",
-  "description": "Search local Open Knowledge Format content from Pi.",
+  "description": "Search local Open Knowledge Format content from Pi with a native Rust/Tantivy backend.",
   "keywords": [
     "pi-package",
     "open-knowledge-format",

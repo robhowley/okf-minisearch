@@ -1,6 +1,10 @@
 # pi-okf-search
 
-Search a local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown directory from [Pi](https://pi.dev/). The package adds one read-only tool, `okf_search`, which returns ranked snippets with source paths and line ranges. The `/okf` command provides utilities for inspecting and refreshing the index.
+Search a local [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/open-knowledge-format) Markdown directory from [Pi](https://pi.dev/). The package uses a native Rust/Tantivy backend to build an in-memory index. It adds one read-only tool, `okf_search`, which returns ranked snippets with source paths and line ranges. The `/okf` command provides utilities for inspecting and refreshing the index.
+
+## Requirements
+
+Requires Node.js `>=22.19.0`. Prebuilt native addons support macOS x64/arm64 and Linux x64 with glibc `>=2.17`; Windows x64 is experimental. Other platforms are not currently supported.
 
 ## Quick start
 
