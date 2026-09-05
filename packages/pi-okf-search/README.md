@@ -77,12 +77,12 @@ From the repository root:
 
 ```sh
 pnpm install
-pnpm --filter okf-minisearch build
+pnpm --filter okf-search-native build
 pi -e ./packages/pi-okf-search/extensions/okf-search/index.ts
 pnpm package:check
 ```
 
-The library must be built before running the extension from this checkout. `pnpm package:check` runs the repository's build, typecheck, tests, packing, and packed-consumer checks.
+The native backend must be built before running the extension from this checkout. `pnpm package:check` runs the repository's build, typecheck, tests, packing, and packed-consumer checks.
 
 ## License
 

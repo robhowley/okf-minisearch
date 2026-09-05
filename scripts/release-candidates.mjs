@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url"
 
 export const PUBLIC_PACKAGES = Object.freeze([
   { path: "packages/okf-minisearch", name: "okf-minisearch" },
-  { path: "packages/pi-okf-search", name: "pi-okf-search" },
   { path: "packages/okf-search-native", name: "okf-search-native" },
+  { path: "packages/pi-okf-search", name: "pi-okf-search" },
 ])
 
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/

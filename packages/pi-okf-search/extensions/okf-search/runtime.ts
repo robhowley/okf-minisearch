@@ -4,7 +4,7 @@ import {
   type OkfSearch,
   type OkfSearchField,
   type OkfSearchOptions,
-} from "okf-minisearch";
+} from "okf-search-native";
 import { resolve } from "node:path";
 
 import { loadConfig } from "./config.js";

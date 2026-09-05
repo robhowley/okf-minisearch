@@ -131,11 +131,11 @@ pnpm --filter okf-minisearch build
 Run the Pi extension from this checkout:
 
 ```sh
-pnpm --filter okf-minisearch build
+pnpm --filter okf-search-native build
 pi -e ./packages/pi-okf-search/extensions/okf-search/index.ts
 ```
 
-The library must be built before this local extension command. The Pi package has no build step; Pi loads its TypeScript source.
+The native backend must be built before this local extension command. The Pi package has no build step; Pi loads its TypeScript source.
 
 ## License
 

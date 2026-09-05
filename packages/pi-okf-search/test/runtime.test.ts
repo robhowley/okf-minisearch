@@ -1,11 +1,11 @@
 import { resolve } from "node:path";
 
-import { OkfError } from "okf-minisearch";
+import { OkfError } from "okf-search-native";
 import type {
   OkfDegradedDocument,
   OkfSearchHit,
   OkfSearchOptions,
-} from "okf-minisearch";
+} from "okf-search-native";
 import {
   describe,
   expect,

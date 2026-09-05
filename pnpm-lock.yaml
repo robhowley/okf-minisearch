@@ -97,9 +97,9 @@ importers:
 
   packages/pi-okf-search:
     dependencies:
-      okf-minisearch:
-        specifier: workspace:^2.0.0
-        version: link:../okf-minisearch
+      okf-search-native:
+        specifier: workspace:^0.3.3
+        version: link:../okf-search-native
     devDependencies:
       '@earendil-works/pi-ai':
         specifier: 0.84.3

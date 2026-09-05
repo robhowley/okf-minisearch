@@ -50,6 +50,7 @@ jobs:
       release_commit: ${{ steps.candidates.outputs.release_commit }}
       released_packages: ${{ steps.candidates.outputs.released_packages }}
       native_released: ${{ steps.candidates.outputs.native_released }}
+      pi_released: ${{ steps.candidates.outputs.pi_released }}
       js_released_packages: ${{ steps.candidates.outputs.js_released_packages }}
     steps:
       - name: Checkout publication automation and tags
@@ -71,6 +72,7 @@ jobs:
           echo "released_packages=$packages" >>"$GITHUB_OUTPUT"
           echo "has_releases=$(jq -r '.packages | length > 0' <<<"$metadata")" >>"$GITHUB_OUTPUT"
           echo "native_released=$(jq -r '.packages | any(.path == "packages/okf-search-native")' <<<"$metadata")" >>"$GITHUB_OUTPUT"
+          echo "pi_released=$(jq -r '.packages | any(.path == "packages/pi-okf-search")' <<<"$metadata")" >>"$GITHUB_OUTPUT"
           echo "js_released_packages=$(jq -c '[.packages[] | select(.path != "packages/okf-search-native")]' <<<"$metadata")" >>"$GITHUB_OUTPUT"
 
   native_release_build:
@@ -186,20 +188,14 @@ jobs:
           cache: pnpm
       - name: Install immutable source dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build and test selected JavaScript packages
-        env:
-          RELEASED_PACKAGES_JSON: ${{ needs.release_metadata.outputs.released_packages }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if jq -e 'any(.path == "packages/okf-minisearch" or .path == "packages/pi-okf-search")' <<<"$RELEASED_PACKAGES_JSON" >/dev/null; then
-            pnpm --filter okf-minisearch build
-            pnpm --filter okf-minisearch test
-          fi
-          if jq -e 'any(.path == "packages/pi-okf-search")' <<<"$RELEASED_PACKAGES_JSON" >/dev/null; then
-            pnpm --filter pi-okf-search typecheck
-            pnpm --filter pi-okf-search test
-          fi
+      - name: Setup Rust for the Pi native backend
+        if: needs.release_metadata.outputs.pi_released == 'true' && needs.release_metadata.outputs.native_released == 'false'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.88.0
+      - name: Build the Pi native backend
+        if: needs.release_metadata.outputs.pi_released == 'true' && needs.release_metadata.outputs.native_released == 'false'
+        run: pnpm --dir packages/okf-search-native run build
       - name: Remove stale native output
         if: needs.release_metadata.outputs.native_released == 'true'
         shell: bash
@@ -225,6 +221,20 @@ jobs:
           pnpm exec napi create-npm-dirs --npm-dir npm
           pnpm exec napi artifacts --output-dir "$RUNNER_TEMP/okf-native-artifacts" --npm-dir npm
           node scripts/verify-release-artifacts.mjs
+      - name: Build and test selected JavaScript packages
+        env:
+          RELEASED_PACKAGES_JSON: ${{ needs.release_metadata.outputs.released_packages }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if jq -e 'any(.path == "packages/okf-minisearch")' <<<"$RELEASED_PACKAGES_JSON" >/dev/null; then
+            pnpm --filter okf-minisearch build
+            pnpm --filter okf-minisearch test
+          fi
+          if jq -e 'any(.path == "packages/pi-okf-search")' <<<"$RELEASED_PACKAGES_JSON" >/dev/null; then
+            pnpm --filter pi-okf-search typecheck
+            pnpm --filter pi-okf-search test
+          fi
       - name: Pack every selected package once and create the immutable plan
         env:
           RELEASED_PACKAGES_JSON: ${{ needs.release_metadata.outputs.released_packages }}
