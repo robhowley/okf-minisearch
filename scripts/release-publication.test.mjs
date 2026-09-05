@@ -16,14 +16,18 @@ import {
   UNPACKED_LIMIT,
   createPublicationPlan,
   inspectPublicationArtifact,
+  productionAdapters,
   runPublicationTransaction,
   runTar,
   verifyNpmPublication,
   verifyPublicationPlan,
 } from "./release-publication.mjs"
+import { resolveCommandShape } from "./command-shape.mjs"
+import { pnpmCommand, run as runPackageCommand } from "./check-package.mjs"
 import {
   verifyLocalJsConsumers,
   verifyLocalNativeConsumer,
+  verifyNativeConsumer,
   verifyRegistryPlanConsumer,
 } from "./verify-release-consumer.mjs"
 
@@ -250,6 +254,91 @@ function packageSpec(name, version) {
   }
 }
 
+test("successful inherited-stdio commands tolerate null stdout", () => {
+  assert.equal(
+    runTar("/tmp/release-package.tgz", "-tzf", [], () => ({ status: 0, stdout: null, stderr: null })),
+    "",
+  )
+  assert.equal(
+    runTar("/tmp/release-package.tgz", "-tzf", [], () => ({ status: 0, stdout: " package \n", stderr: "" })),
+    "package",
+  )
+  assert.throws(
+    () => runTar("/tmp/release-package.tgz", "-tzf", [], () => ({ status: 1, stdout: "partial\n", stderr: "tar failed\n" })),
+    /exited with 1: tar failed/,
+  )
+})
+
+test("Unix package-manager commands keep their command and argument shape", () => {
+  const args = ["install", "release package/package.tgz", "--save-exact"]
+  assert.deepEqual(resolveCommandShape("npm", args, { platform: "darwin", comSpec: "custom-cmd" }), {
+    command: "npm",
+    args,
+  })
+  assert.deepEqual(resolveCommandShape("pnpm", args, { platform: "linux", comSpec: "custom-cmd" }), {
+    command: "pnpm",
+    args,
+  })
+})
+
+test("Windows batch commands use ComSpec or cmd.exe and preserve argument entries", () => {
+  const args = ["install", "C:\\release package\\native.tgz", "--save-exact"]
+  assert.deepEqual(resolveCommandShape("npm.cmd", args, {
+    platform: "win32",
+    comSpec: "C:\\Windows\\System32\\custom-cmd.exe",
+  }), {
+    command: "C:\\Windows\\System32\\custom-cmd.exe",
+    args: ["/d", "/s", "/c", "npm.cmd", ...args],
+  })
+  assert.deepEqual(resolveCommandShape("pnpm.bat", args, { platform: "win32", comSpec: "" }), {
+    command: "cmd.exe",
+    args: ["/d", "/s", "/c", "pnpm.bat", ...args],
+  })
+  assert.deepEqual(resolveCommandShape("node", args, { platform: "win32", comSpec: "custom-cmd" }), {
+    command: "node",
+    args,
+  })
+})
+
+test("release publication npm commands use the Windows ComSpec at their production boundary", async () => {
+  const commands = []
+  const tarball = join(tmpdir(), "release package.tgz")
+  await withWindowsProcess(async () => {
+    const adapters = productionAdapters({}, (command, args, options) => {
+      commands.push({ command, args: [...args], options })
+      return { status: 0, stdout: null, stderr: null }
+    })
+    assert.equal(await adapters.npmVersion(), "")
+    await adapters.registry.ping()
+    await adapters.publish(tarball, "latest")
+  })
+
+  assert.equal(commands.length, 3)
+  assert.equal(commands.every(({ command }) => command === "C:\\Windows\\System32\\custom-cmd.exe"), true)
+  assert.deepEqual(commands[0].args, ["/d", "/s", "/c", "npm.cmd", "--version"])
+  assert.deepEqual(commands[1].args, ["/d", "/s", "/c", "npm.cmd", "ping", `--registry=${NPM_REGISTRY}`])
+  assert.deepEqual(commands[2].args, ["/d", "/s", "/c", "npm.cmd", "publish", tarball, "--access", "public", "--provenance", "--tag", "latest"])
+})
+
+test("check-package pnpm launches use the Windows ComSpec at their production boundary", async () => {
+  const commands = []
+  const args = ["install", join(tmpdir(), "release package"), "--ignore-scripts"]
+  await withWindowsProcess(async () => {
+    const pnpm = pnpmCommand()
+    assert.equal(pnpm, "pnpm.cmd")
+    assert.equal(runPackageCommand(pnpm, args, { capture: true }, (command, forwardedArgs, options) => {
+      commands.push({ command, args: [...forwardedArgs], options })
+      return { status: 0, stdout: null, stderr: null }
+    }), "")
+  })
+
+  assert.deepEqual(commands, [{
+    command: "C:\\Windows\\System32\\custom-cmd.exe",
+    args: ["/d", "/s", "/c", "pnpm.cmd", ...args],
+    options: { cwd: workspaceRoot, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+  }])
+})
+
 test("tarball checks use a local basename for drive-like archive paths", () => {
   const tarball = "D:/a/_temp/publication-plan/okf-search-native-0.3.1.tgz"
   const commands = []
@@ -277,6 +366,20 @@ test("tarball checks use a local basename for drive-like archive paths", () => {
 })
 
 const workspaceRoot = resolve(".")
+
+async function withWindowsProcess(callback) {
+  const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform")
+  const originalComSpec = process.env.ComSpec
+  Object.defineProperty(process, "platform", { ...platformDescriptor, value: "win32" })
+  process.env.ComSpec = "C:\\Windows\\System32\\custom-cmd.exe"
+  try {
+    return await callback()
+  } finally {
+    Object.defineProperty(process, "platform", platformDescriptor)
+    if (originalComSpec === undefined) delete process.env.ComSpec
+    else process.env.ComSpec = originalComSpec
+  }
+}
 
 function linkDependency(root, name, source) {
   const target = join(root, "node_modules", ...name.split("/"))
@@ -647,6 +750,25 @@ test("registry plan mode forwards exact selected versions without executing on i
     verifyJsConsumer: async (...args) => { calls.push(args) },
   })
   assert.deepEqual(calls, [["pi-okf-search", "0.4.0", plan.packages[0]]])
+})
+
+test("native consumer uses the resolved Windows batch shape for install", async () => {
+  const commands = []
+  const dependency = join(tmpdir(), "release package.tgz")
+  await withWindowsProcess(async () => {
+    await verifyNativeConsumer(dependency, {
+      runCommand: (command, args, options) => {
+        commands.push({ command, args: [...args], options })
+        return { status: 0, stdout: "", stderr: "" }
+      },
+    })
+  })
+
+  const install = commands.find(({ args }) => args[3] === "npm.cmd" && args[4] === "install")
+  assert.ok(install)
+  assert.equal(install.command, "C:\\Windows\\System32\\custom-cmd.exe")
+  assert.deepEqual(install.args.slice(0, 5), ["/d", "/s", "/c", "npm.cmd", "install"])
+  assert.equal(install.args.at(-1), dependency)
 })
 
 test("local native mode selects the planned tarball and runs all package consumers scripts-disabled", async () => {

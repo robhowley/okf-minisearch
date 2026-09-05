@@ -25,6 +25,8 @@ import { nodeResolve } from "@rollup/plugin-node-resolve";
 import { build as esbuild } from "esbuild";
 import { rollup } from "rollup";
 
+import { resolveCommandShape } from "./command-shape.mjs";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const packageRoots = {
   library: join(root, "packages", "okf-minisearch"),
@@ -72,7 +74,9 @@ const nativeRootTypeExports = [
   "OkfValidationResult",
   "OkfVerification",
 ];
-const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+export function pnpmCommand() {
+  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+}
 const PRIVATE_PACKAGE_NAME = "@okf-internal/prepare";
 const FORBIDDEN_PACKED_MARKERS = [PRIVATE_PACKAGE_NAME, "workspace:"];
 function currentNativeArtifact() {
@@ -90,10 +94,11 @@ function display(command, args) {
     .join(" ");
 }
 
-function run(command, args, options = {}) {
+export function run(command, args, options = {}, runCommand = spawnSync) {
   console.log(`\n> ${display(command, args)}`);
 
-  const result = spawnSync(command, args, {
+  const shape = resolveCommandShape(command, args);
+  const result = runCommand(shape.command, shape.args, {
     cwd: options.cwd ?? root,
     encoding: "utf8",
     stdio: options.capture
@@ -283,7 +288,7 @@ async function packPackage(id, tarballRoot, temporaryRoot) {
   const packageRoot = packageRoots[id];
   const result = parsePackResult(
     run(
-      pnpm,
+      pnpmCommand(),
       ["pack", "--pack-destination", tarballRoot, "--json"],
       { cwd: packageRoot, capture: true },
     ),
@@ -1818,7 +1823,7 @@ async function checkPrivatePackageBoundary(consumerRoot) {
 
   run(process.execPath, ["private-resolution.mjs"], { cwd: consumerRoot });
   const productionTree = run(
-    pnpm,
+    pnpmCommand(),
     ["list", "--prod", "--depth", "Infinity", "--json"],
     { cwd: consumerRoot, capture: true },
   );
@@ -2016,7 +2021,7 @@ async function checkNativePackage(temporaryRoot, tarballRoot) {
     consumers.preparedConsumer,
   ]) {
     run(
-      pnpm,
+      pnpmCommand(),
       ["install", "--ignore-scripts", "--no-frozen-lockfile"],
       { cwd: consumerRoot },
     );
@@ -2089,7 +2094,7 @@ async function main() {
 
     for (const consumerRoot of [libraryConsumerRoot, piConsumerRoot]) {
       run(
-        pnpm,
+        pnpmCommand(),
         ["install", "--ignore-scripts", "--no-frozen-lockfile"],
         { cwd: consumerRoot },
       );
@@ -2120,7 +2125,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}

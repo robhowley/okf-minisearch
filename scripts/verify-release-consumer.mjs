@@ -9,6 +9,7 @@ import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { verifyPublicationPlan } from "./release-publication.mjs"
+import { resolveCommandShape } from "./command-shape.mjs"
 import { NPM_REGISTRY } from "./npm-registry-state.mjs"
 
 const JS_PACKAGES = new Set(["okf-minisearch", "pi-okf-search"])
@@ -34,8 +35,9 @@ function fail(message) {
 }
 
 function run(command, args, cwd, env = process.env, capture = false, onCommand, runCommand = spawnSync) {
-  onCommand?.({ command, args: [...args], cwd, capture })
-  const result = runCommand(command, args, {
+  const shape = resolveCommandShape(command, args)
+  onCommand?.({ command: shape.command, args: [...shape.args], cwd, capture })
+  const result = runCommand(shape.command, shape.args, {
     cwd,
     env,
     encoding: "utf8",
