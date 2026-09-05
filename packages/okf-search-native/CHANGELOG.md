@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4](https://github.com/robhowley/okf-minisearch/compare/okf-search-native-v0.3.3...okf-search-native-v0.3.4) (2026-09-05)
+
+
+### Bug Fixes
+
+* **okf-search-native:** harden prepared search options ([#71](https://github.com/robhowley/okf-minisearch/issues/71)) ([83cbcde](https://github.com/robhowley/okf-minisearch/commit/83cbcde7495ffe516c824a441542c708e618a2a3))
+
 ## [0.3.3](https://github.com/robhowley/okf-minisearch/compare/okf-search-native-v0.3.2...okf-search-native-v0.3.3) (2026-09-04)
 
 
